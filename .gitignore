@@ -1,0 +1,17 @@
+# Unreal Engine gitignore
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+.vscode/
+.vs/
+*.sln
+*.sdf
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+*.tmp
+*.log
