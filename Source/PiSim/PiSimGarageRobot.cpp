@@ -1496,6 +1496,26 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
 {
     CurrentViewMode = NewMode;
 
+    // Create dynamic Vibrant Purple Material for Structural / Player Collision Mode
+    UMaterialInterface* BaseEngineMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+    UMaterialInstanceDynamic* PurpleMat = nullptr;
+    if (BaseEngineMat)
+    {
+        PurpleMat = UMaterialInstanceDynamic::Create(BaseEngineMat, this);
+        if (PurpleMat)
+        {
+            PurpleMat->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.85f, 0.05f, 1.0f, 1.0f)); // Glowing Vibrant Purple (Mor)
+            PurpleMat->SetScalarParameterValue(TEXT("Roughness"), 0.1f);
+            PurpleMat->SetScalarParameterValue(TEXT("Metallic"), 0.9f);
+        }
+    }
+
+    int32 VisualCount = 0;
+    for (int32 i = 0; i < MeshCategories.Num(); ++i)
+    {
+        if (MeshCategories[i] == EMeshCategoryType::Visual) VisualCount++;
+    }
+
     int32 Count = SubMeshComponents.Num();
     for (int32 i = 0; i < Count; ++i)
     {
@@ -1506,7 +1526,7 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
 
         if (NewMode == EGarageViewMode::Visual)
         {
-            bShow = (Cat == EMeshCategoryType::Visual);
+            bShow = (Cat == EMeshCategoryType::Visual) || (VisualCount == 0);
         }
         else if (NewMode == EGarageViewMode::Structural)
         {
@@ -1538,7 +1558,16 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
 
         if (bShow)
         {
-            UMaterialInterface* MatToApply = DefaultMaterial ? DefaultMaterial : LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+            UMaterialInterface* MatToApply = DefaultMaterial;
+            if (NewMode == EGarageViewMode::Structural && PurpleMat)
+            {
+                MatToApply = PurpleMat;
+            }
+            else if (!MatToApply)
+            {
+                MatToApply = BaseEngineMat;
+            }
+
             if (MatToApply)
             {
                 SubMeshComponents[i]->SetMaterial(0, MatToApply);
