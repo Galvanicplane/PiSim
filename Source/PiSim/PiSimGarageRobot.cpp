@@ -689,7 +689,7 @@ void APiSimGarageRobot::BeginPlay()
                 SubComp->bCastDynamicShadow = true;
                 SubComp->bAffectDistanceFieldLighting = false;
 
-                SubComp->CreateMeshSection_LinearColor(0, Sections[SecIdx].Vertices, Sections[SecIdx].Triangles, Sections[SecIdx].Normals, UV0, VertexColors, Tangents, bIsStructural);
+                SubComp->CreateMeshSection_LinearColor(0, Sections[SecIdx].Vertices, Sections[SecIdx].Triangles, Sections[SecIdx].Normals, UV0, VertexColors, Tangents, true);
                 if (DefaultMat)
                 {
                     SubComp->SetMaterial(0, DefaultMat);
@@ -697,9 +697,7 @@ void APiSimGarageRobot::BeginPlay()
 
                 if (bIsCMOnly || bIsStructural)
                 {
-                    SubComp->ClearCollisionConvexMeshes();
-                    SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
-                    SubComp->bUseComplexAsSimpleCollision = false; // Simple Convex Hull generates the PURPLE EDGES!
+                    SubComp->bUseComplexAsSimpleCollision = true;
                     SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
                     SubComp->SetCollisionObjectType(ECC_WorldDynamic);
                     SubComp->SetCollisionResponseToAllChannels(ECR_Block);
@@ -715,6 +713,7 @@ void APiSimGarageRobot::BeginPlay()
                 }
 
                 SubComp->RecreatePhysicsState();
+                SubComp->UpdateBounds();
 
                 SubComp->SetVisibility(true);
                 SubComp->SetHiddenInGame(false);
@@ -1207,37 +1206,6 @@ void APiSimGarageRobot::Tick(float DeltaTime)
             }
         }
     }
-
-    // Draw Real-time 3D Purple Collision Wireframe Cage (Mor Collision Kafesi)
-    if (GetWorld())
-    {
-        for (int32 i = 0; i < SubMeshComponents.Num(); ++i)
-        {
-            if (!SubMeshComponents[i] || !SubMeshNames.IsValidIndex(i)) continue;
-            if (!SubMeshNames[i].StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase)) continue;
-
-            const FTransform& CompXform = SubMeshComponents[i]->GetComponentTransform();
-            if (OriginalSubMeshVertices.IsValidIndex(i) && LoadedMeshSections.IsValidIndex(i))
-            {
-                const TArray<FVector>& Verts = LoadedMeshSections[i].Vertices;
-                const TArray<int32>& Tris = LoadedMeshSections[i].Triangles;
-
-                for (int32 t = 0; t + 2 < Tris.Num(); t += 3)
-                {
-                    if (Verts.IsValidIndex(Tris[t]) && Verts.IsValidIndex(Tris[t + 1]) && Verts.IsValidIndex(Tris[t + 2]))
-                    {
-                        FVector W0 = CompXform.TransformPosition(Verts[Tris[t]]);
-                        FVector W1 = CompXform.TransformPosition(Verts[Tris[t + 1]]);
-                        FVector W2 = CompXform.TransformPosition(Verts[Tris[t + 2]]);
-
-                        DrawDebugLine(GetWorld(), W0, W1, FColor(220, 50, 255), false, -1.0f, 0, 2.0f);
-                        DrawDebugLine(GetWorld(), W1, W2, FColor(220, 50, 255), false, -1.0f, 0, 2.0f);
-                        DrawDebugLine(GetWorld(), W2, W0, FColor(220, 50, 255), false, -1.0f, 0, 2.0f);
-                    }
-                }
-            }
-        }
-    }
 }
 
 bool APiSimGarageRobot::LoadConfig(const FString& ConfigFilePath)
@@ -1524,19 +1492,7 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
 {
     CurrentViewMode = NewMode;
 
-    // Create dynamic Vibrant Purple Material for Structural / Player Collision Mode
-    UMaterialInterface* BaseEngineMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
-    UMaterialInstanceDynamic* PurpleMat = nullptr;
-    if (BaseEngineMat)
-    {
-        PurpleMat = UMaterialInstanceDynamic::Create(BaseEngineMat, this);
-        if (PurpleMat)
-        {
-            PurpleMat->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.85f, 0.05f, 1.0f, 1.0f)); // Glowing Vibrant Purple (Mor)
-            PurpleMat->SetScalarParameterValue(TEXT("Roughness"), 0.1f);
-            PurpleMat->SetScalarParameterValue(TEXT("Metallic"), 0.9f);
-        }
-    }
+    UMaterialInterface* DefaultMatToApply = DefaultMaterial ? DefaultMaterial : LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 
     int32 VisualCount = 0;
     for (int32 i = 0; i < MeshCategories.Num(); ++i)
@@ -1576,6 +1532,11 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
         {
             SubMeshComponents[i]->bUseComplexAsSimpleCollision = true;
             SubMeshComponents[i]->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+            SubMeshComponents[i]->SetCollisionObjectType(ECC_WorldDynamic);
+            SubMeshComponents[i]->SetCollisionResponseToAllChannels(ECR_Block);
+            SubMeshComponents[i]->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+            SubMeshComponents[i]->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+            SubMeshComponents[i]->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
         }
         else
         {
@@ -1586,19 +1547,9 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
 
         if (bShow)
         {
-            UMaterialInterface* MatToApply = DefaultMaterial;
-            if (NewMode == EGarageViewMode::Structural && PurpleMat)
+            if (DefaultMatToApply)
             {
-                MatToApply = PurpleMat;
-            }
-            else if (!MatToApply)
-            {
-                MatToApply = BaseEngineMat;
-            }
-
-            if (MatToApply)
-            {
-                SubMeshComponents[i]->SetMaterial(0, MatToApply);
+                SubMeshComponents[i]->SetMaterial(0, DefaultMatToApply);
             }
             if (bIsCMOnly)
             {
