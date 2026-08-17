@@ -1207,6 +1207,37 @@ void APiSimGarageRobot::Tick(float DeltaTime)
             }
         }
     }
+
+    // Draw Real-time 3D Purple Collision Wireframe Cage (Mor Collision Kafesi)
+    if (GetWorld())
+    {
+        for (int32 i = 0; i < SubMeshComponents.Num(); ++i)
+        {
+            if (!SubMeshComponents[i] || !SubMeshNames.IsValidIndex(i)) continue;
+            if (!SubMeshNames[i].StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase)) continue;
+
+            const FTransform& CompXform = SubMeshComponents[i]->GetComponentTransform();
+            if (OriginalSubMeshVertices.IsValidIndex(i) && LoadedMeshSections.IsValidIndex(i))
+            {
+                const TArray<FVector>& Verts = LoadedMeshSections[i].Vertices;
+                const TArray<int32>& Tris = LoadedMeshSections[i].Triangles;
+
+                for (int32 t = 0; t + 2 < Tris.Num(); t += 3)
+                {
+                    if (Verts.IsValidIndex(Tris[t]) && Verts.IsValidIndex(Tris[t + 1]) && Verts.IsValidIndex(Tris[t + 2]))
+                    {
+                        FVector W0 = CompXform.TransformPosition(Verts[Tris[t]]);
+                        FVector W1 = CompXform.TransformPosition(Verts[Tris[t + 1]]);
+                        FVector W2 = CompXform.TransformPosition(Verts[Tris[t + 2]]);
+
+                        DrawDebugLine(GetWorld(), W0, W1, FColor(220, 50, 255), false, -1.0f, 0, 2.0f);
+                        DrawDebugLine(GetWorld(), W1, W2, FColor(220, 50, 255), false, -1.0f, 0, 2.0f);
+                        DrawDebugLine(GetWorld(), W2, W0, FColor(220, 50, 255), false, -1.0f, 0, 2.0f);
+                    }
+                }
+            }
+        }
+    }
 }
 
 bool APiSimGarageRobot::LoadConfig(const FString& ConfigFilePath)
