@@ -19,7 +19,11 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|PreCooker")
     USceneComponent* SceneRoot;
 
-    /** Button in Details Panel to bake Saved/Robots/Cache/robot.fbx before Play is pressed */
+    /** Button in Details Panel to bake Saved/Robots/Cache/robot_collision.fbx & robot_visual.fbx */
     UFUNCTION(CallInEditor, Category = "PiSim|PreCooker")
     void BakeFbxRobotToStaticMesh();
+
+    /** Standalone Runtime Bake function (Runs in packaged cloud builds without Unreal Editor) */
+    UFUNCTION(BlueprintCallable, Category = "PiSim|PreCooker")
+    bool BakeTwoFbxRobotFiles(const FString& CollisionFbxPath, const FString& VisualFbxPath);
 };

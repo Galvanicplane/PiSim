@@ -16,58 +16,100 @@ APiSimFbxPreCooker::APiSimFbxPreCooker()
 
 void APiSimFbxPreCooker::BakeFbxRobotToStaticMesh()
 {
-    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
-    if (!FPaths::FileExists(FbxFullPath))
+    FString CollisionFbxPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
+    FString VisualFbxPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_visual.fbx");
+
+    // Fallback to robot.fbx if single file mode is used
+    if (!FPaths::FileExists(CollisionFbxPath))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[PRE-COOKER LOG] robot.fbx does not exist at: %s"), *FbxFullPath);
+        CollisionFbxPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
+    }
+    if (!FPaths::FileExists(VisualFbxPath))
+    {
+        VisualFbxPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
+    }
+
+    BakeTwoFbxRobotFiles(CollisionFbxPath, VisualFbxPath);
+}
+
+bool APiSimFbxPreCooker::BakeTwoFbxRobotFiles(const FString& CollisionFbxPath, const FString& VisualFbxPath)
+{
+    if (!FPaths::FileExists(CollisionFbxPath) && !FPaths::FileExists(VisualFbxPath))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[PRE-COOKER LOG] Neither robot_collision.fbx nor robot_visual.fbx exists in Saved/Robots/Cache/!"));
         if (GEngine)
         {
             GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Red,
-                FString::Printf(TEXT(">>> [PRE-COOKER HATA] robot.fbx BULUNAMADI! YOL: %s <<<"), *FbxFullPath));
+                TEXT(">>> [PRE-COOKER HATA] Saved/Robots/Cache/ İÇİNDE FBX BULUNAMADI! <<<"));
         }
-        return;
+        return false;
     }
 
-    TArray<FGLBMeshSection> Sections;
-    if (!APiSimGarageRobot::ParseFbxAllBinaryMeshes(FbxFullPath, Sections, 0.1f))
-
+    // 1) Bake Collision FBX
+    TArray<FGLBMeshSection> CollisionSections;
+    bool bCollisionOk = false;
+    if (FPaths::FileExists(CollisionFbxPath))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[PRE-COOKER LOG] Failed to parse robot.fbx!"));
-        if (GEngine)
-        {
-            GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Red,
-                TEXT(">>> [PRE-COOKER HATA] robot.fbx AYRIŞTIRILAMADI! <<<"));
-        }
-        return;
+        bCollisionOk = APiSimGarageRobot::ParseFbxAllBinaryMeshes(CollisionFbxPath, CollisionSections, 0.1f);
     }
 
-    // Save pre-cooked binary cache to Saved/Robots/Baked/robot_baked.bin
+    // 2) Bake Visual FBX
+    TArray<FGLBMeshSection> VisualSections;
+    bool bVisualOk = false;
+    if (FPaths::FileExists(VisualFbxPath))
+    {
+        bVisualOk = APiSimGarageRobot::ParseFbxAllBinaryMeshes(VisualFbxPath, VisualSections, 0.1f);
+    }
+
+    // 3) Save pre-cooked binary caches to Saved/Robots/Baked/
     FString BakedDir = FPaths::ProjectSavedDir() / TEXT("Robots/Baked");
     IFileManager::Get().MakeDirectory(*BakedDir, true);
-    FString BakedFilePath = BakedDir / TEXT("robot_baked.bin");
 
-    FBufferArchive Ar;
-    int32 SecCount = Sections.Num();
-    Ar << SecCount;
-
-    for (FGLBMeshSection& Sec : Sections)
+    if (bCollisionOk && CollisionSections.Num() > 0)
     {
-        Ar << Sec.MeshName;
-        Ar << Sec.Vertices;
-        Ar << Sec.Triangles;
-        Ar << Sec.Normals;
-        Ar << Sec.PivotPoint;
+        FBufferArchive Ar;
+        int32 SecCount = CollisionSections.Num();
+        Ar << SecCount;
+
+        for (FGLBMeshSection& Sec : CollisionSections)
+        {
+            Ar << Sec.MeshName;
+            Ar << Sec.Vertices;
+            Ar << Sec.Triangles;
+            Ar << Sec.Normals;
+            Ar << Sec.PivotPoint;
+        }
+
+        FString CollisionBakedFilePath = BakedDir / TEXT("robot_collision_baked.bin");
+        FFileHelper::SaveArrayToFile(Ar, *CollisionBakedFilePath);
+        UE_LOG(LogTemp, Warning, TEXT("[PRE-COOKER SUCCESS] Saved Collision Baked Cache: %s (%d sections)"), *CollisionBakedFilePath, CollisionSections.Num());
     }
 
-    if (FFileHelper::SaveArrayToFile(Ar, *BakedFilePath))
+    if (bVisualOk && VisualSections.Num() > 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[PRE-COOKER LOG] Saved Pre-Cooked Binary Cache to: %s (%d bytes)"), *BakedFilePath, Ar.Num());
+        FBufferArchive Ar;
+        int32 SecCount = VisualSections.Num();
+        Ar << SecCount;
+
+        for (FGLBMeshSection& Sec : VisualSections)
+        {
+            Ar << Sec.MeshName;
+            Ar << Sec.Vertices;
+            Ar << Sec.Triangles;
+            Ar << Sec.Normals;
+            Ar << Sec.PivotPoint;
+        }
+
+        FString VisualBakedFilePath = BakedDir / TEXT("robot_visual_baked.bin");
+        FFileHelper::SaveArrayToFile(Ar, *VisualBakedFilePath);
+        UE_LOG(LogTemp, Warning, TEXT("[PRE-COOKER SUCCESS] Saved Visual Baked Cache: %s (%d sections)"), *VisualBakedFilePath, VisualSections.Num());
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("[PRE-COOKER SUCCESS] Parsed %d sub-mesh sections with Use Complex Collision As Simple before Play!"), Sections.Num());
     if (GEngine)
     {
         GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::Green,
-            FString::Printf(TEXT(">>> [PRE-COOKER BAŞARILI] PLAY'E BASMADAN ÖNCE %d PARÇA Saved/Robots/Baked/ İÇİNE COMPLEX COLLISION İLE PİŞİRİLDİ! <<<"), Sections.Num()));
+            FString::Printf(TEXT(">>> [PRE-COOKER BAŞARILI] BULUT UYUMLU 2 FBX PİŞİRİLDİ! (Collision: %d parça, Visual: %d parça) <<<"), CollisionSections.Num(), VisualSections.Num()));
     }
+
+    return true;
 }
