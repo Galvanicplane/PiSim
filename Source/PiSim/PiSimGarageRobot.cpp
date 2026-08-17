@@ -688,11 +688,17 @@ void APiSimGarageRobot::BeginPlay()
                 SubComp->bCastDynamicShadow = true;
                 SubComp->bAffectDistanceFieldLighting = false;
 
-                bool bIsCMOnly = MeshName.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase);
-
-                if (bIsCMOnly)
+                SubComp->CreateMeshSection_LinearColor(0, Sections[SecIdx].Vertices, Sections[SecIdx].Triangles, Sections[SecIdx].Normals, UV0, VertexColors, Tangents, bIsStructural);
+                if (DefaultMat)
                 {
-                    SubComp->bUseComplexAsSimpleCollision = true;
+                    SubComp->SetMaterial(0, DefaultMat);
+                }
+
+                if (bIsCMOnly || bIsStructural)
+                {
+                    SubComp->ClearCollisionConvexMeshes();
+                    SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
+                    SubComp->bUseComplexAsSimpleCollision = false; // Simple Convex Hull generates the PURPLE EDGES!
                     SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
                     SubComp->SetCollisionObjectType(ECC_WorldDynamic);
                     SubComp->SetCollisionResponseToAllChannels(ECR_Block);
@@ -705,16 +711,6 @@ void APiSimGarageRobot::BeginPlay()
                     SubComp->bUseComplexAsSimpleCollision = false;
                     SubComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
                     SubComp->SetCollisionResponseToAllChannels(ECR_Ignore);
-                }
-
-
-
-
-
-                SubComp->CreateMeshSection_LinearColor(0, Sections[SecIdx].Vertices, Sections[SecIdx].Triangles, Sections[SecIdx].Normals, UV0, VertexColors, Tangents, bIsStructural);
-                if (DefaultMat)
-                {
-                    SubComp->SetMaterial(0, DefaultMat);
                 }
 
                 SubComp->RecreatePhysicsState();
