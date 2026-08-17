@@ -677,7 +677,8 @@ void APiSimGarageRobot::BeginPlay()
 
 
                 FString MeshName = Sections[SecIdx].MeshName;
-                bool bIsStructural = MeshName.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("COG"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("COL"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Cube"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Stick"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Buckett"), ESearchCase::IgnoreCase) || bLoadedDiskModel;
+                bool bIsCMOnly = MeshName.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase);
+                bool bIsStructural = bIsCMOnly || MeshName.StartsWith(TEXT("COG"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("COL"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Cube"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Stick"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Buckett"), ESearchCase::IgnoreCase) || bLoadedDiskModel;
 
                 TArray<FVector2D> UV0;
                 TArray<FLinearColor> VertexColors;
