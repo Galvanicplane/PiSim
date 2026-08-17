@@ -87,6 +87,8 @@ bool APiSimFbxPreCooker::BakeTwoFbxRobotFiles(const FString& CollisionFbxPath, c
 
         FString CollisionBakedFilePath = BakedDir / TEXT("robot_collision_baked.bin");
         FFileHelper::SaveArrayToFile(Ar, *CollisionBakedFilePath);
+        FString RobotBakedFilePath = BakedDir / TEXT("robot_baked.bin");
+        FFileHelper::SaveArrayToFile(Ar, *RobotBakedFilePath);
         UE_LOG(LogTemp, Warning, TEXT("[PRE-COOKER SUCCESS] Saved Collision Baked Cache: %s (%d sections)"), *CollisionBakedFilePath, CollisionSections.Num());
     }
 

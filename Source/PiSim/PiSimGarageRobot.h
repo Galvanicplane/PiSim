@@ -142,10 +142,6 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Garage")
     TArray<FGLBMeshSection> LoadedMeshSections;
 
-    /** Native Unreal Engine Physical Collision Shapes per sub-mesh (Box, Sphere, Capsule) */
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Collision")
-    TArray<class UShapeComponent*> SubMeshCollisionShapes;
-
     /** Parent section index for each sub-mesh (-1 if root) */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Garage")
     TArray<int32> ParentJointIndices;

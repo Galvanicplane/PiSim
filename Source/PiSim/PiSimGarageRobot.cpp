@@ -718,43 +718,6 @@ void APiSimGarageRobot::BeginPlay()
                 SubComp->RecreatePhysicsState();
                 SubComp->UpdateBounds();
 
-                // Create Native Unreal Engine Physics & Query Collision Shape matching exact submesh bounding geometry
-                if (bIsCMOnly || bIsStructural)
-                {
-                    FBox BoundingBox(Sections[SecIdx].Vertices);
-                    FVector Center = BoundingBox.GetCenter();
-                    FVector Extent = BoundingBox.GetExtent();
-
-                    UShapeComponent* ShapeComp = nullptr;
-                    if (MeshName.Contains(TEXT("wheel"), ESearchCase::IgnoreCase))
-                    {
-                        USphereComponent* SphereComp = NewObject<USphereComponent>(this, *FString::Printf(TEXT("CollisionShape_%d"), SecIdx));
-                        SphereComp->InitSphereRadius(FMath::Max(Extent.Y, Extent.Z));
-                        ShapeComp = SphereComp;
-                    }
-                    else
-                    {
-                        UBoxComponent* BoxComp = NewObject<UBoxComponent>(this, *FString::Printf(TEXT("CollisionShape_%d"), SecIdx));
-                        BoxComp->InitBoxExtent(Extent);
-                        ShapeComp = BoxComp;
-                    }
-
-                    if (ShapeComp)
-                    {
-                        ShapeComp->SetupAttachment(SubComp);
-                        ShapeComp->SetRelativeLocation(Center);
-                        ShapeComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-                        ShapeComp->SetCollisionObjectType(ECC_WorldDynamic);
-                        ShapeComp->SetCollisionResponseToAllChannels(ECR_Block);
-                        ShapeComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-                        ShapeComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-                        ShapeComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-                        ShapeComp->SetHiddenInGame(false);
-                        ShapeComp->RegisterComponent();
-                        SubMeshCollisionShapes.Add(ShapeComp);
-                    }
-                }
-
                 SubComp->SetVisibility(true);
                 SubComp->SetHiddenInGame(false);
 
