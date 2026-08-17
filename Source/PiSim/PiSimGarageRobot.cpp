@@ -1598,12 +1598,12 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
             }
             if (!TargetMat)
             {
-                UMaterialInterface* BaseEngineMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/Widget3DMaterial_Translucent.Widget3DMaterial_Translucent"));
-                if (!BaseEngineMat) BaseEngineMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/DefaultText.DefaultText"));
+                UMaterialInterface* InvisBaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/Widget3DMaterial_Translucent.Widget3DMaterial_Translucent"));
+                if (!InvisBaseMat) InvisBaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/DefaultText.DefaultText"));
 
-                if (BaseEngineMat)
+                if (InvisBaseMat)
                 {
-                    UMaterialInstanceDynamic* DynInvisMat = UMaterialInstanceDynamic::Create(BaseEngineMat, this);
+                    UMaterialInstanceDynamic* DynInvisMat = UMaterialInstanceDynamic::Create(InvisBaseMat, this);
                     if (DynInvisMat)
                     {
                         DynInvisMat->SetScalarParameterValue(TEXT("Opacity"), 0.0f);
@@ -1613,7 +1613,7 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
                     }
                     else
                     {
-                        TargetMat = BaseEngineMat;
+                        TargetMat = InvisBaseMat;
                     }
                 }
             }
