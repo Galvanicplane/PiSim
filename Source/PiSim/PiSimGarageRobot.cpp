@@ -43,15 +43,17 @@ APiSimGarageRobot::APiSimGarageRobot()
     PrimaryActorTick.bCanEverTick = true;
     AutoPossessPlayer = EAutoReceiveInput::Player0;
 
-    // Create Root Chassis Component (Zero default cube mesh)
-    ChassisMeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ChassisMeshComponent"));
-    RootComponent = ChassisMeshComponent;
-    ChassisMeshComponent->SetStaticMesh(nullptr);
-    ChassisMeshComponent->SetVisibility(false);
-    ChassisMeshComponent->SetHiddenInGame(true);
-    ChassisMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-    ChassisMeshComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
+    // Create Physics Collision Skeletal Mesh Component (robot_collision.fbx)
+    CollisionSkeletalMeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("CollisionSkeletalMeshComponent"));
+    CollisionSkeletalMeshComponent->SetupAttachment(RootComponent);
+    CollisionSkeletalMeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    CollisionSkeletalMeshComponent->SetCollisionObjectType(ECC_WorldDynamic);
 
+    // Create High-Poly Visual Skeletal Mesh Component (robot_visual.fbx - Syncs pose with Leader Component)
+    VisualSkeletalMeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("VisualSkeletalMeshComponent"));
+    VisualSkeletalMeshComponent->SetupAttachment(CollisionSkeletalMeshComponent);
+    VisualSkeletalMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    VisualSkeletalMeshComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
 
     // Create SpaceX Configurator 360 Orbit Camera System
     ConfiguratorSpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("ConfiguratorSpringArm"));
@@ -789,6 +791,11 @@ void APiSimGarageRobot::BeginPlay()
         FpvCameraComponent->bCaptureEveryFrame = true;
     }
 
+    if (VisualSkeletalMeshComponent && CollisionSkeletalMeshComponent)
+    {
+        VisualSkeletalMeshComponent->SetLeaderPoseComponent(CollisionSkeletalMeshComponent);
+    }
+
     // Initialize UDP Network Manager for FPV stream & JSON broadcast
     UDPManager = MakeUnique<FPiSimUDPManager>();
     UDPManager->ReserveVideoSocket(5000);
@@ -1175,19 +1182,11 @@ void APiSimGarageRobot::Tick(float DeltaTime)
                 CurrentSpin += DeltaAngleDeg;
                 SubMeshSpinAngles.Add(TargetMeshIdx, CurrentSpin);
 
-                FQuat InitRelQuat = InitialSubMeshRelativeRotations.Contains(TargetMeshIdx) ? InitialSubMeshRelativeRotations[TargetMeshIdx] : FQuat::Identity;
-                FQuat AxleSpinQuat(LocalAxleDir, FMath::DegreesToRadians(CurrentSpin));
-                SubMeshComponents[TargetMeshIdx]->SetRelativeRotation(InitRelQuat * AxleSpinQuat, false, nullptr, ETeleportType::TeleportPhysics);
-                SubMeshComponents[TargetMeshIdx]->RecreatePhysicsState();
-
-                // B) GROUND TRACTION DRIVE
+                // GAZEBO REVOLUTE JOINT MOTOR DRIVE (Pure Chaos Physics Angular Velocity Drive)
                 FVector LocalAngVelRadSec = (DevKitAppliedRpm * 2.0f * PI) / 60.0f;
                 FVector WorldAngVel = SubMeshComponents[TargetMeshIdx]->GetComponentTransform().TransformVector(LocalAngVelRadSec);
-                FVector WheelForward = SubMeshComponents[TargetMeshIdx]->GetForwardVector();
-                float DriveSpeed = (ScalarRpm * 2.0f * PI / 60.0f) * 15.0f;
 
-                SubMeshComponents[0]->AddForceAtLocation(WheelForward * (DriveSpeed * 500.0f), TargetLoc);
-                SubMeshComponents[0]->SetAngularDamping(1.5f);
+                SubMeshComponents[TargetMeshIdx]->SetPhysicsAngularVelocityInRadians(WorldAngVel);
 
                 if (GetWorld())
                 {
@@ -1927,12 +1926,10 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
         return;
     }
 
-    // 1) Configure Individual CM_ Convex Collision Hulls & Attachments with Collision Filtering
+    // 1) Configure Gazebo-Style Links (Each CM_ component is an independent simulated Rigid Body)
     for (int32 i = 0; i < SubMeshComponents.Num(); ++i)
     {
         if (!SubMeshComponents[i]) continue;
-
-        SubMeshComponents[i]->SetSimulatePhysics(false);
 
         FString MeshName = SubMeshNames.IsValidIndex(i) ? SubMeshNames[i] : TEXT("");
         bool bIsCMOnly = MeshName.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase);
@@ -1943,40 +1940,61 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
             SubMeshComponents[i]->ClearCollisionConvexMeshes();
             SubMeshComponents[i]->AddCollisionConvexMesh(OriginalSubMeshVertices[i]);
 
-            if (i == 0)
-            {
-                // Root Chassis Component: Collide with WorldStatic, WorldDynamic, but Ignore PhysicsBody (Wheels)
-                SubMeshComponents[0]->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-                SubMeshComponents[0]->SetCollisionObjectType(ECC_WorldDynamic);
-                SubMeshComponents[0]->SetCollisionResponseToAllChannels(ECR_Block);
-                SubMeshComponents[0]->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-                SubMeshComponents[0]->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Ignore); // Ignore wheel self-collision!
-            }
-            else
-            {
-                // Child Wheel/Arm Components: Collide ONLY with WorldStatic (Floor), Ignore Chassis & Other Parts
-                SubMeshComponents[i]->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-                SubMeshComponents[i]->SetCollisionObjectType(ECC_PhysicsBody);
-                SubMeshComponents[i]->SetCollisionResponseToAllChannels(ECR_Ignore); // Ignore chassis self-collision!
-                SubMeshComponents[i]->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Block floor plane!
-            }
+            SubMeshComponents[i]->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+            SubMeshComponents[i]->SetCollisionObjectType(ECC_WorldDynamic);
+            SubMeshComponents[i]->SetCollisionResponseToAllChannels(ECR_Block);
+            SubMeshComponents[i]->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Block floor plane!
 
             SubMeshComponents[i]->RecreatePhysicsState();
+
+            // EVERY LINK SIMULATES PHYSICS NATIVELY LIKE GAZEBO (100% IMPOSSIBLE TO PENETRATE THE FLOOR!)
+            SubMeshComponents[i]->SetSimulatePhysics(true);
+            SubMeshComponents[i]->SetEnableGravity(TestMode != EPhysicsTestMode::HoldInAir);
+            SubMeshComponents[i]->SetMassOverrideInKg(NAME_None, (i == 0 ? 30.0f : 2.5f), true);
+            SubMeshComponents[i]->SetLinearDamping(0.8f);
+            SubMeshComponents[i]->SetAngularDamping(2.0f);
+        }
+        else
+        {
+            SubMeshComponents[i]->SetSimulatePhysics(false);
         }
 
+        // 2) Create Gazebo-Style Joint Constraint (<joint type="revolute">)
         if (i > 0)
         {
             int32 ParentIdx = ParentJointIndices.IsValidIndex(i) ? ParentJointIndices[i] : 0;
             UPrimitiveComponent* ParentComp = (ParentIdx >= 0 && SubMeshComponents.IsValidIndex(ParentIdx)) ? SubMeshComponents[ParentIdx] : SubMeshComponents[0];
             if (ParentComp)
             {
-                FAttachmentTransformRules KeepRules(EAttachmentRule::KeepRelative, EAttachmentRule::KeepRelative, EAttachmentRule::KeepRelative, false);
-                SubMeshComponents[i]->AttachToComponent(ParentComp, KeepRules);
+                // CRITICAL FIX: Detach simulating child component from scene graph to prevent SceneGraph vs ChaosPhysics conflict!
+                SubMeshComponents[i]->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+
+                FName ConstraintName = *FString::Printf(TEXT("GazeboJoint_%d"), i);
+                UPhysicsConstraintComponent* ConstraintComp = NewObject<UPhysicsConstraintComponent>(this, ConstraintName);
+                ConstraintComp->SetupAttachment(RootComponent);
+                ConstraintComp->SetWorldLocation(SubMeshComponents[i]->GetComponentLocation());
+                ConstraintComp->RegisterComponent();
+
+                ConstraintComp->SetConstrainedComponents(ParentComp, NAME_None, SubMeshComponents[i], NAME_None);
+
+                // GAZEBO PARENT-CHILD COLLISION FILTERING: DISABLE SELF-COLLISION BETWEEN CONNECTED LINKS!
+                ConstraintComp->SetDisableCollision(true);
+
+                // Lock Linear Motion (Wheel/Link CANNOT detach from axle origin)
+                ConstraintComp->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                ConstraintComp->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                ConstraintComp->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+
+                // Revolute Joint: Twist is Free (Axle Spin), Swings are Locked
+                ConstraintComp->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
+                ConstraintComp->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+                ConstraintComp->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+
+                JointPhysicsConstraints.Add(ConstraintComp);
             }
         }
     }
 
-    // 2) Enable Physics Simulation on Root Component
     ResetDevKitTestValues();
     SubMeshComponents[0]->SetPhysicsLinearVelocity(FVector::ZeroVector);
     SubMeshComponents[0]->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);

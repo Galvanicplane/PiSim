@@ -101,6 +101,14 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Garage")
     UStaticMeshComponent* ChassisMeshComponent;
 
+    /** Primary Physics Collision Skeletal Mesh Component (robot_collision.fbx) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Skeletal")
+    USkeletalMeshComponent* CollisionSkeletalMeshComponent;
+
+    /** Visual High-Poly Skeletal Mesh Component (robot_visual.fbx - Syncs pose with Leader Component) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Skeletal")
+    USkeletalMeshComponent* VisualSkeletalMeshComponent;
+
     /** SpaceX Configurator Spring Arm Component for 360 Camera Orbit */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Camera")
     USpringArmComponent* ConfiguratorSpringArm;
