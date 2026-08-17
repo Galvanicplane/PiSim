@@ -700,13 +700,15 @@ void APiSimGarageRobot::BeginPlay()
 
                 if (bIsCMOnly || bIsStructural)
                 {
-                    SubComp->bUseComplexAsSimpleCollision = true;
+                    SubComp->ClearCollisionConvexMeshes();
+                    SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
+                    SubComp->bUseComplexAsSimpleCollision = false; // Simple Collision uses Convex Hulls (FKConvexElem)
                     SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
                     SubComp->SetCollisionObjectType(ECC_WorldDynamic);
                     SubComp->SetCollisionResponseToAllChannels(ECR_Block);
-                    SubComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
                     SubComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
                     SubComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+                    SubComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
                 }
                 else
                 {
@@ -1533,7 +1535,7 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
 
         if (bIsCMOnly)
         {
-            SubMeshComponents[i]->bUseComplexAsSimpleCollision = true;
+            SubMeshComponents[i]->bUseComplexAsSimpleCollision = false; // Simple Collision uses Convex Hulls (FKConvexElem)
             SubMeshComponents[i]->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
             SubMeshComponents[i]->SetCollisionObjectType(ECC_WorldDynamic);
             SubMeshComponents[i]->SetCollisionResponseToAllChannels(ECR_Block);
