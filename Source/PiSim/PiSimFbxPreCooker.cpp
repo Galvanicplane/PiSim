@@ -74,10 +74,15 @@ bool APiSimFbxPreCooker::BakeTwoFbxRobotFiles(const FString& CollisionFbxPath, c
         for (FGLBMeshSection& Sec : CollisionSections)
         {
             Ar << Sec.MeshName;
+            Ar << Sec.ParentSectionIndex;
+            Ar << Sec.DepthLevel;
+            Ar << Sec.PivotPoint;
+            Ar << Sec.MassKg;
+            Ar << Sec.Friction;
+            Ar << Sec.JointType;
             Ar << Sec.Vertices;
             Ar << Sec.Triangles;
             Ar << Sec.Normals;
-            Ar << Sec.PivotPoint;
         }
 
         FString CollisionBakedFilePath = BakedDir / TEXT("robot_collision_baked.bin");
@@ -94,10 +99,15 @@ bool APiSimFbxPreCooker::BakeTwoFbxRobotFiles(const FString& CollisionFbxPath, c
         for (FGLBMeshSection& Sec : VisualSections)
         {
             Ar << Sec.MeshName;
+            Ar << Sec.ParentSectionIndex;
+            Ar << Sec.DepthLevel;
+            Ar << Sec.PivotPoint;
+            Ar << Sec.MassKg;
+            Ar << Sec.Friction;
+            Ar << Sec.JointType;
             Ar << Sec.Vertices;
             Ar << Sec.Triangles;
             Ar << Sec.Normals;
-            Ar << Sec.PivotPoint;
         }
 
         FString VisualBakedFilePath = BakedDir / TEXT("robot_visual_baked.bin");

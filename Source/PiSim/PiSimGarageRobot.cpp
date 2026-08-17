@@ -512,7 +512,11 @@ void APiSimGarageRobot::BeginPlay()
     }
 
     // Check disk paths for FBX and GLB files in Saved/Robots/Cache/
-    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
+    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
+    if (!FPaths::FileExists(FbxFullPath))
+    {
+        FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
+    }
     FString GlbFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.glb");
 
     bool bFbxExists = FPaths::FileExists(FbxFullPath);
@@ -521,8 +525,12 @@ void APiSimGarageRobot::BeginPlay()
     TArray<FGLBMeshSection> Sections;
     bool bLoadedDiskModel = false;
 
-    // 0) PRE-COOKED BINARY CACHE LOADER: Fast 0.001s Instant Loading from Saved/Robots/Baked/robot_baked.bin (Auto-invalidated if robot.fbx is newer)
-    FString BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");
+    // 0) PRE-COOKED BINARY CACHE LOADER: Fast 0.001s Instant Loading from Saved/Robots/Baked/ (Auto-invalidated if FBX is newer)
+    FString BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_collision_baked.bin");
+    if (!FPaths::FileExists(BakedFilePath))
+    {
+        BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");
+    }
     bool bBakedValid = FPaths::FileExists(BakedFilePath);
     if (bBakedValid && bFbxExists)
     {
@@ -532,7 +540,7 @@ void APiSimGarageRobot::BeginPlay()
         {
             bBakedValid = false; // Invalidate stale baked file!
             IFileManager::Get().Delete(*BakedFilePath);
-            UE_LOG(LogTemp, Warning, TEXT("[BeginPlay] Detected NEWER robot.fbx model file! Deleted stale robot_baked.bin cache."));
+            UE_LOG(LogTemp, Warning, TEXT("[BeginPlay] Detected NEWER FBX model file! Deleted stale baked cache."));
         }
     }
 
@@ -549,10 +557,15 @@ void APiSimGarageRobot::BeginPlay()
             {
                 FGLBMeshSection Sec;
                 Ar << Sec.MeshName;
+                Ar << Sec.ParentSectionIndex;
+                Ar << Sec.DepthLevel;
+                Ar << Sec.PivotPoint;
+                Ar << Sec.MassKg;
+                Ar << Sec.Friction;
+                Ar << Sec.JointType;
                 Ar << Sec.Vertices;
                 Ar << Sec.Triangles;
                 Ar << Sec.Normals;
-                Ar << Sec.PivotPoint;
                 Sections.Add(Sec);
             }
 
@@ -630,6 +643,7 @@ void APiSimGarageRobot::BeginPlay()
         int32 TotalTris = 0;
 
 
+            LoadedMeshSections = Sections;
             SubMeshComponents.Empty();
             SubMeshNames.Empty();
             OriginalSubMeshVertices.Empty();
@@ -1326,10 +1340,25 @@ void APiSimGarageRobot::ClassifySubMeshes()
         StructProp.LiftCoefficient = 0.0f;
         StructProp.bIsChassisGroup = (i == 0);
 
+        if (LoadedMeshSections.IsValidIndex(i))
+        {
+            if (LoadedMeshSections[i].MassKg > 0.0f)
+            {
+                StructProp.MassKg = LoadedMeshSections[i].MassKg;
+            }
+            if (LoadedMeshSections[i].Friction > 0.0f)
+            {
+                StructProp.GroundFriction = LoadedMeshSections[i].Friction;
+            }
+        }
+        else if (Name.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase))
+        {
+            StructProp.MassKg = 5.0f;
+        }
+
         if (Name.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase))
         {
             MeshCategories.Add(EMeshCategoryType::Structural);
-            StructProp.MassKg = 5.0f;
         }
         else if (Name.Equals(TEXT("COG"), ESearchCase::IgnoreCase) || Name.StartsWith(TEXT("COG_"), ESearchCase::IgnoreCase))
         {
@@ -1596,14 +1625,16 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
 void APiSimGarageRobot::ReimportCadModel()
 {
     // Delete stale pre-cooked baked binary cache
-    FString BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");
-    if (FPaths::FileExists(BakedFilePath))
-    {
-        IFileManager::Get().Delete(*BakedFilePath);
-        UE_LOG(LogTemp, Warning, TEXT("[ReimportCadModel] Deleted stale baked binary cache at %s"), *BakedFilePath);
-    }
+    FString BakedFilePath1 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_collision_baked.bin");
+    FString BakedFilePath2 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");
+    if (FPaths::FileExists(BakedFilePath1)) IFileManager::Get().Delete(*BakedFilePath1);
+    if (FPaths::FileExists(BakedFilePath2)) IFileManager::Get().Delete(*BakedFilePath2);
 
-    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
+    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
+    if (!FPaths::FileExists(FbxFullPath))
+    {
+        FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
+    }
     FString GlbFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.glb");
 
     TArray<FGLBMeshSection> Sections;
@@ -1614,7 +1645,7 @@ void APiSimGarageRobot::ReimportCadModel()
         bSuccess = ParseFbxAllBinaryMeshes(FbxFullPath, Sections, CadUnitScaleMultiplier);
         if (bSuccess)
         {
-            LoadedModelFormatName = TEXT("FBX (.fbx) [Saved/Robots/Cache/robot.fbx]");
+            LoadedModelFormatName = FString::Printf(TEXT("FBX (.fbx) [%s]"), *FPaths::GetCleanFilename(FbxFullPath));
         }
     }
     else if (FPaths::FileExists(GlbFullPath))
@@ -2399,6 +2430,419 @@ static void ParseFbxBinaryNodeTreeHelper(const TArray<uint8>& FileBytes, int32 S
     }
 }
 
+static bool ParseFbxSkinClusters(const TArray<uint8>& FileBytes, const FString& FilePath, TArray<FGLBMeshSection>& OutSections, float ScaleMultiplier)
+{
+    int32 FileSize = FileBytes.Num();
+    int32 Pos = 27;
+    TArray<FVector> AllVerts;
+    TArray<int32> AllPolys;
+    TMap<FString, TArray<int32>> Clusters;
+    TMap<FString, float> NodeMassMap;
+    TMap<FString, float> NodeFrictionMap;
+    TMap<FString, FString> NodeJointTypeMap;
+
+    bool bIsCollisionFbx = FilePath.Contains(TEXT("collision"), ESearchCase::IgnoreCase) || FilePath.Contains(TEXT("CM_"), ESearchCase::IgnoreCase);
+
+    while (Pos + 13 < FileSize)
+    {
+        uint32 NodeEnd = *reinterpret_cast<const uint32*>(&FileBytes[Pos]);
+        uint32 NumProps = *reinterpret_cast<const uint32*>(&FileBytes[Pos + 4]);
+        uint32 PropLen = *reinterpret_cast<const uint32*>(&FileBytes[Pos + 8]);
+        uint8 NameLen = FileBytes[Pos + 12];
+
+        if (NodeEnd == 0 || NodeEnd > (uint32)FileSize || Pos + 13 + NameLen > FileSize) break;
+
+        FString NodeName = FString(NameLen, (const ANSICHAR*)&FileBytes[Pos + 13]);
+        int32 PropsStart = Pos + 13 + NameLen;
+        int32 ChildrenStart = PropsStart + PropLen;
+
+        if (NodeName.Equals(TEXT("Objects")))
+        {
+            int32 Sub = ChildrenStart;
+            while (Sub + 13 < (int32)NodeEnd)
+            {
+                uint32 SubEnd = *reinterpret_cast<const uint32*>(&FileBytes[Sub]);
+                uint32 SubNumProps = *reinterpret_cast<const uint32*>(&FileBytes[Sub + 4]);
+                uint32 SubPropLen = *reinterpret_cast<const uint32*>(&FileBytes[Sub + 8]);
+                uint8 SubNameLen = FileBytes[Sub + 12];
+
+                if (SubEnd == 0 || SubEnd > NodeEnd || Sub + 13 + SubNameLen > (int32)NodeEnd) break;
+
+                FString SubName = FString(SubNameLen, (const ANSICHAR*)&FileBytes[Sub + 13]);
+                int32 SubPropsStart = Sub + 13 + SubNameLen;
+                int32 SubChildrenStart = SubPropsStart + SubPropLen;
+
+                if (SubName.Equals(TEXT("Geometry")))
+                {
+                    int32 CCurr = SubChildrenStart;
+                    while (CCurr + 13 < (int32)SubEnd)
+                    {
+                        uint32 CEnd = *reinterpret_cast<const uint32*>(&FileBytes[CCurr]);
+                        uint32 CNumProps = *reinterpret_cast<const uint32*>(&FileBytes[CCurr + 4]);
+                        uint32 CPropLen = *reinterpret_cast<const uint32*>(&FileBytes[CCurr + 8]);
+                        uint8 CNameLen = FileBytes[CCurr + 12];
+
+                        if (CEnd == 0 || CEnd > SubEnd || CCurr + 13 + CNameLen > (int32)SubEnd) break;
+
+                        FString CName = FString(CNameLen, (const ANSICHAR*)&FileBytes[CCurr + 13]);
+                        int32 CPropsStart = CCurr + 13 + CNameLen;
+
+                        if (CName.Equals(TEXT("Vertices")) && CPropLen > 12)
+                        {
+                            uint8 TypeCode = FileBytes[CPropsStart];
+                            uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 1]);
+                            uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 5]);
+                            uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 9]);
+                            int32 DataOffset = CPropsStart + 13;
+
+                            int32 ElemSize = (TypeCode == 'd' ? 8 : 4);
+                            int32 UncompSize = ArrayLen * ElemSize;
+                            TArray<uint8> UncompBuf;
+                            const uint8* DataPtr = nullptr;
+
+                            if (Encoding == 0 && DataOffset + UncompSize <= (int32)SubEnd)
+                            {
+                                DataPtr = &FileBytes[DataOffset];
+                            }
+                            else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)SubEnd)
+                            {
+                                UncompBuf.AddUninitialized(UncompSize);
+                                if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
+                                {
+                                    DataPtr = UncompBuf.GetData();
+                                }
+                            }
+
+                            if (DataPtr && ArrayLen > 0)
+                            {
+                                if (TypeCode == 'd')
+                                {
+                                    const double* VData = reinterpret_cast<const double*>(DataPtr);
+                                    for (uint32 v = 0; v + 2 < ArrayLen; v += 3)
+                                    {
+                                        AllVerts.Add(FVector(VData[v] * ScaleMultiplier, -VData[v + 1] * ScaleMultiplier, VData[v + 2] * ScaleMultiplier));
+                                    }
+                                }
+                                else if (TypeCode == 'f')
+                                {
+                                    const float* VData = reinterpret_cast<const float*>(DataPtr);
+                                    for (uint32 v = 0; v + 2 < ArrayLen; v += 3)
+                                    {
+                                        AllVerts.Add(FVector(VData[v] * ScaleMultiplier, -VData[v + 1] * ScaleMultiplier, VData[v + 2] * ScaleMultiplier));
+                                    }
+                                }
+                            }
+                        }
+                        else if (CName.Equals(TEXT("PolygonVertexIndex")) && CPropLen > 12)
+                        {
+                            uint8 TypeCode = FileBytes[CPropsStart];
+                            uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 1]);
+                            uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 5]);
+                            uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 9]);
+                            int32 DataOffset = CPropsStart + 13;
+
+                            int32 UncompSize = ArrayLen * 4;
+                            TArray<uint8> UncompBuf;
+                            const uint8* DataPtr = nullptr;
+
+                            if (Encoding == 0 && DataOffset + UncompSize <= (int32)SubEnd)
+                            {
+                                DataPtr = &FileBytes[DataOffset];
+                            }
+                            else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)SubEnd)
+                            {
+                                UncompBuf.AddUninitialized(UncompSize);
+                                if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
+                                {
+                                    DataPtr = UncompBuf.GetData();
+                                }
+                            }
+
+                            if (DataPtr && ArrayLen > 0)
+                            {
+                                const int32* PIndices = reinterpret_cast<const int32*>(DataPtr);
+                                TArray<int32> PolyLoop;
+                                for (uint32 idx = 0; idx < ArrayLen; ++idx)
+                                {
+                                    int32 Val = PIndices[idx];
+                                    bool bIsLast = (Val < 0);
+                                    int32 RealVal = bIsLast ? (-Val - 1) : Val;
+                                    PolyLoop.Add(RealVal);
+                                    if (bIsLast)
+                                    {
+                                        if (PolyLoop.Num() >= 3)
+                                        {
+                                            for (int32 t = 1; t < PolyLoop.Num() - 1; ++t)
+                                            {
+                                                AllPolys.Add(PolyLoop[0]);
+                                                AllPolys.Add(PolyLoop[t]);
+                                                AllPolys.Add(PolyLoop[t + 1]);
+                                            }
+                                        }
+                                        PolyLoop.Empty();
+                                    }
+                                }
+                            }
+                        }
+                        CCurr = CEnd;
+                    }
+                }
+                else if (SubName.Equals(TEXT("NodeAttribute")))
+                {
+                    int32 PPos = SubPropsStart;
+                    int32 StrPos = PPos + 9;
+                    FString AttrLabel = TEXT("");
+                    if (StrPos < SubChildrenStart && FileBytes[StrPos] == 'S' && StrPos + 5 <= SubChildrenStart)
+                    {
+                        uint32 SLen = *reinterpret_cast<const uint32*>(&FileBytes[StrPos + 1]);
+                        if (StrPos + 5 + (int32)SLen <= SubChildrenStart)
+                        {
+                            AttrLabel = FString(SLen, (const ANSICHAR*)&FileBytes[StrPos + 5]);
+                            int32 SpaceIdx = -1;
+                            if (AttrLabel.FindChar(' ', SpaceIdx)) AttrLabel = AttrLabel.Left(SpaceIdx);
+                            AttrLabel.RemoveFromStart(TEXT("NodeAttribute::"));
+                        }
+                    }
+
+                    int32 PropsSub = SubChildrenStart;
+                    while (PropsSub + 13 < (int32)SubEnd)
+                    {
+                        uint32 PEnd = *reinterpret_cast<const uint32*>(&FileBytes[PropsSub]);
+                        uint32 PNumProps = *reinterpret_cast<const uint32*>(&FileBytes[PropsSub + 4]);
+                        uint32 PPropLen = *reinterpret_cast<const uint32*>(&FileBytes[PropsSub + 8]);
+                        uint8 PNameLen = FileBytes[PropsSub + 12];
+
+                        if (PEnd == 0 || PEnd > SubEnd || PropsSub + 13 + PNameLen > (int32)SubEnd) break;
+
+                        FString PNodename = FString(PNameLen, (const ANSICHAR*)&FileBytes[PropsSub + 13]);
+                        if (PNodename.Equals(TEXT("Properties70")))
+                        {
+                            int32 PCurr = PropsSub + 13 + PNameLen + PPropLen;
+                            while (PCurr + 13 < (int32)PEnd)
+                            {
+                                uint32 PEnd2 = *reinterpret_cast<const uint32*>(&FileBytes[PCurr]);
+                                uint8 PNL2 = FileBytes[PCurr + 12];
+                                if (PEnd2 == 0 || PEnd2 > PEnd || PCurr + 13 + PNL2 > (int32)PEnd) break;
+
+                                FString PName2 = FString(PNL2, (const ANSICHAR*)&FileBytes[PCurr + 13]);
+                                if (PName2.Equals(TEXT("P")))
+                                {
+                                    int32 CPos = PCurr + 13 + PNL2;
+                                    if (CPos + 5 <= (int32)PEnd2 && FileBytes[CPos] == 'S')
+                                    {
+                                        uint32 KLen = *reinterpret_cast<const uint32*>(&FileBytes[CPos + 1]);
+                                        if (CPos + 5 + (int32)KLen <= (int32)PEnd2)
+                                        {
+                                            FString PropKey = FString(KLen, (const ANSICHAR*)&FileBytes[CPos + 5]);
+                                            CPos += 5 + KLen;
+
+                                            for (int32 s = 0; s < 3; ++s)
+                                            {
+                                                if (CPos + 5 <= (int32)PEnd2 && (FileBytes[CPos] == 'S' || FileBytes[CPos] == 'R'))
+                                                {
+                                                    uint32 TLen = *reinterpret_cast<const uint32*>(&FileBytes[CPos + 1]);
+                                                    CPos += 5 + TLen;
+                                                }
+                                            }
+
+                                            if (CPos < (int32)PEnd2)
+                                            {
+                                                uint8 VType = FileBytes[CPos];
+                                                if (VType == 'D' && CPos + 9 <= (int32)PEnd2)
+                                                {
+                                                    double DVal = *reinterpret_cast<const double*>(&FileBytes[CPos + 1]);
+                                                    if (PropKey.Equals(TEXT("mass"), ESearchCase::IgnoreCase) || PropKey.Equals(TEXT("mas"), ESearchCase::IgnoreCase))
+                                                    {
+                                                        NodeMassMap.Add(AttrLabel, (float)DVal);
+                                                    }
+                                                    else if (PropKey.Equals(TEXT("friction"), ESearchCase::IgnoreCase))
+                                                    {
+                                                        NodeFrictionMap.Add(AttrLabel, (float)DVal);
+                                                    }
+                                                }
+                                                else if (VType == 'F' && CPos + 5 <= (int32)PEnd2)
+                                                {
+                                                    float FVal = *reinterpret_cast<const float*>(&FileBytes[CPos + 1]);
+                                                    if (PropKey.Equals(TEXT("mass"), ESearchCase::IgnoreCase) || PropKey.Equals(TEXT("mas"), ESearchCase::IgnoreCase))
+                                                    {
+                                                        NodeMassMap.Add(AttrLabel, FVal);
+                                                    }
+                                                    else if (PropKey.Equals(TEXT("friction"), ESearchCase::IgnoreCase))
+                                                    {
+                                                        NodeFrictionMap.Add(AttrLabel, FVal);
+                                                    }
+                                                }
+                                                else if ((VType == 'S' || VType == 'R') && CPos + 5 <= (int32)PEnd2)
+                                                {
+                                                    uint32 VLen = *reinterpret_cast<const uint32*>(&FileBytes[CPos + 1]);
+                                                    if (CPos + 5 + (int32)VLen <= (int32)PEnd2)
+                                                    {
+                                                        FString SVal = FString(VLen, (const ANSICHAR*)&FileBytes[CPos + 5]);
+                                                        if (PropKey.Equals(TEXT("joint_type"), ESearchCase::IgnoreCase))
+                                                        {
+                                                            NodeJointTypeMap.Add(AttrLabel, SVal);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                PCurr = PEnd2;
+                            }
+                        }
+                        PropsSub = PEnd;
+                    }
+                }
+                else if (SubName.Equals(TEXT("Deformer")))
+                {
+                    int32 PPos = SubPropsStart;
+                    int32 StrPos = PPos + 9;
+                    FString DefLabel = TEXT("");
+                    if (StrPos < SubChildrenStart && FileBytes[StrPos] == 'S' && StrPos + 5 <= SubChildrenStart)
+                    {
+                        uint32 SLen = *reinterpret_cast<const uint32*>(&FileBytes[StrPos + 1]);
+                        if (StrPos + 5 + (int32)SLen <= SubChildrenStart)
+                        {
+                            DefLabel = FString(SLen, (const ANSICHAR*)&FileBytes[StrPos + 5]);
+                            int32 SpaceIdx = -1;
+                            if (DefLabel.FindChar(' ', SpaceIdx)) DefLabel = DefLabel.Left(SpaceIdx);
+                            DefLabel.RemoveFromStart(TEXT("SubDeformer::"));
+                        }
+                    }
+
+                    int32 CCurr = SubChildrenStart;
+                    while (CCurr + 13 < (int32)SubEnd)
+                    {
+                        uint32 CEnd = *reinterpret_cast<const uint32*>(&FileBytes[CCurr]);
+                        uint32 CNumProps = *reinterpret_cast<const uint32*>(&FileBytes[CCurr + 4]);
+                        uint32 CPropLen = *reinterpret_cast<const uint32*>(&FileBytes[CCurr + 8]);
+                        uint8 CNameLen = FileBytes[CCurr + 12];
+
+                        if (CEnd == 0 || CEnd > SubEnd || CCurr + 13 + CNameLen > (int32)SubEnd) break;
+
+                        FString CName = FString(CNameLen, (const ANSICHAR*)&FileBytes[CCurr + 13]);
+                        int32 CPropsStart = CCurr + 13 + CNameLen;
+
+                        if (CName.Equals(TEXT("Indexes")) && CPropLen > 12)
+                        {
+                            uint8 TypeCode = FileBytes[CPropsStart];
+                            uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 1]);
+                            uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 5]);
+                            uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 9]);
+                            int32 DataOffset = CPropsStart + 13;
+
+                            int32 UncompSize = ArrayLen * 4;
+                            TArray<uint8> UncompBuf;
+                            const uint8* DataPtr = nullptr;
+
+                            if (Encoding == 0 && DataOffset + UncompSize <= (int32)SubEnd)
+                            {
+                                DataPtr = &FileBytes[DataOffset];
+                            }
+                            else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)SubEnd)
+                            {
+                                UncompBuf.AddUninitialized(UncompSize);
+                                if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
+                                {
+                                    DataPtr = UncompBuf.GetData();
+                                }
+                            }
+
+                            if (DataPtr && ArrayLen > 0 && !DefLabel.IsEmpty())
+                            {
+                                const int32* IdxData = reinterpret_cast<const int32*>(DataPtr);
+                                TArray<int32>& ClusterIndices = Clusters.FindOrAdd(DefLabel);
+                                for (uint32 i = 0; i < ArrayLen; ++i)
+                                {
+                                    ClusterIndices.Add(IdxData[i]);
+                                }
+                            }
+                        }
+                        CCurr = CEnd;
+                    }
+                }
+                Sub = SubEnd;
+            }
+        }
+        Pos = NodeEnd;
+    }
+
+    if (Clusters.Num() == 0 || AllVerts.Num() == 0 || AllPolys.Num() == 0)
+    {
+        return false;
+    }
+
+    TArray<FString> ClusterKeys;
+    Clusters.GetKeys(ClusterKeys);
+    ClusterKeys.Sort([](const FString& A, const FString& B) {
+        bool bAChassis = A.Contains(TEXT("chassis"), ESearchCase::IgnoreCase);
+        bool bBChassis = B.Contains(TEXT("chassis"), ESearchCase::IgnoreCase);
+        if (bAChassis != bBChassis) return bAChassis;
+        return A < B;
+    });
+
+    for (int32 c = 0; c < ClusterKeys.Num(); ++c)
+    {
+        const FString& CName = ClusterKeys[c];
+        const TArray<int32>& IdxArr = Clusters[CName];
+        TSet<int32> VertSet(IdxArr);
+
+        FGLBMeshSection MeshSec;
+        MeshSec.MeshName = (bIsCollisionFbx ? TEXT("CM_") : TEXT("")) + CName;
+        MeshSec.ParentSectionIndex = (c == 0 ? -1 : 0);
+        MeshSec.DepthLevel = (c == 0 ? 0 : 1);
+
+        if (NodeMassMap.Contains(CName)) MeshSec.MassKg = NodeMassMap[CName];
+        else MeshSec.MassKg = (c == 0 ? 31.0f : 2.7f);
+
+        if (NodeFrictionMap.Contains(CName)) MeshSec.Friction = NodeFrictionMap[CName];
+        else MeshSec.Friction = 0.86f;
+
+        if (NodeJointTypeMap.Contains(CName)) MeshSec.JointType = NodeJointTypeMap[CName];
+        else MeshSec.JointType = (c == 0 ? TEXT("fixed") : TEXT("revolute"));
+
+        TMap<int32, int32> VertMap;
+        for (int32 p = 0; p + 2 < AllPolys.Num(); p += 3)
+        {
+            int32 v0 = AllPolys[p];
+            int32 v1 = AllPolys[p + 1];
+            int32 v2 = AllPolys[p + 2];
+
+            if (VertSet.Contains(v0) && VertSet.Contains(v1) && VertSet.Contains(v2))
+            {
+                int32 nv0 = VertMap.FindOrAdd(v0, MeshSec.Vertices.Num());
+                if (nv0 == MeshSec.Vertices.Num()) { MeshSec.Vertices.Add(AllVerts[v0]); MeshSec.Normals.Add(FVector(0, 0, 1)); }
+
+                int32 nv1 = VertMap.FindOrAdd(v1, MeshSec.Vertices.Num());
+                if (nv1 == MeshSec.Vertices.Num()) { MeshSec.Vertices.Add(AllVerts[v1]); MeshSec.Normals.Add(FVector(0, 0, 1)); }
+
+                int32 nv2 = VertMap.FindOrAdd(v2, MeshSec.Vertices.Num());
+                if (nv2 == MeshSec.Vertices.Num()) { MeshSec.Vertices.Add(AllVerts[v2]); MeshSec.Normals.Add(FVector(0, 0, 1)); }
+
+                MeshSec.Triangles.Add(nv0);
+                MeshSec.Triangles.Add(nv1);
+                MeshSec.Triangles.Add(nv2);
+            }
+        }
+
+        if (MeshSec.Vertices.Num() > 0)
+        {
+            FVector Centroid = FVector::ZeroVector;
+            for (const FVector& V : MeshSec.Vertices) Centroid += V;
+            Centroid /= (float)MeshSec.Vertices.Num();
+            MeshSec.PivotPoint = Centroid;
+
+            for (FVector& V : MeshSec.Vertices) V -= Centroid;
+
+            OutSections.Add(MeshSec);
+            UE_LOG(LogTemp, Warning, TEXT("[FBX CLUSTER LOADER] Extracted Skin Bone Section '%s' (Sec %d): %d Verts, %d Tris | Mass: %.2f kg | Fric: %.2f | Joint: %s | Centroid: %s"),
+                *MeshSec.MeshName, c, MeshSec.Vertices.Num(), MeshSec.Triangles.Num() / 3, MeshSec.MassKg, MeshSec.Friction, *MeshSec.JointType, *Centroid.ToString());
+        }
+    }
+
+    return OutSections.Num() > 0;
+}
 
 bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<FGLBMeshSection>& OutSections, float ScaleMultiplier)
 {
@@ -2534,12 +2978,19 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Binary FBX format detected (%d bytes). Collecting Model Names and Connections..."), FileSize);
-        TMap<uint64, FString> ModelNames;
-        TMap<uint64, uint64> GeomToModelMap;
-        CollectFbxModelNamesAndConnections(FileBytes, 27, FileSize, ModelNames, GeomToModelMap);
-        UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Found %d Model Names and %d Connections! Traversing FBX Node Tree..."), ModelNames.Num(), GeomToModelMap.Num());
-        ParseFbxBinaryNodeTreeHelper(FileBytes, 27, FileSize, ModelNames, GeomToModelMap, OutSections, ScaleMultiplier);
+        UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Binary FBX format detected (%d bytes). Attempting Skin Bone Cluster Extraction..."), FileSize);
+        if (ParseFbxSkinClusters(FileBytes, FilePath, OutSections, ScaleMultiplier))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER SUCCESS] Successfully extracted %d Skin Bone SubMesh Sections from FBX Clusters!"), OutSections.Num());
+        }
+        else
+        {
+            TMap<uint64, FString> ModelNames;
+            TMap<uint64, uint64> GeomToModelMap;
+            CollectFbxModelNamesAndConnections(FileBytes, 27, FileSize, ModelNames, GeomToModelMap);
+            UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Found %d Model Names and %d Connections! Traversing FBX Node Tree..."), ModelNames.Num(), GeomToModelMap.Num());
+            ParseFbxBinaryNodeTreeHelper(FileBytes, 27, FileSize, ModelNames, GeomToModelMap, OutSections, ScaleMultiplier);
+        }
 
         // Resolve ParentSectionIndex for each extracted section using FBX parent model connections
         TMap<uint64, int32> ModelToSecIdxMap;

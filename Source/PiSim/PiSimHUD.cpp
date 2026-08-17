@@ -224,6 +224,10 @@ void APiSimHUD::DrawHUD()
             if (Robot->CurrentViewMode == EGarageViewMode::Sensor && Cat != EMeshCategoryType::Sensor) continue;
             ValidIndices.Add(i);
         }
+        if (ValidIndices.Num() == 0)
+        {
+            for (int32 i = 0; i < TotalCount; ++i) ValidIndices.Add(i);
+        }
 
         TArray<int32> TreeOrder;
         TSet<int32> ProcessedNodes;

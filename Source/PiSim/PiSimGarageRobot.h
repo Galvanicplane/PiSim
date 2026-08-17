@@ -78,6 +78,15 @@ struct FGLBMeshSection
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GLTF")
     TArray<FVector> Normals;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
+    float MassKg = -1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
+    float Friction = -1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
+    FString JointType = TEXT("");
 };
 
 UCLASS()
@@ -128,6 +137,10 @@ public:
     /** Array of Original Unrotated Base Vertices & Normals per CAD Sub-Mesh */
     TArray<TArray<FVector>> OriginalSubMeshVertices;
     TArray<TArray<FVector>> OriginalSubMeshNormals;
+
+    /** Cached mesh sections loaded from FBX / GLB / PreCooked binary cache */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Garage")
+    TArray<FGLBMeshSection> LoadedMeshSections;
 
     /** Parent section index for each sub-mesh (-1 if root) */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Garage")
