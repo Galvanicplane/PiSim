@@ -2990,41 +2990,41 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
             CollectFbxModelNamesAndConnections(FileBytes, 27, FileSize, ModelNames, GeomToModelMap);
             UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Found %d Model Names and %d Connections! Traversing FBX Node Tree..."), ModelNames.Num(), GeomToModelMap.Num());
             ParseFbxBinaryNodeTreeHelper(FileBytes, 27, FileSize, ModelNames, GeomToModelMap, OutSections, ScaleMultiplier);
-        }
 
-        // Resolve ParentSectionIndex for each extracted section using FBX parent model connections
-        TMap<uint64, int32> ModelToSecIdxMap;
-        for (int32 s = 0; s < OutSections.Num(); ++s)
-        {
-            for (const auto& Pair : ModelNames)
+            // Resolve ParentSectionIndex for each extracted section using FBX parent model connections
+            TMap<uint64, int32> ModelToSecIdxMap;
+            for (int32 s = 0; s < OutSections.Num(); ++s)
             {
-                if (Pair.Value.Equals(OutSections[s].MeshName, ESearchCase::IgnoreCase))
+                for (const auto& Pair : ModelNames)
                 {
-                    ModelToSecIdxMap.Add(Pair.Key, s);
-                    break;
+                    if (Pair.Value.Equals(OutSections[s].MeshName, ESearchCase::IgnoreCase))
+                    {
+                        ModelToSecIdxMap.Add(Pair.Key, s);
+                        break;
+                    }
                 }
             }
-        }
 
-        for (int32 s = 0; s < OutSections.Num(); ++s)
-        {
-            OutSections[s].ParentSectionIndex = -1;
-            for (const auto& Pair : ModelNames)
+            for (int32 s = 0; s < OutSections.Num(); ++s)
             {
-                if (Pair.Value.Equals(OutSections[s].MeshName, ESearchCase::IgnoreCase))
+                OutSections[s].ParentSectionIndex = -1;
+                for (const auto& Pair : ModelNames)
                 {
-                    uint64 ModelID = Pair.Key;
-                    if (GeomToModelMap.Contains(ModelID))
+                    if (Pair.Value.Equals(OutSections[s].MeshName, ESearchCase::IgnoreCase))
                     {
-                        uint64 ParentModelID = GeomToModelMap[ModelID];
-                        if (ModelToSecIdxMap.Contains(ParentModelID))
+                        uint64 ModelID = Pair.Key;
+                        if (GeomToModelMap.Contains(ModelID))
                         {
-                            OutSections[s].ParentSectionIndex = ModelToSecIdxMap[ParentModelID];
-                            UE_LOG(LogTemp, Warning, TEXT("[FBX HIERARCHY LOG] SubMesh '%s' (Sec %d) ATTACHED TO PARENT '%s' (Sec %d)"),
-                                *OutSections[s].MeshName, s, *OutSections[OutSections[s].ParentSectionIndex].MeshName, OutSections[s].ParentSectionIndex);
+                            uint64 ParentModelID = GeomToModelMap[ModelID];
+                            if (ModelToSecIdxMap.Contains(ParentModelID))
+                            {
+                                OutSections[s].ParentSectionIndex = ModelToSecIdxMap[ParentModelID];
+                                UE_LOG(LogTemp, Warning, TEXT("[FBX HIERARCHY LOG] SubMesh '%s' (Sec %d) ATTACHED TO PARENT '%s' (Sec %d)"),
+                                    *OutSections[s].MeshName, s, *OutSections[OutSections[s].ParentSectionIndex].MeshName, OutSections[s].ParentSectionIndex);
+                            }
                         }
+                        break;
                     }
-                    break;
                 }
             }
         }
