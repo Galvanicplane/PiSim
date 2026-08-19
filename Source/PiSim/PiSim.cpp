@@ -12,9 +12,10 @@ void FPiSimModule::StartupModule()
 #if WITH_EDITOR
 	if (GIsEditor && !IsRunningCommandlet())
 	{
+		FCoreDelegates::OnPostEngineInit.AddRaw(this, &FPiSimModule::CustomizeEditorToolbarsAndMenus);
 		UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FPiSimModule::CustomizeEditorToolbarsAndMenus));
 
-		// If ToolMenus is already initialized (e.g. Live Coding / Hot Reload), run customization immediately!
+		// If ToolMenus is already initialized, run customization immediately!
 		if (UToolMenus::Get())
 		{
 			CustomizeEditorToolbarsAndMenus();
