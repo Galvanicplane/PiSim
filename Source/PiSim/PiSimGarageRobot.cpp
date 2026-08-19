@@ -827,6 +827,31 @@ void APiSimGarageRobot::BeginPlay()
 
     InitialChassisLocation = GetActorLocation();
     InitialChassisRotation = GetActorRotation();
+
+    // Test Cylinder / Capsule Collision added on BeginPlay for user inspection
+    TestCylinderCollision = NewObject<UCapsuleComponent>(this, TEXT("TestCylinderCollision"));
+    if (TestCylinderCollision)
+    {
+        TestCylinderCollision->InitCapsuleSize(15.0f, 25.0f); // Radius: 15cm, HalfHeight: 25cm (Kompakt silindir)
+        TestCylinderCollision->SetupAttachment(RootComponent);
+        TestCylinderCollision->SetRelativeLocation(FVector(0.0f, 0.0f, 25.0f));
+        TestCylinderCollision->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+        TestCylinderCollision->SetCollisionObjectType(ECC_WorldDynamic);
+        TestCylinderCollision->SetCollisionResponseToAllChannels(ECR_Block);
+        TestCylinderCollision->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+        TestCylinderCollision->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+        TestCylinderCollision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+        TestCylinderCollision->SetHiddenInGame(false); // Ekranda Unreal'in doğal collision çizgilerini gösterir!
+        TestCylinderCollision->RegisterComponent();
+
+        UE_LOG(LogTemp, Warning, TEXT("[TEST COLLISION] Test Silindir Collision Başarıyla Eklendi! (Radius: 15cm, HalfHeight: 25cm)"));
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Cyan,
+                TEXT(">>> [TEST COLLISION] SİLİNDİR COLLISION (Radius: 15cm, Boy: 50cm) BEGINPLAY'DE EKLENDİ! <<<"));
+        }
+    }
+
     ClassifySubMeshes();
     SetGarageViewMode(EGarageViewMode::Visual);
     SetPhysicsTestMode(EPhysicsTestMode::None);
