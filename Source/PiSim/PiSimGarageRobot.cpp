@@ -720,40 +720,6 @@ void APiSimGarageRobot::BeginPlay()
                 SubComp->RecreatePhysicsState();
                 SubComp->UpdateBounds();
 
-                // Create dedicated native Collision Shape for this Bone (Box for Chassis, Sphere/Capsule for Wheels)
-                UShapeComponent* BoneCol = nullptr;
-                FBox BoundingBox(Sections[SecIdx].Vertices);
-                FVector Center = BoundingBox.GetCenter();
-                FVector Extent = BoundingBox.GetExtent();
-
-                if (MeshName.Contains(TEXT("wheel"), ESearchCase::IgnoreCase))
-                {
-                    USphereComponent* SphereComp = NewObject<USphereComponent>(this, *FString::Printf(TEXT("BoneCol_%s_%d"), *MeshName, SecIdx));
-                    SphereComp->InitSphereRadius(FMath::Max(Extent.Y, Extent.Z));
-                    BoneCol = SphereComp;
-                }
-                else
-                {
-                    UBoxComponent* BoxComp = NewObject<UBoxComponent>(this, *FString::Printf(TEXT("BoneCol_%s_%d"), *MeshName, SecIdx));
-                    BoxComp->InitBoxExtent(Extent);
-                    BoneCol = BoxComp;
-                }
-
-                if (BoneCol)
-                {
-                    BoneCol->SetupAttachment(SubComp);
-                    BoneCol->SetRelativeLocation(Center);
-                    BoneCol->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-                    BoneCol->SetCollisionObjectType(ECC_WorldDynamic);
-                    BoneCol->SetCollisionResponseToAllChannels(ECR_Block);
-                    BoneCol->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-                    BoneCol->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-                    BoneCol->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-                    BoneCol->SetHiddenInGame(false); // Make native collision wireframes visible!
-                    BoneCol->RegisterComponent();
-                    BoneCollisionComponents.Add(BoneCol);
-                }
-
                 SubComp->SetVisibility(true);
                 SubComp->SetHiddenInGame(false);
 
@@ -861,30 +827,6 @@ void APiSimGarageRobot::BeginPlay()
 
     InitialChassisLocation = GetActorLocation();
     InitialChassisRotation = GetActorRotation();
-
-    // Test Cylinder / Capsule Collision added on BeginPlay for user inspection
-    TestCylinderCollision = NewObject<UCapsuleComponent>(this, TEXT("TestCylinderCollision"));
-    if (TestCylinderCollision)
-    {
-        TestCylinderCollision->InitCapsuleSize(15.0f, 25.0f); // Radius: 15cm, HalfHeight: 25cm (Kompakt silindir)
-        TestCylinderCollision->SetupAttachment(RootComponent);
-        TestCylinderCollision->SetRelativeLocation(FVector(0.0f, 0.0f, 25.0f));
-        TestCylinderCollision->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-        TestCylinderCollision->SetCollisionObjectType(ECC_WorldDynamic);
-        TestCylinderCollision->SetCollisionResponseToAllChannels(ECR_Block);
-        TestCylinderCollision->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-        TestCylinderCollision->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-        TestCylinderCollision->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-        TestCylinderCollision->SetHiddenInGame(false); // Ekranda Unreal'in doğal collision çizgilerini gösterir!
-        TestCylinderCollision->RegisterComponent();
-
-        UE_LOG(LogTemp, Warning, TEXT("[TEST COLLISION] Test Silindir Collision Başarıyla Eklendi! (Radius: 15cm, HalfHeight: 25cm)"));
-        if (GEngine)
-        {
-            GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Cyan,
-                TEXT(">>> [TEST COLLISION] SİLİNDİR COLLISION (Radius: 15cm, Boy: 50cm) BEGINPLAY'DE EKLENDİ! <<<"));
-        }
-    }
 
     ClassifySubMeshes();
     SetGarageViewMode(EGarageViewMode::Visual);
@@ -2117,18 +2059,6 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
 
                 JointPhysicsConstraints.Add(ConstraintComp);
             }
-        }
-    }
-
-    // Activate Physics on Bone Collision Shapes
-    for (int32 i = 0; i < BoneCollisionComponents.Num(); ++i)
-    {
-        if (BoneCollisionComponents[i])
-        {
-            BoneCollisionComponents[i]->SetMobility(EComponentMobility::Movable);
-            BoneCollisionComponents[i]->SetSimulatePhysics(true);
-            BoneCollisionComponents[i]->SetEnableGravity(TestMode != EPhysicsTestMode::HoldInAir);
-            BoneCollisionComponents[i]->WakeRigidBody();
         }
     }
 
