@@ -13,6 +13,13 @@ void FPiSimModule::StartupModule()
 	if (GIsEditor && !IsRunningCommandlet())
 	{
 		UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FPiSimModule::CustomizeEditorToolbarsAndMenus));
+
+		// If ToolMenus is already initialized (e.g. Live Coding / Hot Reload), run customization immediately!
+		if (UToolMenus::Get())
+		{
+			CustomizeEditorToolbarsAndMenus();
+			UToolMenus::Get()->RefreshAllIfStale();
+		}
 	}
 #endif
 }
@@ -33,6 +40,8 @@ void FPiSimModule::CustomizeEditorToolbarsAndMenus()
 {
 	UToolMenus* ToolMenus = UToolMenus::Get();
 	if (!ToolMenus) return;
+
+	UE_LOG(LogTemp, Warning, TEXT(">>> [PISIM TOOLMENUS] SADELESTIRME UYGULANIYOR! <<<"));
 
 	// 1. Viewport Toolbar: Hide Left Tools (Transform/Snapping/Gizmos) & Right Camera/Settings (Keep ONLY ViewModes)
 	UToolMenu* VpToolbarLeft = ToolMenus->ExtendMenu("LevelEditor.ViewportToolbar.Left");
@@ -55,11 +64,19 @@ void FPiSimModule::CustomizeEditorToolbarsAndMenus()
 
 	// 2. Content Browser Add New / Right-Click Context Menu:
 	// Remove Niagara from basic assets & hide all sub-categories below Material!
-	UToolMenu* AddNewMenu = ToolMenus->ExtendMenu("ContentBrowser.AddNewContextMenu");
-	if (AddNewMenu)
+	const FName MenuNames[] = {
+		"ContentBrowser.AddNewContextMenu",
+		"ContentBrowser.FolderContextMenu",
+		"ContentBrowser.AssetContextMenu"
+	};
+
+	for (const FName& MenuName : MenuNames)
 	{
+		UToolMenu* TargetMenu = ToolMenus->ExtendMenu(MenuName);
+		if (!TargetMenu) continue;
+
 		// Remove Niagara from CreateBasicAssets section
-		FToolMenuSection* BasicSection = AddNewMenu->FindSection("CreateBasicAssets");
+		FToolMenuSection* BasicSection = TargetMenu->FindSection("CreateBasicAssets");
 		if (BasicSection)
 		{
 			BasicSection->Blocks.RemoveAll([](const FToolMenuEntry& Entry) {
@@ -92,7 +109,7 @@ void FPiSimModule::CustomizeEditorToolbarsAndMenus()
 
 		for (const TCHAR* Cat : CategoriesToRemove)
 		{
-			AddNewMenu->RemoveSection(FName(Cat));
+			TargetMenu->RemoveSection(FName(Cat));
 		}
 	}
 }
