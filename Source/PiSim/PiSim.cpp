@@ -11,7 +11,8 @@
 #include "PiSimGarageRobot.h"
 #include "PiSimPrimitiveCube.h"
 #include "BlueprintEditorModule.h"
-#include "WorkflowOrientedApp/WorkflowCentricTabManager.h"
+#include "BlueprintEditor.h"
+#include "Kismet2/BlueprintEditorUtils.h"
 
 class FPiSimRobotDetailCustomization : public IDetailCustomization
 {
