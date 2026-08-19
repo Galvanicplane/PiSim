@@ -61,48 +61,6 @@ void FPiSimModule::StartupModule()
 			APiSimGarageRobot::StaticClass()->GetFName(),
 			FOnGetDetailCustomizationInstance::CreateStatic(&FPiSimRobotDetailCustomization::MakeInstance)
 		);
-
-		// Block Graph Editor Tab for APiSimPrimitiveCube and all its subclasses!
-		auto RegisterBlueprintTabBlocker = []()
-		{
-			if (FModuleManager::Get().IsModuleLoaded("Kismet"))
-			{
-				FBlueprintEditorModule& BlueprintEditorModule = FModuleManager::GetModuleChecked<FBlueprintEditorModule>("Kismet");
-				BlueprintEditorModule.OnRegisterTabsForEditor().AddLambda([](FWorkflowAllowedTabSet& TabSet, FName ModeName, TSharedPtr<FBlueprintEditor> BlueprintEditor)
-				{
-					if (!BlueprintEditor.IsValid()) return;
-
-					UBlueprint* TargetBP = BlueprintEditor->GetBlueprintObj();
-					if (TargetBP && TargetBP->ParentClass && TargetBP->ParentClass->IsChildOf(APiSimPrimitiveCube::StaticClass()))
-					{
-						// Strip and purge all graph pages so NO nodes can ever exist!
-						TargetBP->UbergraphPages.Empty();
-						TargetBP->FunctionGraphs.Empty();
-						TargetBP->MacroGraphs.Empty();
-						TargetBP->DelegateSignatureGraphs.Empty();
-						TargetBP->LastEditedDocuments.Empty();
-
-						static const FName GraphTabID("GraphEditor");
-						TabSet.UnregisterFactory(GraphTabID);
-					}
-				});
-			}
-		};
-
-		if (FModuleManager::Get().IsModuleLoaded("Kismet"))
-		{
-			RegisterBlueprintTabBlocker();
-		}
-		else
-		{
-			FModuleManager::Get().OnModulesChanged().AddLambda([RegisterBlueprintTabBlocker](FName InModuleName, EModuleChangeReason InReason)
-			{
-				if (InModuleName == "Kismet" && InReason == EModuleChangeReason::ModuleLoaded)
-				{
-					RegisterBlueprintTabBlocker();
-				}
-			});
-		}
 	}
 #endif
 }

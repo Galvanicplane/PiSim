@@ -13,7 +13,7 @@
 #include "ROS2UE5Converter.h"
 #include "PiSimPrimitiveCube.generated.h"
 
-UCLASS()
+UCLASS(NotBlueprintable, NotBlueprintType, Placeable)
 class PISIM_API APiSimPrimitiveCube : public AActor
 {
     GENERATED_BODY()
