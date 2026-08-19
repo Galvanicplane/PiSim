@@ -41,14 +41,67 @@ struct FGLBChunkHeader
 #pragma pack(pop)
 
 APiSimGarageRobot::APiSimGarageRobot()
-
 {
     PrimaryActorTick.bCanEverTick = true;
     AutoPossessPlayer = EAutoReceiveInput::Player0;
 
+    // 1) Primary Native Root Box Collision for Robot Chassis (Constructed in Init / CDO)
+    ChassisCollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("ChassisCollisionBox"));
+    SetRootComponent(ChassisCollisionBox);
+    ChassisCollisionBox->InitBoxExtent(FVector(10.0f, 21.5f, 9.5f)); // 20cm x 43cm x 19cm Chassis bounds
+    ChassisCollisionBox->SetRelativeLocation(FVector(0.0f, 1.4f, 2.7f));
+    ChassisCollisionBox->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    ChassisCollisionBox->SetCollisionObjectType(ECC_WorldDynamic);
+    ChassisCollisionBox->SetCollisionResponseToAllChannels(ECR_Block);
+    ChassisCollisionBox->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+    ChassisCollisionBox->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+    ChassisCollisionBox->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+    ChassisCollisionBox->SetMobility(EComponentMobility::Movable);
+
+    // 2) Native Wheel Collision Spheres (Constructed in Init / CDO)
+    WheelCollision_FL = CreateDefaultSubobject<USphereComponent>(TEXT("WheelCollision_FL"));
+    WheelCollision_FL->SetupAttachment(ChassisCollisionBox);
+    WheelCollision_FL->InitSphereRadius(5.9f);
+    WheelCollision_FL->SetRelativeLocation(FVector(14.1f, 16.9f, -2.7f));
+    WheelCollision_FL->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    WheelCollision_FL->SetCollisionObjectType(ECC_WorldDynamic);
+    WheelCollision_FL->SetCollisionResponseToAllChannels(ECR_Block);
+    WheelCollision_FL->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+    WheelCollision_FL->SetMobility(EComponentMobility::Movable);
+
+    WheelCollision_FR = CreateDefaultSubobject<USphereComponent>(TEXT("WheelCollision_FR"));
+    WheelCollision_FR->SetupAttachment(ChassisCollisionBox);
+    WheelCollision_FR->InitSphereRadius(5.9f);
+    WheelCollision_FR->SetRelativeLocation(FVector(-14.1f, 16.9f, -2.7f));
+    WheelCollision_FR->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    WheelCollision_FR->SetCollisionObjectType(ECC_WorldDynamic);
+    WheelCollision_FR->SetCollisionResponseToAllChannels(ECR_Block);
+    WheelCollision_FR->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+    WheelCollision_FR->SetMobility(EComponentMobility::Movable);
+
+    WheelCollision_RL = CreateDefaultSubobject<USphereComponent>(TEXT("WheelCollision_RL"));
+    WheelCollision_RL->SetupAttachment(ChassisCollisionBox);
+    WheelCollision_RL->InitSphereRadius(5.9f);
+    WheelCollision_RL->SetRelativeLocation(FVector(14.1f, -16.9f, -2.7f));
+    WheelCollision_RL->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    WheelCollision_RL->SetCollisionObjectType(ECC_WorldDynamic);
+    WheelCollision_RL->SetCollisionResponseToAllChannels(ECR_Block);
+    WheelCollision_RL->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+    WheelCollision_RL->SetMobility(EComponentMobility::Movable);
+
+    WheelCollision_RR = CreateDefaultSubobject<USphereComponent>(TEXT("WheelCollision_RR"));
+    WheelCollision_RR->SetupAttachment(ChassisCollisionBox);
+    WheelCollision_RR->InitSphereRadius(5.9f);
+    WheelCollision_RR->SetRelativeLocation(FVector(-14.1f, -16.9f, -2.7f));
+    WheelCollision_RR->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+    WheelCollision_RR->SetCollisionObjectType(ECC_WorldDynamic);
+    WheelCollision_RR->SetCollisionResponseToAllChannels(ECR_Block);
+    WheelCollision_RR->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+    WheelCollision_RR->SetMobility(EComponentMobility::Movable);
+
     // Create Physics Collision Skeletal Mesh Component (robot_collision.fbx)
     CollisionSkeletalMeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("CollisionSkeletalMeshComponent"));
-    CollisionSkeletalMeshComponent->SetupAttachment(RootComponent);
+    CollisionSkeletalMeshComponent->SetupAttachment(ChassisCollisionBox);
     CollisionSkeletalMeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
     CollisionSkeletalMeshComponent->SetCollisionObjectType(ECC_WorldDynamic);
 
@@ -60,7 +113,7 @@ APiSimGarageRobot::APiSimGarageRobot()
 
     // Create SpaceX Configurator 360 Orbit Camera System
     ConfiguratorSpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("ConfiguratorSpringArm"));
-    ConfiguratorSpringArm->SetupAttachment(RootComponent);
+    ConfiguratorSpringArm->SetupAttachment(ChassisCollisionBox);
     ConfiguratorSpringArm->TargetArmLength = 350.0f; // 3.5 meters framing
     ConfiguratorSpringArm->SetRelativeRotation(FRotator(-20.0f, 45.0f, 0.0f));
     ConfiguratorSpringArm->bUsePawnControlRotation = false;
@@ -73,7 +126,7 @@ APiSimGarageRobot::APiSimGarageRobot()
 
     // Attach FPV Camera Capture Component
     FpvCameraComponent = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("FpvCameraComponent"));
-    FpvCameraComponent->SetupAttachment(RootComponent);
+    FpvCameraComponent->SetupAttachment(ChassisCollisionBox);
     FpvCameraComponent->SetRelativeLocation(FVector(60.0f, 0.0f, 10.0f));
     FpvCameraComponent->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f));
     FpvCameraComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
@@ -1955,6 +2008,12 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
                 SubMeshComponents[i]->SetSimulatePhysics(false);
             }
         }
+
+        if (ChassisCollisionBox)
+        {
+            ChassisCollisionBox->SetSimulatePhysics(false);
+            ChassisCollisionBox->SetEnableGravity(false);
+        }
         
         // Clear old joint physics constraints
         for (UPhysicsConstraintComponent* Constraint : JointPhysicsConstraints)
@@ -2074,8 +2133,26 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
     SubMeshComponents[0]->SetMassOverrideInKg(NAME_None, 35.0f, true);
     SubMeshComponents[0]->WakeRigidBody();
 
+    if (ChassisCollisionBox)
+    {
+        ChassisCollisionBox->SetMobility(EComponentMobility::Movable);
+        ChassisCollisionBox->SetSimulatePhysics(true);
+        ChassisCollisionBox->SetEnableGravity(TestMode != EPhysicsTestMode::HoldInAir);
+        ChassisCollisionBox->SetMassOverrideInKg(NAME_None, 35.0f, true);
+        ChassisCollisionBox->WakeRigidBody();
+    }
+
     if (TestMode == EPhysicsTestMode::HoldInAir)
     {
+        if (ChassisCollisionBox)
+        {
+            ChassisCollisionBox->BodyInstance.bLockXTranslation = true;
+            ChassisCollisionBox->BodyInstance.bLockYTranslation = true;
+            ChassisCollisionBox->BodyInstance.bLockZTranslation = true;
+            ChassisCollisionBox->BodyInstance.bLockXRotation = false;
+            ChassisCollisionBox->BodyInstance.bLockYRotation = false;
+            ChassisCollisionBox->BodyInstance.bLockZRotation = false;
+        }
         SubMeshComponents[0]->BodyInstance.bLockXTranslation = true;
         SubMeshComponents[0]->BodyInstance.bLockYTranslation = true;
         SubMeshComponents[0]->BodyInstance.bLockZTranslation = true;
@@ -2085,6 +2162,15 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
     }
     else if (TestMode == EPhysicsTestMode::LockRotation)
     {
+        if (ChassisCollisionBox)
+        {
+            ChassisCollisionBox->BodyInstance.bLockXTranslation = false;
+            ChassisCollisionBox->BodyInstance.bLockYTranslation = false;
+            ChassisCollisionBox->BodyInstance.bLockZTranslation = false;
+            ChassisCollisionBox->BodyInstance.bLockXRotation = true;
+            ChassisCollisionBox->BodyInstance.bLockYRotation = true;
+            ChassisCollisionBox->BodyInstance.bLockZRotation = true;
+        }
         SubMeshComponents[0]->BodyInstance.bLockXTranslation = false;
         SubMeshComponents[0]->BodyInstance.bLockYTranslation = false;
         SubMeshComponents[0]->BodyInstance.bLockZTranslation = false;
@@ -2094,6 +2180,15 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
     }
     else if (TestMode == EPhysicsTestMode::FreeSim)
     {
+        if (ChassisCollisionBox)
+        {
+            ChassisCollisionBox->BodyInstance.bLockXTranslation = false;
+            ChassisCollisionBox->BodyInstance.bLockYTranslation = false;
+            ChassisCollisionBox->BodyInstance.bLockZTranslation = false;
+            ChassisCollisionBox->BodyInstance.bLockXRotation = false;
+            ChassisCollisionBox->BodyInstance.bLockYRotation = false;
+            ChassisCollisionBox->BodyInstance.bLockZRotation = false;
+        }
         SubMeshComponents[0]->BodyInstance.bLockXTranslation = false;
         SubMeshComponents[0]->BodyInstance.bLockYTranslation = false;
         SubMeshComponents[0]->BodyInstance.bLockZTranslation = false;

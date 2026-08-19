@@ -110,6 +110,26 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Garage")
     UStaticMeshComponent* ChassisMeshComponent;
 
+    /** Primary Native Box Collision for Robot Chassis (Constructed in CDO / Init) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Collision")
+    class UBoxComponent* ChassisCollisionBox;
+
+    /** Native Sphere Collision for Front-Left Wheel (Constructed in CDO / Init) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Collision")
+    class USphereComponent* WheelCollision_FL;
+
+    /** Native Sphere Collision for Front-Right Wheel (Constructed in CDO / Init) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Collision")
+    class USphereComponent* WheelCollision_FR;
+
+    /** Native Sphere Collision for Rear-Left Wheel (Constructed in CDO / Init) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Collision")
+    class USphereComponent* WheelCollision_RL;
+
+    /** Native Sphere Collision for Rear-Right Wheel (Constructed in CDO / Init) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Collision")
+    class USphereComponent* WheelCollision_RR;
+
     /** Primary Physics Collision Skeletal Mesh Component (robot_collision.fbx) */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Skeletal")
     USkeletalMeshComponent* CollisionSkeletalMeshComponent;
