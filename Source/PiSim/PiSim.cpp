@@ -58,9 +58,14 @@ void FPiSimModule::CustomizeEditorToolbarsAndMenus()
 	UToolMenu* AddNewMenu = ToolMenus->ExtendMenu("ContentBrowser.AddNewContextMenu");
 	if (AddNewMenu)
 	{
-		// Remove Niagara System from CreateBasicAssets section
-		AddNewMenu->RemoveEntry("CreateBasicAssets", "NiagaraSystem");
-		AddNewMenu->RemoveEntry("CreateBasicAssets", "NiagaraEmitter");
+		// Remove Niagara from CreateBasicAssets section
+		FToolMenuSection* BasicSection = AddNewMenu->FindSection("CreateBasicAssets");
+		if (BasicSection)
+		{
+			BasicSection->Blocks.RemoveAll([](const FToolMenuEntry& Entry) {
+				return Entry.Name == "NiagaraSystem" || Entry.Name == "NiagaraEmitter" || Entry.Name == "Niagara";
+			});
+		}
 
 		// Remove all category sub-menus below Material
 		const TCHAR* CategoriesToRemove[] = {
@@ -88,7 +93,6 @@ void FPiSimModule::CustomizeEditorToolbarsAndMenus()
 		for (const TCHAR* Cat : CategoriesToRemove)
 		{
 			AddNewMenu->RemoveSection(FName(Cat));
-			AddNewMenu->RemoveEntry(NAME_None, FName(Cat));
 		}
 	}
 }
