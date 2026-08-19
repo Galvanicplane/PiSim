@@ -18,7 +18,6 @@ void FPiSimModule::StartupModule()
 		if (UToolMenus::Get())
 		{
 			CustomizeEditorToolbarsAndMenus();
-			UToolMenus::Get()->RefreshAllIfStale();
 		}
 	}
 #endif
