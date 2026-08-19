@@ -5,6 +5,35 @@
 
 #if WITH_EDITOR
 #include "ToolMenus.h"
+#include "PropertyEditorModule.h"
+#include "DetailLayoutBuilder.h"
+#include "IDetailCustomization.h"
+#include "PiSimGarageRobot.h"
+
+class FPiSimRobotDetailCustomization : public IDetailCustomization
+{
+public:
+	static TSharedRef<IDetailCustomization> MakeInstance()
+	{
+		return MakeShareable(new FPiSimRobotDetailCustomization());
+	}
+
+	virtual void CustomizeDetails(IDetailLayoutBuilder& DetailBuilder) override
+	{
+		// ❌ Hide Lighting and other non-simulation categories from Details Panel!
+		DetailBuilder.HideCategory("Lighting");
+		DetailBuilder.HideCategory("Rendering");
+		DetailBuilder.HideCategory("HLOD");
+		DetailBuilder.HideCategory("Navigation");
+		DetailBuilder.HideCategory("Replication");
+		DetailBuilder.HideCategory("Input");
+		DetailBuilder.HideCategory("ActorTick");
+		DetailBuilder.HideCategory("LOD");
+		DetailBuilder.HideCategory("Cooking");
+		DetailBuilder.HideCategory("DataLayers");
+		DetailBuilder.HideCategory("WorldPartition");
+	}
+};
 #endif
 
 void FPiSimModule::StartupModule()
@@ -20,6 +49,13 @@ void FPiSimModule::StartupModule()
 		{
 			CustomizeEditorToolbarsAndMenus();
 		}
+
+		// Register Custom Details Layout for APiSimGarageRobot
+		FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+		PropertyModule.RegisterCustomClassLayout(
+			APiSimGarageRobot::StaticClass()->GetFName(),
+			FOnGetDetailCustomizationInstance::CreateStatic(&FPiSimRobotDetailCustomization::MakeInstance)
+		);
 	}
 #endif
 }
@@ -31,6 +67,12 @@ void FPiSimModule::ShutdownModule()
 	{
 		UToolMenus::UnRegisterStartupCallback(this);
 		UToolMenus::UnregisterOwner(this);
+	}
+
+	if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
+	{
+		FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
+		PropertyModule.UnregisterCustomClassLayout(APiSimGarageRobot::StaticClass()->GetFName());
 	}
 #endif
 }

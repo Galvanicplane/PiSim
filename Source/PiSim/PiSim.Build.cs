@@ -35,7 +35,8 @@ public class PiSim : ModuleRules
 				"UnrealEd",
 				"ToolMenus",
 				"ContentBrowser",
-				"LevelEditor"
+				"LevelEditor",
+				"PropertyEditor"
 			});
 		}
 	}
