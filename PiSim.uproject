@@ -28,6 +28,14 @@
 		{
 			"Name": "GeoReferencing",
 			"Enabled": true
+		},
+		{
+			"Name": "Niagara",
+			"Enabled": false
+		},
+		{
+			"Name": "NiagaraFluids",
+			"Enabled": false
 		}
 	]
 }
