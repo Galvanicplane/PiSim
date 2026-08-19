@@ -75,9 +75,15 @@ void FPiSimModule::StartupModule()
 					UBlueprint* TargetBP = BlueprintEditor->GetBlueprintObj();
 					if (TargetBP && TargetBP->ParentClass && TargetBP->ParentClass->IsChildOf(APiSimPrimitiveCube::StaticClass()))
 					{
+						// Strip and purge all graph pages so NO nodes can ever exist!
+						TargetBP->UbergraphPages.Empty();
+						TargetBP->FunctionGraphs.Empty();
+						TargetBP->MacroGraphs.Empty();
+						TargetBP->DelegateSignatureGraphs.Empty();
+						TargetBP->LastEditedDocuments.Empty();
+
 						static const FName GraphTabID("GraphEditor");
 						TabSet.UnregisterFactory(GraphTabID);
-						TargetBP->LastEditedDocuments.Empty();
 					}
 				});
 			}
