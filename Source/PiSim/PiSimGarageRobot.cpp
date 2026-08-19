@@ -2030,6 +2030,13 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
     }
 
     // 1) Configure Gazebo-Style Links (Each CM_ component is an independent simulated Rigid Body)
+    if (SubMeshComponents.IsValidIndex(0) && SubMeshComponents[0])
+    {
+        SubMeshComponents[0]->SetMobility(EComponentMobility::Movable);
+        SubMeshComponents[0]->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+        SetRootComponent(SubMeshComponents[0]);
+    }
+
     for (int32 i = 0; i < SubMeshComponents.Num(); ++i)
     {
         if (!SubMeshComponents[i]) continue;
@@ -2051,11 +2058,13 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
             SubMeshComponents[i]->RecreatePhysicsState();
 
             // EVERY LINK SIMULATES PHYSICS NATIVELY LIKE GAZEBO (100% IMPOSSIBLE TO PENETRATE THE FLOOR!)
+            SubMeshComponents[i]->SetMobility(EComponentMobility::Movable);
             SubMeshComponents[i]->SetSimulatePhysics(true);
             SubMeshComponents[i]->SetEnableGravity(TestMode != EPhysicsTestMode::HoldInAir);
             SubMeshComponents[i]->SetMassOverrideInKg(NAME_None, (i == 0 ? 30.0f : 2.5f), true);
             SubMeshComponents[i]->SetLinearDamping(0.8f);
             SubMeshComponents[i]->SetAngularDamping(2.0f);
+            SubMeshComponents[i]->WakeRigidBody();
         }
         else
         {
@@ -2074,7 +2083,7 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
 
                 FName ConstraintName = *FString::Printf(TEXT("GazeboJoint_%d"), i);
                 UPhysicsConstraintComponent* ConstraintComp = NewObject<UPhysicsConstraintComponent>(this, ConstraintName);
-                ConstraintComp->SetupAttachment(RootComponent);
+                ConstraintComp->SetupAttachment(SubMeshComponents[0]);
                 ConstraintComp->SetWorldLocation(SubMeshComponents[i]->GetComponentLocation());
                 ConstraintComp->RegisterComponent();
 
@@ -2111,15 +2120,29 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
         }
     }
 
+    // Activate Physics on Bone Collision Shapes
+    for (int32 i = 0; i < BoneCollisionComponents.Num(); ++i)
+    {
+        if (BoneCollisionComponents[i])
+        {
+            BoneCollisionComponents[i]->SetMobility(EComponentMobility::Movable);
+            BoneCollisionComponents[i]->SetSimulatePhysics(true);
+            BoneCollisionComponents[i]->SetEnableGravity(TestMode != EPhysicsTestMode::HoldInAir);
+            BoneCollisionComponents[i]->WakeRigidBody();
+        }
+    }
+
     ResetDevKitTestValues();
     SubMeshComponents[0]->SetPhysicsLinearVelocity(FVector::ZeroVector);
     SubMeshComponents[0]->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
     SubMeshComponents[0]->SetLinearDamping(0.8f);
     SubMeshComponents[0]->SetAngularDamping(2.0f);
 
+    SubMeshComponents[0]->SetMobility(EComponentMobility::Movable);
     SubMeshComponents[0]->SetSimulatePhysics(true);
     SubMeshComponents[0]->SetEnableGravity(TestMode != EPhysicsTestMode::HoldInAir);
     SubMeshComponents[0]->SetMassOverrideInKg(NAME_None, 35.0f, true);
+    SubMeshComponents[0]->WakeRigidBody();
 
     if (TestMode == EPhysicsTestMode::HoldInAir)
     {
