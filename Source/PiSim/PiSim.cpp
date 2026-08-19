@@ -68,7 +68,7 @@ void FPiSimModule::StartupModule()
 			if (FModuleManager::Get().IsModuleLoaded("Kismet"))
 			{
 				FBlueprintEditorModule& BlueprintEditorModule = FModuleManager::GetModuleChecked<FBlueprintEditorModule>("Kismet");
-				BlueprintEditorModule.OnRegisterTabsForEditor().AddLambda([](auto* TabManager, auto BlueprintEditor)
+				BlueprintEditorModule.OnRegisterTabsForEditor().AddLambda([](FWorkflowAllowedTabSet& TabSet, FName ModeName, TSharedPtr<FBlueprintEditor> BlueprintEditor)
 				{
 					if (!BlueprintEditor.IsValid()) return;
 
@@ -76,10 +76,7 @@ void FPiSimModule::StartupModule()
 					if (TargetBP && TargetBP->ParentClass && TargetBP->ParentClass->IsChildOf(APiSimPrimitiveCube::StaticClass()))
 					{
 						static const FName GraphTabID("GraphEditor");
-						if (TabManager && TabManager->HasTabSpawner(GraphTabID))
-						{
-							TabManager->UnregisterTabSpawner(GraphTabID);
-						}
+						TabSet.UnregisterFactory(GraphTabID);
 					}
 				});
 			}
