@@ -36,7 +36,9 @@ public class PiSim : ModuleRules
 				"ToolMenus",
 				"ContentBrowser",
 				"LevelEditor",
-				"PropertyEditor"
+				"PropertyEditor",
+				"BlueprintGraph",
+				"Kismet"
 			});
 		}
 	}

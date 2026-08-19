@@ -9,6 +9,9 @@
 #include "DetailLayoutBuilder.h"
 #include "IDetailCustomization.h"
 #include "PiSimGarageRobot.h"
+#include "PiSimPrimitiveCube.h"
+#include "BlueprintEditorModule.h"
+#include "WorkflowOrientedApp/WorkflowCentricTabManager.h"
 
 class FPiSimRobotDetailCustomization : public IDetailCustomization
 {
@@ -56,6 +59,44 @@ void FPiSimModule::StartupModule()
 			APiSimGarageRobot::StaticClass()->GetFName(),
 			FOnGetDetailCustomizationInstance::CreateStatic(&FPiSimRobotDetailCustomization::MakeInstance)
 		);
+
+		// Block Graph Editor Tab for APiSimPrimitiveCube and all its subclasses!
+		auto RegisterBlueprintTabBlocker = []()
+		{
+			if (FModuleManager::Get().IsModuleLoaded("Kismet"))
+			{
+				FBlueprintEditorModule& BlueprintEditorModule = FModuleManager::GetModuleChecked<FBlueprintEditorModule>("Kismet");
+				BlueprintEditorModule.OnRegisterTabsForEditor().AddLambda([](FWorkflowCentricTabManager* TabManager, TSharedPtr<FBlueprintEditor> BlueprintEditor)
+				{
+					if (!BlueprintEditor.IsValid()) return;
+
+					UBlueprint* TargetBP = BlueprintEditor->GetBlueprintObj();
+					if (TargetBP && TargetBP->ParentClass && TargetBP->ParentClass->IsChildOf(APiSimPrimitiveCube::StaticClass()))
+					{
+						static const FName GraphTabID("GraphEditor");
+						if (TabManager && TabManager->HasTabSpawner(GraphTabID))
+						{
+							TabManager->UnregisterTabSpawner(GraphTabID);
+						}
+					}
+				});
+			}
+		};
+
+		if (FModuleManager::Get().IsModuleLoaded("Kismet"))
+		{
+			RegisterBlueprintTabBlocker();
+		}
+		else
+		{
+			FModuleManager::Get().OnModulesChanged().AddLambda([RegisterBlueprintTabBlocker](FName InModuleName, EModuleChangeReason InReason)
+			{
+				if (InModuleName == "Kismet" && InReason == EModuleChangeReason::ModuleLoaded)
+				{
+					RegisterBlueprintTabBlocker();
+				}
+			});
+		}
 	}
 #endif
 }
