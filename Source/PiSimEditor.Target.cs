@@ -12,7 +12,7 @@ public class PiSimEditorTarget : TargetRules
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_7;
 
 		bUsePCHFiles = true;
-		bUseUnityBuild = false; // Fast incremental Live Coding & single file compile
+		bUseUnityBuild = true; // Fast Unity compilation
 
 		ExtraModuleNames.AddRange( new string[] { "PiSim" } );
 	}
