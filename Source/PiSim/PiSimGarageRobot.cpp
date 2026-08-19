@@ -720,6 +720,40 @@ void APiSimGarageRobot::BeginPlay()
                 SubComp->RecreatePhysicsState();
                 SubComp->UpdateBounds();
 
+                // Create dedicated native Collision Shape for this Bone (Box for Chassis, Sphere/Capsule for Wheels)
+                UShapeComponent* BoneCol = nullptr;
+                FBox BoundingBox(Sections[SecIdx].Vertices);
+                FVector Center = BoundingBox.GetCenter();
+                FVector Extent = BoundingBox.GetExtent();
+
+                if (MeshName.Contains(TEXT("wheel"), ESearchCase::IgnoreCase))
+                {
+                    USphereComponent* SphereComp = NewObject<USphereComponent>(this, *FString::Printf(TEXT("BoneCol_%s_%d"), *MeshName, SecIdx));
+                    SphereComp->InitSphereRadius(FMath::Max(Extent.Y, Extent.Z));
+                    BoneCol = SphereComp;
+                }
+                else
+                {
+                    UBoxComponent* BoxComp = NewObject<UBoxComponent>(this, *FString::Printf(TEXT("BoneCol_%s_%d"), *MeshName, SecIdx));
+                    BoxComp->InitBoxExtent(Extent);
+                    BoneCol = BoxComp;
+                }
+
+                if (BoneCol)
+                {
+                    BoneCol->SetupAttachment(SubComp);
+                    BoneCol->SetRelativeLocation(Center);
+                    BoneCol->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+                    BoneCol->SetCollisionObjectType(ECC_WorldDynamic);
+                    BoneCol->SetCollisionResponseToAllChannels(ECR_Block);
+                    BoneCol->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+                    BoneCol->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+                    BoneCol->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+                    BoneCol->SetHiddenInGame(false); // Make native collision wireframes visible!
+                    BoneCol->RegisterComponent();
+                    BoneCollisionComponents.Add(BoneCol);
+                }
+
                 SubComp->SetVisibility(true);
                 SubComp->SetHiddenInGame(false);
 
@@ -2048,6 +2082,19 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
 
                 // GAZEBO PARENT-CHILD COLLISION FILTERING: DISABLE SELF-COLLISION BETWEEN CONNECTED LINKS!
                 ConstraintComp->SetDisableCollision(true);
+
+                // Orient Constraint so that Twist axis matches JointLimitsList[i].RotationAxis
+                FRotator ConstraintRot = FRotator::ZeroRotator;
+                FVector Axis = JointLimitsList.IsValidIndex(i) ? JointLimitsList[i].RotationAxis : FVector(0, 1, 0);
+                if (Axis.Equals(FVector(0, 1, 0), 0.1f) || Axis.Equals(FVector(0, -1, 0), 0.1f))
+                {
+                    ConstraintRot = FRotator(0, 90, 0); // Align Twist with Y axis
+                }
+                else if (Axis.Equals(FVector(0, 0, 1), 0.1f) || Axis.Equals(FVector(0, 0, -1), 0.1f))
+                {
+                    ConstraintRot = FRotator(90, 0, 0); // Align Twist with Z axis
+                }
+                ConstraintComp->SetWorldRotation(ConstraintRot);
 
                 // Lock Linear Motion (Wheel/Link CANNOT detach from axle origin)
                 ConstraintComp->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);

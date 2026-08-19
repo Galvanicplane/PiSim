@@ -146,6 +146,10 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Test")
     class UCapsuleComponent* TestCylinderCollision = nullptr;
 
+    /** Native Physical Collision Shapes per Bone (Box for Chassis, Sphere/Capsule for Wheels) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Collision")
+    TArray<class UShapeComponent*> BoneCollisionComponents;
+
     /** Parent section index for each sub-mesh (-1 if root) */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Garage")
     TArray<int32> ParentJointIndices;
