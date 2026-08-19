@@ -12,6 +12,7 @@
 #include "PiSimPrimitiveCube.h"
 #include "BlueprintEditorModule.h"
 #include "BlueprintEditor.h"
+#include "WorkflowOrientedApp/WorkflowTabManager.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 
 class FPiSimRobotDetailCustomization : public IDetailCustomization
