@@ -77,7 +77,7 @@ void FPiSimModule::StartupModule()
 					{
 						static const FName GraphTabID("GraphEditor");
 						TabSet.UnregisterFactory(GraphTabID);
-						BlueprintEditor->CloseAllDocumentTabs();
+						TargetBP->LastEditedDocuments.Empty();
 					}
 				});
 			}
