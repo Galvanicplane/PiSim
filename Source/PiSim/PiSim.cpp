@@ -68,7 +68,7 @@ void FPiSimModule::StartupModule()
 			if (FModuleManager::Get().IsModuleLoaded("Kismet"))
 			{
 				FBlueprintEditorModule& BlueprintEditorModule = FModuleManager::GetModuleChecked<FBlueprintEditorModule>("Kismet");
-				BlueprintEditorModule.OnRegisterTabsForEditor().AddLambda([](FWorkflowCentricTabManager* TabManager, TSharedPtr<FBlueprintEditor> BlueprintEditor)
+				BlueprintEditorModule.OnRegisterTabsForEditor().AddLambda([](auto* TabManager, auto BlueprintEditor)
 				{
 					if (!BlueprintEditor.IsValid()) return;
 
