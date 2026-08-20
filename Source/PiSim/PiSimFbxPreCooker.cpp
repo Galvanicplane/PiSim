@@ -50,7 +50,7 @@ bool APiSimFbxPreCooker::BakeTwoFbxRobotFiles(const FString& CollisionFbxPath, c
     bool bCollisionOk = false;
     if (FPaths::FileExists(CollisionFbxPath))
     {
-        bCollisionOk = APiSimGarageRobot::ParseFbxAllBinaryMeshes(CollisionFbxPath, CollisionSections, 1.0f);
+        bCollisionOk = APiSimGarageRobot::ParseFbxAllBinaryMeshes(CollisionFbxPath, CollisionSections, 0.1f);
     }
 
     // 2) Bake Visual FBX
@@ -58,7 +58,7 @@ bool APiSimFbxPreCooker::BakeTwoFbxRobotFiles(const FString& CollisionFbxPath, c
     bool bVisualOk = false;
     if (FPaths::FileExists(VisualFbxPath))
     {
-        bVisualOk = APiSimGarageRobot::ParseFbxAllBinaryMeshes(VisualFbxPath, VisualSections, 1.0f);
+        bVisualOk = APiSimGarageRobot::ParseFbxAllBinaryMeshes(VisualFbxPath, VisualSections, 0.1f);
     }
 
     // 3) Save pre-cooked binary caches to Saved/Robots/Baked/

@@ -19,13 +19,17 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|PreCooker 2")
     USceneComponent* SceneRoot;
 
-    /** Target FBX filename in Saved/Robots/Cache/ (Default: robot1.fbx) */
+    /** Target FBX filename in Saved/Robots/Cache/ (Default: rbot1.fbx) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|PreCooker 2")
-    FString SourceFbxFileName = TEXT("robot1.fbx");
+    FString SourceFbxFileName = TEXT("rbot1.fbx");
 
     /** Auto Generate Collision flag (Default: False / Disabled as requested) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|PreCooker 2")
     bool bAutoGenerateCollision = false;
+
+    /** Scale Multiplier applied to FBX geometry (Default: 1.0f, change to 10.0 or 100.0 if exported in millimeters/meters) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|PreCooker 2", meta = (ClampMin = "0.001", ClampMax = "1000.0"))
+    float ImportScale = 1.0f;
 
     /** Optional custom full path if file is outside Saved/Robots/Cache/ */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|PreCooker 2")
