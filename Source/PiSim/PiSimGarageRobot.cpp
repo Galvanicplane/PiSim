@@ -743,39 +743,21 @@ void APiSimGarageRobot::BeginPlay()
                     SubComp->SetMaterial(0, DefaultMat);
                 }
 
-                bool bIsCollisionShape = MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
-                                         MeshName.StartsWith(TEXT("UC_"), ESearchCase::IgnoreCase) ||
-                                         MeshName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
-                                         MeshName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase) ||
-                                         MeshName.StartsWith(TEXT("UCP_"), ESearchCase::IgnoreCase) ||
-                                         MeshName.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase) ||
-                                         MeshName.StartsWith(TEXT("COL_"), ESearchCase::IgnoreCase);
-
-                if (bIsCollisionShape)
-                {
-                    // Collision Hull: Calculates physical convex collision
-                    SubComp->ClearCollisionConvexMeshes();
-                    SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
-                    SubComp->bUseComplexAsSimpleCollision = false;
-                    SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-                    SubComp->SetCollisionObjectType(ECC_WorldDynamic);
-                    SubComp->SetCollisionResponseToAllChannels(ECR_Block);
-                    SubComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-                    SubComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-                    SubComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-                }
-                else
-                {
-                    // High-Poly Visual Mesh: Pure Render, NO heavy collision calculation
-                    SubComp->bUseComplexAsSimpleCollision = false;
-                    SubComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-                    SubComp->SetCollisionResponseToAllChannels(ECR_Ignore);
-                }
+                // RESTORE PROVEN ROCK-SOLID COLLISION ON ALL SUB-MESHES
+                SubComp->ClearCollisionConvexMeshes();
+                SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
+                SubComp->bUseComplexAsSimpleCollision = false;
+                SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+                SubComp->SetCollisionObjectType(ECC_WorldDynamic);
+                SubComp->SetCollisionResponseToAllChannels(ECR_Block);
+                SubComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+                SubComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+                SubComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 
                 SubComp->RecreatePhysicsState();
                 SubComp->UpdateBounds();
 
-                // EVERYTHING IS VISIBLE (No hidden geometry)
+                // All components visible in scene
                 SubComp->SetVisibility(true);
                 SubComp->SetHiddenInGame(false);
 
