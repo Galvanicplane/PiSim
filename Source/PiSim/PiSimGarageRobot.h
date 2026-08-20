@@ -111,6 +111,11 @@ protected:
 
 public:    
     virtual void Tick(float DeltaTime) override;
+    virtual void OnConstruction(const FTransform& Transform) override;
+
+    /** Overall Scale Multiplier for the CAD / FBX Model (Default: 1.0) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Transform", meta = (ClampMin = "0.001", ClampMax = "1000.0"))
+    float ModelScaleMultiplier = 1.0f;
 
     /** Root Static Mesh Component for the Robot Chassis */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Garage")
@@ -182,6 +187,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Garage")
     void StartJointMinMaxSweep(int32 JointIndex);
 
+    /** Scale robot actor and all sub-mesh procedural components */
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Transform")
+    void SetRobotScale(float NewScale);
+
     /** Array of Joint Limit Settings per sub-mesh */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Garage")
     TArray<FPiSimJointLimits> JointLimitsList;
@@ -232,9 +241,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Garage")
     bool SaveConfig(const FString& ConfigFilePath = TEXT(""));
 
-    /** CAD Model Scale Multiplier (Default 0.1 for mm->cm scale conversion) */
+    /** CAD Model Scale Multiplier (Default 1.0 for pure 1:1 scale) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Garage", meta = (ClampMin = "0.001", ClampMax = "1000.0"))
-    float CadUnitScaleMultiplier = 0.1f;
+    float CadUnitScaleMultiplier = 1.0f;
 
     /** Apply dynamic convex hull collision setup to chassis mesh */
     UFUNCTION(BlueprintCallable, Category = "PiSim|Garage")
@@ -259,7 +268,7 @@ public:
     void SetJointEulerAngles(int32 SectionIndex, FVector EulerDeg);
 
     /** Parse runtime FBX mesh file directly from disk (Saved/Robots/Cache/robot.fbx) */
-    static bool ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<FGLBMeshSection>& OutSections, float ScaleMultiplier = 0.1f);
+    static bool ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<FGLBMeshSection>& OutSections, float ScaleMultiplier = 1.0f);
 
 
 

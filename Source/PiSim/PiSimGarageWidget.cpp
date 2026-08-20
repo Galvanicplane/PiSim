@@ -388,8 +388,7 @@ void UPiSimGarageWidget::SetCadScaleMultiplierFromUI(float NewScaleMultiplier)
 {
     if (TargetGarageRobot)
     {
-        TargetGarageRobot->CadUnitScaleMultiplier = NewScaleMultiplier;
-        TargetGarageRobot->ReimportCadModel();
+        TargetGarageRobot->SetRobotScale(NewScaleMultiplier);
     }
 }
 
@@ -397,7 +396,7 @@ void UPiSimGarageWidget::SetRobotActorScaleFromUI(float UniformScale)
 {
     if (TargetGarageRobot)
     {
-        TargetGarageRobot->SetActorScale3D(FVector(UniformScale, UniformScale, UniformScale));
+        TargetGarageRobot->SetRobotScale(UniformScale);
     }
 }
 

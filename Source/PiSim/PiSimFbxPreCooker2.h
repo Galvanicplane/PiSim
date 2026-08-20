@@ -19,9 +19,9 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|PreCooker 2")
     USceneComponent* SceneRoot;
 
-    /** Target FBX filename in Saved/Robots/Cache/ (Default: rbot1.fbx) */
+    /** Target FBX filename in Saved/Robots/Cache/ (Default: robot1.fbx) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|PreCooker 2")
-    FString SourceFbxFileName = TEXT("rbot1.fbx");
+    FString SourceFbxFileName = TEXT("robot1.fbx");
 
     /** Auto Generate Collision flag (Default: False / Disabled as requested) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|PreCooker 2")

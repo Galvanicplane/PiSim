@@ -99,6 +99,38 @@ APiSimGarageRobot::APiSimGarageRobot()
     }
 }
 
+void APiSimGarageRobot::OnConstruction(const FTransform& Transform)
+{
+    Super::OnConstruction(Transform);
+    if (GetRootComponent())
+    {
+        GetRootComponent()->SetWorldScale3D(Transform.GetScale3D() * ModelScaleMultiplier);
+    }
+}
+
+void APiSimGarageRobot::SetRobotScale(float NewScale)
+{
+    CadUnitScaleMultiplier = NewScale;
+    ModelScaleMultiplier = NewScale;
+    SetActorScale3D(FVector(NewScale, NewScale, NewScale));
+    if (GetRootComponent())
+    {
+        GetRootComponent()->SetWorldScale3D(FVector(NewScale, NewScale, NewScale));
+    }
+    for (UProceduralMeshComponent* SubComp : SubMeshComponents)
+    {
+        if (SubComp)
+        {
+            SubComp->SetWorldScale3D(FVector(NewScale, NewScale, NewScale));
+        }
+    }
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow,
+            FString::Printf(TEXT(">>> [ÖLÇEK BUTONU: %.2fX] Robot boyutu anında güncellendi! <<<"), NewScale));
+    }
+}
+
 static bool ParseGlbAllBinaryMeshes(const FString& GlbFilePath, TArray<FGLBMeshSection>& OutSections, float ScaleMultiplier)
 {
     TArray<uint8> FileData;
@@ -517,7 +549,15 @@ void APiSimGarageRobot::BeginPlay()
     }
 
     // Check disk paths for FBX and GLB files in Saved/Robots/Cache/
-    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
+    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot1.fbx");
+    if (!FPaths::FileExists(FbxFullPath))
+    {
+        FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/rbot1.fbx");
+    }
+    if (!FPaths::FileExists(FbxFullPath))
+    {
+        FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
+    }
     if (!FPaths::FileExists(FbxFullPath))
     {
         FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
@@ -530,8 +570,12 @@ void APiSimGarageRobot::BeginPlay()
     TArray<FGLBMeshSection> Sections;
     bool bLoadedDiskModel = false;
 
-    // 0) PRECOOKER 2 BINARY CACHE LOADER: Check rbot1_baked.bin & robot_baked.bin
-    FString BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/rbot1_baked.bin");
+    // 0) PRECOOKER 2 BINARY CACHE LOADER: Check robot1_baked.bin, rbot1_baked.bin & robot_baked.bin
+    FString BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot1_baked.bin");
+    if (!FPaths::FileExists(BakedFilePath))
+    {
+        BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/rbot1_baked.bin");
+    }
     if (!FPaths::FileExists(BakedFilePath))
     {
         BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");
@@ -699,37 +743,21 @@ void APiSimGarageRobot::BeginPlay()
                     SubComp->SetMaterial(0, DefaultMat);
                 }
 
-                if (bIsCMOnly || bIsStructural)
-                {
-                    SubComp->ClearCollisionConvexMeshes();
-                    if (Sections[SecIdx].bHasCustomUCXCollision && Sections[SecIdx].CollisionConvexVertices.Num() > 0)
-                    {
-                        SubComp->AddCollisionConvexMesh(Sections[SecIdx].CollisionConvexVertices);
-                        UE_LOG(LogTemp, Warning, TEXT("[UCX COLLISION ACTIVE] '%s' parçasına %d vertexlik özel UCX Convex Collision uygulandı!"),
-                            *Sections[SecIdx].MeshName, Sections[SecIdx].CollisionConvexVertices.Num());
-                    }
-                    else
-                    {
-                        SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
-                    }
-                    SubComp->bUseComplexAsSimpleCollision = false; // Simple Collision uses Convex Hulls (FKConvexElem)
-                    SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-                    SubComp->SetCollisionObjectType(ECC_WorldDynamic);
-                    SubComp->SetCollisionResponseToAllChannels(ECR_Block);
-                    SubComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-                    SubComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-                    SubComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-                }
-                else
-                {
-                    SubComp->bUseComplexAsSimpleCollision = false;
-                    SubComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-                    SubComp->SetCollisionResponseToAllChannels(ECR_Ignore);
-                }
+                // RESTORE PROVEN ROCK-SOLID COLLISION ON ALL SUB-MESHES
+                SubComp->ClearCollisionConvexMeshes();
+                SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
+                SubComp->bUseComplexAsSimpleCollision = false;
+                SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+                SubComp->SetCollisionObjectType(ECC_WorldDynamic);
+                SubComp->SetCollisionResponseToAllChannels(ECR_Block);
+                SubComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+                SubComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+                SubComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 
                 SubComp->RecreatePhysicsState();
                 SubComp->UpdateBounds();
 
+                // All components visible in scene
                 SubComp->SetVisibility(true);
                 SubComp->SetHiddenInGame(false);
 
@@ -1995,22 +2023,12 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
 
         FString MeshName = SubMeshNames.IsValidIndex(i) ? SubMeshNames[i] : TEXT("");
         bool bIsCMOnly = MeshName.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase);
-        bool bIsStructural = bIsCMOnly || MeshName.StartsWith(TEXT("Chassis"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("COG"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("COL"), ESearchCase::IgnoreCase) || (i == 0);
 
-        if ((bIsCMOnly || bIsStructural) && OriginalSubMeshVertices.IsValidIndex(i) && OriginalSubMeshVertices[i].Num() > 0)
+        if (bIsCMOnly && OriginalSubMeshVertices.IsValidIndex(i) && OriginalSubMeshVertices[i].Num() > 0)
         {
             SubMeshComponents[i]->bUseComplexAsSimpleCollision = false;
             SubMeshComponents[i]->ClearCollisionConvexMeshes();
-            if (LoadedMeshSections.IsValidIndex(i) && LoadedMeshSections[i].bHasCustomUCXCollision && LoadedMeshSections[i].CollisionConvexVertices.Num() > 0)
-            {
-                SubMeshComponents[i]->AddCollisionConvexMesh(LoadedMeshSections[i].CollisionConvexVertices);
-                UE_LOG(LogTemp, Warning, TEXT("[PHYSICS TEST UCX] '%s' parçasına özel UCX Convex Collision uygulandı (%d vertex)!"),
-                    *MeshName, LoadedMeshSections[i].CollisionConvexVertices.Num());
-            }
-            else
-            {
-                SubMeshComponents[i]->AddCollisionConvexMesh(OriginalSubMeshVertices[i]);
-            }
+            SubMeshComponents[i]->AddCollisionConvexMesh(OriginalSubMeshVertices[i]);
 
             SubMeshComponents[i]->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
             SubMeshComponents[i]->SetCollisionObjectType(ECC_WorldDynamic);
@@ -3036,37 +3054,17 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
     }
     else
     {
-        TMap<uint64, FString> ModelNames;
-        TMap<uint64, uint64> GeomToModelMap;
-        CollectFbxModelNamesAndConnections(FileBytes, 27, FileSize, ModelNames, GeomToModelMap);
-
-        bool bHasUCXModel = false;
-        for (const auto& Pair : ModelNames)
+        UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Binary FBX format detected (%d bytes). Attempting Skin Bone Cluster Extraction..."), FileSize);
+        if (ParseFbxSkinClusters(FileBytes, FilePath, OutSections, ScaleMultiplier))
         {
-            if (Pair.Value.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
-                Pair.Value.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
-                Pair.Value.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase))
-            {
-                bHasUCXModel = true;
-                break;
-            }
+            UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER SUCCESS] Successfully extracted %d Skin Bone SubMesh Sections from FBX Clusters!"), OutSections.Num());
         }
-
-        bool bParsed = false;
-        if (!bHasUCXModel)
+        else
         {
-            UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Binary FBX format detected (%d bytes). Attempting Skin Bone Cluster Extraction..."), FileSize);
-            bParsed = ParseFbxSkinClusters(FileBytes, FilePath, OutSections, ScaleMultiplier);
-            if (bParsed)
-            {
-                UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER SUCCESS] Successfully extracted %d Skin Bone SubMesh Sections from FBX Clusters!"), OutSections.Num());
-            }
-        }
-
-        if (!bParsed)
-        {
-            UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Found %d Model Names and %d Connections (HasUCX: %d)! Traversing FBX Node Tree..."),
-                ModelNames.Num(), GeomToModelMap.Num(), bHasUCXModel ? 1 : 0);
+            TMap<uint64, FString> ModelNames;
+            TMap<uint64, uint64> GeomToModelMap;
+            CollectFbxModelNamesAndConnections(FileBytes, 27, FileSize, ModelNames, GeomToModelMap);
+            UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Found %d Model Names and %d Connections! Traversing FBX Node Tree..."), ModelNames.Num(), GeomToModelMap.Num());
             ParseFbxBinaryNodeTreeHelper(FileBytes, 27, FileSize, ModelNames, GeomToModelMap, OutSections, ScaleMultiplier);
 
             // Resolve ParentSectionIndex for each extracted section using FBX parent model connections
@@ -3109,79 +3107,7 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
     }
 
 
-    // -------------------------------------------------------------
-    // UCX_ / UBX_ / USP_ / UCP_ COLLISION FILTERING AND ASSIGNMENT
-    // -------------------------------------------------------------
-    TArray<FGLBMeshSection> VisualSections;
-    TArray<FGLBMeshSection> UCXSections;
-
-    for (const FGLBMeshSection& Sec : OutSections)
-    {
-        if (Sec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
-            Sec.MeshName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
-            Sec.MeshName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase) ||
-            Sec.MeshName.StartsWith(TEXT("UCP_"), ESearchCase::IgnoreCase))
-        {
-            UCXSections.Add(Sec);
-            UE_LOG(LogTemp, Warning, TEXT("[FBX UCX DETECTED] Ozel UCX Collision Parçası Bulundu: %s (%d Vertices)"),
-                *Sec.MeshName, Sec.Vertices.Num());
-        }
-        else
-        {
-            VisualSections.Add(Sec);
-        }
-    }
-
-    if (UCXSections.Num() > 0 && VisualSections.Num() > 0)
-    {
-        for (const FGLBMeshSection& UcxSec : UCXSections)
-        {
-            FString TargetName = UcxSec.MeshName;
-            TargetName.RemoveFromStart(TEXT("UCX_"), ESearchCase::IgnoreCase);
-            TargetName.RemoveFromStart(TEXT("UBX_"), ESearchCase::IgnoreCase);
-            TargetName.RemoveFromStart(TEXT("USP_"), ESearchCase::IgnoreCase);
-            TargetName.RemoveFromStart(TEXT("UCP_"), ESearchCase::IgnoreCase);
-
-            int32 LastUnderscore = -1;
-            if (TargetName.FindLastChar('_', LastUnderscore))
-            {
-                FString Suffix = TargetName.Mid(LastUnderscore + 1);
-                if (Suffix.IsNumeric())
-                {
-                    TargetName = TargetName.Left(LastUnderscore);
-                }
-            }
-
-            bool bMatched = false;
-            for (FGLBMeshSection& VisSec : VisualSections)
-            {
-                if (VisSec.MeshName.Equals(TargetName, ESearchCase::IgnoreCase) ||
-                    VisSec.MeshName.Contains(TargetName, ESearchCase::IgnoreCase) ||
-                    TargetName.Contains(VisSec.MeshName, ESearchCase::IgnoreCase))
-                {
-                    VisSec.CollisionConvexVertices.Append(UcxSec.Vertices);
-                    VisSec.bHasCustomUCXCollision = true;
-                    bMatched = true;
-                    UE_LOG(LogTemp, Warning, TEXT("[FBX UCX MATCH] '%s' -> '%s' görsel parçasına özel collision olarak atandı! (%d Vertices)"),
-                        *UcxSec.MeshName, *VisSec.MeshName, UcxSec.Vertices.Num());
-                    break;
-                }
-            }
-
-            if (!bMatched)
-            {
-                VisualSections[0].CollisionConvexVertices.Append(UcxSec.Vertices);
-                VisualSections[0].bHasCustomUCXCollision = true;
-                UE_LOG(LogTemp, Warning, TEXT("[FBX UCX ASSIGN] '%s' genel gövdeye (Section 0) özel collision olarak atandı! (%d Vertices)"),
-                    *UcxSec.MeshName, UcxSec.Vertices.Num());
-            }
-        }
-
-        OutSections = VisualSections;
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Total FBX Visual Sections: %d (With %d UCX Collision Hulls)"),
-        OutSections.Num(), UCXSections.Num());
+    UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Total FBX Sections Parsed: %d"), OutSections.Num());
     return OutSections.Num() > 0;
 }
 
