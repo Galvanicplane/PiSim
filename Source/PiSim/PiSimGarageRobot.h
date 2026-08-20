@@ -187,6 +187,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Garage")
     void StartJointMinMaxSweep(int32 JointIndex);
 
+    /** Scale robot actor and all sub-mesh procedural components */
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Transform")
+    void SetRobotScale(float NewScale);
+
     /** Array of Joint Limit Settings per sub-mesh */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Garage")
     TArray<FPiSimJointLimits> JointLimitsList;

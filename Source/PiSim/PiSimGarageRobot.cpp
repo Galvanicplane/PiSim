@@ -102,9 +102,32 @@ APiSimGarageRobot::APiSimGarageRobot()
 void APiSimGarageRobot::OnConstruction(const FTransform& Transform)
 {
     Super::OnConstruction(Transform);
-    if (RootComponent)
+    if (GetRootComponent())
     {
-        RootComponent->SetWorldScale3D(Transform.GetScale3D() * ModelScaleMultiplier);
+        GetRootComponent()->SetWorldScale3D(Transform.GetScale3D() * ModelScaleMultiplier);
+    }
+}
+
+void APiSimGarageRobot::SetRobotScale(float NewScale)
+{
+    CadUnitScaleMultiplier = NewScale;
+    ModelScaleMultiplier = NewScale;
+    SetActorScale3D(FVector(NewScale, NewScale, NewScale));
+    if (GetRootComponent())
+    {
+        GetRootComponent()->SetWorldScale3D(FVector(NewScale, NewScale, NewScale));
+    }
+    for (UProceduralMeshComponent* SubComp : SubMeshComponents)
+    {
+        if (SubComp)
+        {
+            SubComp->SetWorldScale3D(FVector(NewScale, NewScale, NewScale));
+        }
+    }
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow,
+            FString::Printf(TEXT(">>> [ÖLÇEK BUTONU: %.2fX] Robot boyutu anında güncellendi! <<<"), NewScale));
     }
 }
 
