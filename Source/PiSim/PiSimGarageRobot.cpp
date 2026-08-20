@@ -564,6 +564,11 @@ void APiSimGarageRobot::BeginPlay()
                 Ar << Sec.Vertices;
                 Ar << Sec.Triangles;
                 Ar << Sec.Normals;
+                if (!Ar.AtEnd())
+                {
+                    Ar << Sec.CollisionConvexVertices;
+                    Ar << Sec.bHasCustomUCXCollision;
+                }
                 Sections.Add(Sec);
             }
 
@@ -697,7 +702,16 @@ void APiSimGarageRobot::BeginPlay()
                 if (bIsCMOnly || bIsStructural)
                 {
                     SubComp->ClearCollisionConvexMeshes();
-                    SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
+                    if (Sections[SecIdx].bHasCustomUCXCollision && Sections[SecIdx].CollisionConvexVertices.Num() > 0)
+                    {
+                        SubComp->AddCollisionConvexMesh(Sections[SecIdx].CollisionConvexVertices);
+                        UE_LOG(LogTemp, Warning, TEXT("[UCX COLLISION ACTIVE] '%s' parçasına %d vertexlik özel UCX Convex Collision uygulandı!"),
+                            *Sections[SecIdx].MeshName, Sections[SecIdx].CollisionConvexVertices.Num());
+                    }
+                    else
+                    {
+                        SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
+                    }
                     SubComp->bUseComplexAsSimpleCollision = false; // Simple Collision uses Convex Hulls (FKConvexElem)
                     SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
                     SubComp->SetCollisionObjectType(ECC_WorldDynamic);
@@ -3065,7 +3079,79 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
     }
 
 
-    UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Total FBX Sections Parsed: %d"), OutSections.Num());
+    // -------------------------------------------------------------
+    // UCX_ / UBX_ / USP_ / UCP_ COLLISION FILTERING AND ASSIGNMENT
+    // -------------------------------------------------------------
+    TArray<FGLBMeshSection> VisualSections;
+    TArray<FGLBMeshSection> UCXSections;
+
+    for (const FGLBMeshSection& Sec : OutSections)
+    {
+        if (Sec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
+            Sec.MeshName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
+            Sec.MeshName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase) ||
+            Sec.MeshName.StartsWith(TEXT("UCP_"), ESearchCase::IgnoreCase))
+        {
+            UCXSections.Add(Sec);
+            UE_LOG(LogTemp, Warning, TEXT("[FBX UCX DETECTED] Ozel UCX Collision Parçası Bulundu: %s (%d Vertices)"),
+                *Sec.MeshName, Sec.Vertices.Num());
+        }
+        else
+        {
+            VisualSections.Add(Sec);
+        }
+    }
+
+    if (UCXSections.Num() > 0 && VisualSections.Num() > 0)
+    {
+        for (const FGLBMeshSection& UcxSec : UCXSections)
+        {
+            FString TargetName = UcxSec.MeshName;
+            TargetName.RemoveFromStart(TEXT("UCX_"), ESearchCase::IgnoreCase);
+            TargetName.RemoveFromStart(TEXT("UBX_"), ESearchCase::IgnoreCase);
+            TargetName.RemoveFromStart(TEXT("USP_"), ESearchCase::IgnoreCase);
+            TargetName.RemoveFromStart(TEXT("UCP_"), ESearchCase::IgnoreCase);
+
+            int32 LastUnderscore = -1;
+            if (TargetName.FindLastChar('_', LastUnderscore))
+            {
+                FString Suffix = TargetName.Mid(LastUnderscore + 1);
+                if (Suffix.IsNumeric())
+                {
+                    TargetName = TargetName.Left(LastUnderscore);
+                }
+            }
+
+            bool bMatched = false;
+            for (FGLBMeshSection& VisSec : VisualSections)
+            {
+                if (VisSec.MeshName.Equals(TargetName, ESearchCase::IgnoreCase) ||
+                    VisSec.MeshName.Contains(TargetName, ESearchCase::IgnoreCase) ||
+                    TargetName.Contains(VisSec.MeshName, ESearchCase::IgnoreCase))
+                {
+                    VisSec.CollisionConvexVertices.Append(UcxSec.Vertices);
+                    VisSec.bHasCustomUCXCollision = true;
+                    bMatched = true;
+                    UE_LOG(LogTemp, Warning, TEXT("[FBX UCX MATCH] '%s' -> '%s' görsel parçasına özel collision olarak atandı! (%d Vertices)"),
+                        *UcxSec.MeshName, *VisSec.MeshName, UcxSec.Vertices.Num());
+                    break;
+                }
+            }
+
+            if (!bMatched)
+            {
+                VisualSections[0].CollisionConvexVertices.Append(UcxSec.Vertices);
+                VisualSections[0].bHasCustomUCXCollision = true;
+                UE_LOG(LogTemp, Warning, TEXT("[FBX UCX ASSIGN] '%s' genel gövdeye (Section 0) özel collision olarak atandı! (%d Vertices)"),
+                    *UcxSec.MeshName, UcxSec.Vertices.Num());
+            }
+        }
+
+        OutSections = VisualSections;
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Total FBX Visual Sections: %d (With %d UCX Collision Hulls)"),
+        OutSections.Num(), UCXSections.Num());
     return OutSections.Num() > 0;
 }
 

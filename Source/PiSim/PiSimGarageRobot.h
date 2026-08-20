@@ -87,6 +87,12 @@ struct FGLBMeshSection
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
     FString JointType = TEXT("");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Collision")
+    TArray<FVector> CollisionConvexVertices;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Collision")
+    bool bHasCustomUCXCollision = false;
 };
 
 UCLASS()

@@ -99,6 +99,8 @@ bool APiSimFbxPreCooker2::BakeSingleFbxFile(const FString& FbxFilePath)
         Ar << Sec.Vertices;
         Ar << Sec.Triangles;
         Ar << Sec.Normals;
+        Ar << Sec.CollisionConvexVertices;
+        Ar << Sec.bHasCustomUCXCollision;
     }
 
     FString RobotBakedFilePath = BakedDir / TEXT("robot_baked.bin");
