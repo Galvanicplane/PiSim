@@ -45,63 +45,12 @@ APiSimGarageRobot::APiSimGarageRobot()
     PrimaryActorTick.bCanEverTick = true;
     AutoPossessPlayer = EAutoReceiveInput::Player0;
 
-    // 1) Primary Native Root Box Collision for Robot Chassis (Constructed in Init / CDO)
-    ChassisCollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("ChassisCollisionBox"));
-    SetRootComponent(ChassisCollisionBox);
-    ChassisCollisionBox->InitBoxExtent(FVector(10.0f, 21.5f, 9.5f)); // 20cm x 43cm x 19cm Chassis bounds
-    ChassisCollisionBox->SetRelativeLocation(FVector(0.0f, 1.4f, 2.7f));
-    ChassisCollisionBox->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-    ChassisCollisionBox->SetCollisionObjectType(ECC_WorldDynamic);
-    ChassisCollisionBox->SetCollisionResponseToAllChannels(ECR_Block);
-    ChassisCollisionBox->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-    ChassisCollisionBox->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-    ChassisCollisionBox->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-    ChassisCollisionBox->SetMobility(EComponentMobility::Movable);
-
-    // 2) Native Wheel Collision Spheres (Constructed in Init / CDO)
-    WheelCollision_FL = CreateDefaultSubobject<USphereComponent>(TEXT("WheelCollision_FL"));
-    WheelCollision_FL->SetupAttachment(ChassisCollisionBox);
-    WheelCollision_FL->InitSphereRadius(5.9f);
-    WheelCollision_FL->SetRelativeLocation(FVector(14.1f, 16.9f, -2.7f));
-    WheelCollision_FL->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-    WheelCollision_FL->SetCollisionObjectType(ECC_WorldDynamic);
-    WheelCollision_FL->SetCollisionResponseToAllChannels(ECR_Block);
-    WheelCollision_FL->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-    WheelCollision_FL->SetMobility(EComponentMobility::Movable);
-
-    WheelCollision_FR = CreateDefaultSubobject<USphereComponent>(TEXT("WheelCollision_FR"));
-    WheelCollision_FR->SetupAttachment(ChassisCollisionBox);
-    WheelCollision_FR->InitSphereRadius(5.9f);
-    WheelCollision_FR->SetRelativeLocation(FVector(-14.1f, 16.9f, -2.7f));
-    WheelCollision_FR->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-    WheelCollision_FR->SetCollisionObjectType(ECC_WorldDynamic);
-    WheelCollision_FR->SetCollisionResponseToAllChannels(ECR_Block);
-    WheelCollision_FR->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-    WheelCollision_FR->SetMobility(EComponentMobility::Movable);
-
-    WheelCollision_RL = CreateDefaultSubobject<USphereComponent>(TEXT("WheelCollision_RL"));
-    WheelCollision_RL->SetupAttachment(ChassisCollisionBox);
-    WheelCollision_RL->InitSphereRadius(5.9f);
-    WheelCollision_RL->SetRelativeLocation(FVector(14.1f, -16.9f, -2.7f));
-    WheelCollision_RL->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-    WheelCollision_RL->SetCollisionObjectType(ECC_WorldDynamic);
-    WheelCollision_RL->SetCollisionResponseToAllChannels(ECR_Block);
-    WheelCollision_RL->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-    WheelCollision_RL->SetMobility(EComponentMobility::Movable);
-
-    WheelCollision_RR = CreateDefaultSubobject<USphereComponent>(TEXT("WheelCollision_RR"));
-    WheelCollision_RR->SetupAttachment(ChassisCollisionBox);
-    WheelCollision_RR->InitSphereRadius(5.9f);
-    WheelCollision_RR->SetRelativeLocation(FVector(-14.1f, -16.9f, -2.7f));
-    WheelCollision_RR->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-    WheelCollision_RR->SetCollisionObjectType(ECC_WorldDynamic);
-    WheelCollision_RR->SetCollisionResponseToAllChannels(ECR_Block);
-    WheelCollision_RR->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-    WheelCollision_RR->SetMobility(EComponentMobility::Movable);
+    ChassisMeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ChassisMeshComponent"));
+    SetRootComponent(ChassisMeshComponent);
 
     // Create Physics Collision Skeletal Mesh Component (robot_collision.fbx)
     CollisionSkeletalMeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("CollisionSkeletalMeshComponent"));
-    CollisionSkeletalMeshComponent->SetupAttachment(ChassisCollisionBox);
+    CollisionSkeletalMeshComponent->SetupAttachment(ChassisMeshComponent);
     CollisionSkeletalMeshComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
     CollisionSkeletalMeshComponent->SetCollisionObjectType(ECC_WorldDynamic);
 
@@ -628,11 +577,11 @@ void APiSimGarageRobot::BeginPlay()
             if (Sections.Num() > 0)
             {
                 bLoadedDiskModel = true;
-                LoadedModelFormatName = TEXT("Pre-Cooked Binary Cache (.bin) [Use Complex Collision As Simple]");
+                LoadedModelFormatName = TEXT("PreCooker 2 Baked Model (.bin) [Auto Collision: KAPALI]");
                 if (GEngine)
                 {
-                    GEngine->AddOnScreenDebugMessage(-1, 20.0f, FColor::Green,
-                        FString::Printf(TEXT(">>> [PRE-COOKED CACHE AKTİF!] Saved/Robots/Baked/robot_baked.bin İLE %d ALT PARÇA 0.001sn ANINDA YÜKLENDİ! <<<"), Sections.Num()));
+                    GEngine->AddOnScreenDebugMessage(-1, 20.0f, FColor::Emerald,
+                        FString::Printf(TEXT(">>> [PRECOOKER 2 MODELİ AKTİF!] Saved/Robots/Baked/robot_baked.bin İLE %d PARÇA 0.001sn YÜKLENDİ! <<<"), Sections.Num()));
                 }
             }
 

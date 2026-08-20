@@ -55,12 +55,16 @@ void FPiSimModule::StartupModule()
 			CustomizeEditorToolbarsAndMenus();
 		}
 
-		// Register Custom Details Layout for APiSimGarageRobot
-		FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
-		PropertyModule.RegisterCustomClassLayout(
-			APiSimGarageRobot::StaticClass()->GetFName(),
-			FOnGetDetailCustomizationInstance::CreateStatic(&FPiSimRobotDetailCustomization::MakeInstance)
-		);
+		// Safely Register Custom Details Layout for APiSimGarageRobot
+		if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
+		{
+			FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
+			PropertyModule.UnregisterCustomClassLayout(APiSimGarageRobot::StaticClass()->GetFName());
+			PropertyModule.RegisterCustomClassLayout(
+				APiSimGarageRobot::StaticClass()->GetFName(),
+				FOnGetDetailCustomizationInstance::CreateStatic(&FPiSimRobotDetailCustomization::MakeInstance)
+			);
+		}
 	}
 #endif
 }
