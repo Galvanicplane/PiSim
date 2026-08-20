@@ -530,8 +530,12 @@ void APiSimGarageRobot::BeginPlay()
     TArray<FGLBMeshSection> Sections;
     bool bLoadedDiskModel = false;
 
-    // 0) PRECOOKER 2 BINARY CACHE LOADER: Check rbot1_baked.bin & robot_baked.bin
-    FString BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/rbot1_baked.bin");
+    // 0) PRECOOKER 2 BINARY CACHE LOADER: Check robot1_baked.bin, rbot1_baked.bin & robot_baked.bin
+    FString BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot1_baked.bin");
+    if (!FPaths::FileExists(BakedFilePath))
+    {
+        BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/rbot1_baked.bin");
+    }
     if (!FPaths::FileExists(BakedFilePath))
     {
         BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");

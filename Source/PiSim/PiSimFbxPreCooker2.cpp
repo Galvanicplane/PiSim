@@ -106,6 +106,9 @@ bool APiSimFbxPreCooker2::BakeSingleFbxFile(const FString& FbxFilePath)
     FString RobotBakedFilePath = BakedDir / TEXT("robot_baked.bin");
     FFileHelper::SaveArrayToFile(Ar, *RobotBakedFilePath);
 
+    FString Robot1BakedFilePath = BakedDir / TEXT("robot1_baked.bin");
+    FFileHelper::SaveArrayToFile(Ar, *Robot1BakedFilePath);
+
     FString Rbot1BakedFilePath = BakedDir / TEXT("rbot1_baked.bin");
     FFileHelper::SaveArrayToFile(Ar, *Rbot1BakedFilePath);
 
