@@ -517,10 +517,14 @@ void APiSimGarageRobot::BeginPlay()
     }
 
     // Check disk paths for FBX and GLB files in Saved/Robots/Cache/
-    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
+    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot1.fbx");
     if (!FPaths::FileExists(FbxFullPath))
     {
         FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
+    }
+    if (!FPaths::FileExists(FbxFullPath))
+    {
+        FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
     }
     FString GlbFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.glb");
 

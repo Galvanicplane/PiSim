@@ -70,13 +70,8 @@ struct FGLBMeshSection
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GLTF")
     FVector PivotPoint = FVector::ZeroVector;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GLTF")
     TArray<FVector> Vertices;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GLTF")
     TArray<int32> Triangles;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GLTF")
     TArray<FVector> Normals;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
@@ -88,7 +83,6 @@ struct FGLBMeshSection
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
     FString JointType = TEXT("");
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Collision")
     TArray<FVector> CollisionConvexVertices;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Collision")
