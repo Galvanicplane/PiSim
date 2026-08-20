@@ -62,7 +62,7 @@ APiSimGarageRobot::APiSimGarageRobot()
 
     // Create SpaceX Configurator 360 Orbit Camera System
     ConfiguratorSpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("ConfiguratorSpringArm"));
-    ConfiguratorSpringArm->SetupAttachment(ChassisCollisionBox);
+    ConfiguratorSpringArm->SetupAttachment(ChassisMeshComponent);
     ConfiguratorSpringArm->TargetArmLength = 350.0f; // 3.5 meters framing
     ConfiguratorSpringArm->SetRelativeRotation(FRotator(-20.0f, 45.0f, 0.0f));
     ConfiguratorSpringArm->bUsePawnControlRotation = false;
@@ -75,7 +75,7 @@ APiSimGarageRobot::APiSimGarageRobot()
 
     // Attach FPV Camera Capture Component
     FpvCameraComponent = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("FpvCameraComponent"));
-    FpvCameraComponent->SetupAttachment(ChassisCollisionBox);
+    FpvCameraComponent->SetupAttachment(ChassisMeshComponent);
     FpvCameraComponent->SetRelativeLocation(FVector(60.0f, 0.0f, 10.0f));
     FpvCameraComponent->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f));
     FpvCameraComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
@@ -1957,12 +1957,6 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
                 SubMeshComponents[i]->SetSimulatePhysics(false);
             }
         }
-
-        if (ChassisCollisionBox)
-        {
-            ChassisCollisionBox->SetSimulatePhysics(false);
-            ChassisCollisionBox->SetEnableGravity(false);
-        }
         
         // Clear old joint physics constraints
         for (UPhysicsConstraintComponent* Constraint : JointPhysicsConstraints)
@@ -2082,26 +2076,8 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
     SubMeshComponents[0]->SetMassOverrideInKg(NAME_None, 35.0f, true);
     SubMeshComponents[0]->WakeRigidBody();
 
-    if (ChassisCollisionBox)
-    {
-        ChassisCollisionBox->SetMobility(EComponentMobility::Movable);
-        ChassisCollisionBox->SetSimulatePhysics(true);
-        ChassisCollisionBox->SetEnableGravity(TestMode != EPhysicsTestMode::HoldInAir);
-        ChassisCollisionBox->SetMassOverrideInKg(NAME_None, 35.0f, true);
-        ChassisCollisionBox->WakeRigidBody();
-    }
-
     if (TestMode == EPhysicsTestMode::HoldInAir)
     {
-        if (ChassisCollisionBox)
-        {
-            ChassisCollisionBox->BodyInstance.bLockXTranslation = true;
-            ChassisCollisionBox->BodyInstance.bLockYTranslation = true;
-            ChassisCollisionBox->BodyInstance.bLockZTranslation = true;
-            ChassisCollisionBox->BodyInstance.bLockXRotation = false;
-            ChassisCollisionBox->BodyInstance.bLockYRotation = false;
-            ChassisCollisionBox->BodyInstance.bLockZRotation = false;
-        }
         SubMeshComponents[0]->BodyInstance.bLockXTranslation = true;
         SubMeshComponents[0]->BodyInstance.bLockYTranslation = true;
         SubMeshComponents[0]->BodyInstance.bLockZTranslation = true;
@@ -2111,15 +2087,6 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
     }
     else if (TestMode == EPhysicsTestMode::LockRotation)
     {
-        if (ChassisCollisionBox)
-        {
-            ChassisCollisionBox->BodyInstance.bLockXTranslation = false;
-            ChassisCollisionBox->BodyInstance.bLockYTranslation = false;
-            ChassisCollisionBox->BodyInstance.bLockZTranslation = false;
-            ChassisCollisionBox->BodyInstance.bLockXRotation = true;
-            ChassisCollisionBox->BodyInstance.bLockYRotation = true;
-            ChassisCollisionBox->BodyInstance.bLockZRotation = true;
-        }
         SubMeshComponents[0]->BodyInstance.bLockXTranslation = false;
         SubMeshComponents[0]->BodyInstance.bLockYTranslation = false;
         SubMeshComponents[0]->BodyInstance.bLockZTranslation = false;
@@ -2129,15 +2096,6 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
     }
     else if (TestMode == EPhysicsTestMode::FreeSim)
     {
-        if (ChassisCollisionBox)
-        {
-            ChassisCollisionBox->BodyInstance.bLockXTranslation = false;
-            ChassisCollisionBox->BodyInstance.bLockYTranslation = false;
-            ChassisCollisionBox->BodyInstance.bLockZTranslation = false;
-            ChassisCollisionBox->BodyInstance.bLockXRotation = false;
-            ChassisCollisionBox->BodyInstance.bLockYRotation = false;
-            ChassisCollisionBox->BodyInstance.bLockZRotation = false;
-        }
         SubMeshComponents[0]->BodyInstance.bLockXTranslation = false;
         SubMeshComponents[0]->BodyInstance.bLockYTranslation = false;
         SubMeshComponents[0]->BodyInstance.bLockZTranslation = false;
