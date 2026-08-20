@@ -64,7 +64,7 @@ bool APiSimFbxPreCooker2::BakeSingleFbxFile(const FString& FbxFilePath)
 
     // 1) Parse single FBX file normally without split/extra fancy logic
     TArray<FGLBMeshSection> MeshSections;
-    bool bParsed = APiSimGarageRobot::ParseFbxAllBinaryMeshes(FbxFilePath, MeshSections, ScaleMultiplier);
+    bool bParsed = APiSimGarageRobot::ParseFbxAllBinaryMeshes(FbxFilePath, MeshSections, 0.1f);
 
     if (!bParsed || MeshSections.Num() == 0)
     {
@@ -103,11 +103,11 @@ bool APiSimFbxPreCooker2::BakeSingleFbxFile(const FString& FbxFilePath)
         Ar << Sec.bHasCustomUCXCollision;
     }
 
-    FString RobotBakedFilePath = BakedDir / TEXT("robot_baked.bin");
-    FFileHelper::SaveArrayToFile(Ar, *RobotBakedFilePath);
-
     FString Robot1BakedFilePath = BakedDir / TEXT("robot1_baked.bin");
     FFileHelper::SaveArrayToFile(Ar, *Robot1BakedFilePath);
+
+    FString RobotBakedFilePath = BakedDir / TEXT("robot_baked.bin");
+    FFileHelper::SaveArrayToFile(Ar, *RobotBakedFilePath);
 
     FString Rbot1BakedFilePath = BakedDir / TEXT("rbot1_baked.bin");
     FFileHelper::SaveArrayToFile(Ar, *Rbot1BakedFilePath);

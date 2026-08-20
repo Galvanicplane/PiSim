@@ -99,6 +99,15 @@ APiSimGarageRobot::APiSimGarageRobot()
     }
 }
 
+void APiSimGarageRobot::OnConstruction(const FTransform& Transform)
+{
+    Super::OnConstruction(Transform);
+    if (RootComponent)
+    {
+        RootComponent->SetWorldScale3D(Transform.GetScale3D() * ModelScaleMultiplier);
+    }
+}
+
 static bool ParseGlbAllBinaryMeshes(const FString& GlbFilePath, TArray<FGLBMeshSection>& OutSections, float ScaleMultiplier)
 {
     TArray<uint8> FileData;
@@ -517,7 +526,15 @@ void APiSimGarageRobot::BeginPlay()
     }
 
     // Check disk paths for FBX and GLB files in Saved/Robots/Cache/
-    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
+    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot1.fbx");
+    if (!FPaths::FileExists(FbxFullPath))
+    {
+        FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/rbot1.fbx");
+    }
+    if (!FPaths::FileExists(FbxFullPath))
+    {
+        FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
+    }
     if (!FPaths::FileExists(FbxFullPath))
     {
         FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
@@ -669,22 +686,20 @@ void APiSimGarageRobot::BeginPlay()
                 SubComp->SetMobility(EComponentMobility::Movable);
 
                 int32 ParentIdx = Sections[SecIdx].ParentSectionIndex;
-                if (SecIdx == 0)
-                {
-                    SetRootComponent(SubComp);
-                }
-                else if (ParentIdx >= 0 && SubMeshComponents.IsValidIndex(ParentIdx) && SubMeshComponents[ParentIdx])
+                if (ParentIdx >= 0 && SubMeshComponents.IsValidIndex(ParentIdx) && SubMeshComponents[ParentIdx])
                 {
                     SubComp->SetupAttachment(SubMeshComponents[ParentIdx]);
                     SubComp->SetRelativeLocation(Sections[SecIdx].PivotPoint - Sections[ParentIdx].PivotPoint);
                 }
                 else
                 {
-                    SubComp->SetupAttachment(SubMeshComponents[0]);
+                    SubComp->SetupAttachment(RootComponent);
                     SubComp->SetRelativeLocation(Sections[SecIdx].PivotPoint);
                 }
 
                 SubComp->RegisterComponent();
+
+
 
                 FString MeshName = Sections[SecIdx].MeshName;
                 bool bIsCMOnly = MeshName.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase);
@@ -694,37 +709,44 @@ void APiSimGarageRobot::BeginPlay()
                 TArray<FLinearColor> VertexColors;
                 TArray<FProcMeshTangent> Tangents;
 
+                // Configure Procedural Mesh collision and rendering settings directly during GLTF/FBX Model Import
                 SubComp->CastShadow = true;
                 SubComp->bCastDynamicShadow = true;
                 SubComp->bAffectDistanceFieldLighting = false;
 
-                // Create mesh geometry with bCreateCollision = true
                 SubComp->CreateMeshSection_LinearColor(0, Sections[SecIdx].Vertices, Sections[SecIdx].Triangles, Sections[SecIdx].Normals, UV0, VertexColors, Tangents, true);
                 if (DefaultMat)
                 {
                     SubComp->SetMaterial(0, DefaultMat);
                 }
 
-                SubComp->ClearCollisionConvexMeshes();
-                if (Sections[SecIdx].bHasCustomUCXCollision && Sections[SecIdx].CollisionConvexVertices.Num() > 0)
+                if (bIsCMOnly || bIsStructural)
                 {
-                    SubComp->AddCollisionConvexMesh(Sections[SecIdx].CollisionConvexVertices);
-                    UE_LOG(LogTemp, Warning, TEXT("[UCX COLLISION ACTIVE] '%s' parçasına %d vertexlik özel UCX Convex Collision uygulandı!"),
-                        *Sections[SecIdx].MeshName, Sections[SecIdx].CollisionConvexVertices.Num());
+                    SubComp->ClearCollisionConvexMeshes();
+                    if (Sections[SecIdx].bHasCustomUCXCollision && Sections[SecIdx].CollisionConvexVertices.Num() > 0)
+                    {
+                        SubComp->AddCollisionConvexMesh(Sections[SecIdx].CollisionConvexVertices);
+                        UE_LOG(LogTemp, Warning, TEXT("[UCX COLLISION ACTIVE] '%s' parçasına %d vertexlik özel UCX Convex Collision uygulandı!"),
+                            *Sections[SecIdx].MeshName, Sections[SecIdx].CollisionConvexVertices.Num());
+                    }
+                    else
+                    {
+                        SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
+                    }
+                    SubComp->bUseComplexAsSimpleCollision = false; // Simple Collision uses Convex Hulls (FKConvexElem)
+                    SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+                    SubComp->SetCollisionObjectType(ECC_WorldDynamic);
+                    SubComp->SetCollisionResponseToAllChannels(ECR_Block);
+                    SubComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+                    SubComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+                    SubComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
                 }
                 else
                 {
-                    SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
+                    SubComp->bUseComplexAsSimpleCollision = false;
+                    SubComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+                    SubComp->SetCollisionResponseToAllChannels(ECR_Ignore);
                 }
-
-                // Complex-as-simple collision ensures 100% reliable collision against floors, walls, and objects
-                SubComp->bUseComplexAsSimpleCollision = true;
-                SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-                SubComp->SetCollisionObjectType(ECC_WorldDynamic);
-                SubComp->SetCollisionResponseToAllChannels(ECR_Block);
-                SubComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-                SubComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-                SubComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
 
                 SubComp->RecreatePhysicsState();
                 SubComp->UpdateBounds();
@@ -1648,23 +1670,15 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
 void APiSimGarageRobot::ReimportCadModel()
 {
     // Delete stale pre-cooked baked binary cache
-    FString BakedFilePath1 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot1_baked.bin");
-    FString BakedFilePath2 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/rbot1_baked.bin");
-    FString BakedFilePath3 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");
-    FString BakedFilePath4 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_collision_baked.bin");
+    FString BakedFilePath1 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_collision_baked.bin");
+    FString BakedFilePath2 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");
     if (FPaths::FileExists(BakedFilePath1)) IFileManager::Get().Delete(*BakedFilePath1);
     if (FPaths::FileExists(BakedFilePath2)) IFileManager::Get().Delete(*BakedFilePath2);
-    if (FPaths::FileExists(BakedFilePath3)) IFileManager::Get().Delete(*BakedFilePath3);
-    if (FPaths::FileExists(BakedFilePath4)) IFileManager::Get().Delete(*BakedFilePath4);
 
-    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot1.fbx");
+    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
     if (!FPaths::FileExists(FbxFullPath))
     {
         FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
-    }
-    if (!FPaths::FileExists(FbxFullPath))
-    {
-        FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
     }
     FString GlbFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.glb");
 
@@ -1676,7 +1690,7 @@ void APiSimGarageRobot::ReimportCadModel()
         bSuccess = ParseFbxAllBinaryMeshes(FbxFullPath, Sections, CadUnitScaleMultiplier);
         if (bSuccess)
         {
-            LoadedModelFormatName = FString::Printf(TEXT("FBX (.fbx) [%s] (Ölçek: %.2f)"), *FPaths::GetCleanFilename(FbxFullPath), CadUnitScaleMultiplier);
+            LoadedModelFormatName = FString::Printf(TEXT("FBX (.fbx) [%s]"), *FPaths::GetCleanFilename(FbxFullPath));
         }
     }
     else if (FPaths::FileExists(GlbFullPath))
@@ -1684,7 +1698,7 @@ void APiSimGarageRobot::ReimportCadModel()
         bSuccess = ParseGlbAllBinaryMeshes(GlbFullPath, Sections, CadUnitScaleMultiplier);
         if (bSuccess)
         {
-            LoadedModelFormatName = FString::Printf(TEXT("GLB (.glb) [Saved/Robots/Cache/robot.glb] (Ölçek: %.2f)"), CadUnitScaleMultiplier);
+            LoadedModelFormatName = TEXT("GLB (.glb) [Saved/Robots/Cache/robot.glb]");
         }
     }
 
@@ -1714,18 +1728,14 @@ void APiSimGarageRobot::ReimportCadModel()
             SubComp->SetMobility(EComponentMobility::Movable);
 
             int32 ParentIdx = Sections[SecIdx].ParentSectionIndex;
-            if (SecIdx == 0)
-            {
-                SetRootComponent(SubComp);
-            }
-            else if (ParentIdx >= 0 && SubMeshComponents.IsValidIndex(ParentIdx) && SubMeshComponents[ParentIdx])
+            if (ParentIdx >= 0 && SubMeshComponents.IsValidIndex(ParentIdx) && SubMeshComponents[ParentIdx])
             {
                 SubComp->SetupAttachment(SubMeshComponents[ParentIdx]);
                 SubComp->SetRelativeLocation(Sections[SecIdx].PivotPoint - Sections[ParentIdx].PivotPoint);
             }
             else
             {
-                SubComp->SetupAttachment(SubMeshComponents[0]);
+                SubComp->SetupAttachment(RootComponent);
                 SubComp->SetRelativeLocation(Sections[SecIdx].PivotPoint);
             }
 
@@ -1745,29 +1755,28 @@ void APiSimGarageRobot::ReimportCadModel()
             SubComp->bCastDynamicShadow = true;
             SubComp->bAffectDistanceFieldLighting = false;
 
-            SubComp->CreateMeshSection_LinearColor(0, Sections[SecIdx].Vertices, Sections[SecIdx].Triangles, Sections[SecIdx].Normals, UV0, VertexColors, Tangents, true);
+            if (bIsCMOnly)
+            {
+                SubComp->bUseComplexAsSimpleCollision = true;
+                SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+                SubComp->SetCollisionObjectType(ECC_WorldDynamic);
+                SubComp->SetCollisionResponseToAllChannels(ECR_Block);
+                SubComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+                SubComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+                SubComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+            }
+            else
+            {
+                SubComp->bUseComplexAsSimpleCollision = false;
+                SubComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+                SubComp->SetCollisionResponseToAllChannels(ECR_Ignore);
+            }
+
+            SubComp->CreateMeshSection_LinearColor(0, Sections[SecIdx].Vertices, Sections[SecIdx].Triangles, Sections[SecIdx].Normals, UV0, VertexColors, Tangents, bIsCMOnly);
             if (DefaultMat)
             {
                 SubComp->SetMaterial(0, DefaultMat);
             }
-
-            SubComp->ClearCollisionConvexMeshes();
-            if (Sections[SecIdx].bHasCustomUCXCollision && Sections[SecIdx].CollisionConvexVertices.Num() > 0)
-            {
-                SubComp->AddCollisionConvexMesh(Sections[SecIdx].CollisionConvexVertices);
-            }
-            else
-            {
-                SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
-            }
-
-            SubComp->bUseComplexAsSimpleCollision = true;
-            SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-            SubComp->SetCollisionObjectType(ECC_WorldDynamic);
-            SubComp->SetCollisionResponseToAllChannels(ECR_Block);
-            SubComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-            SubComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-            SubComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
 
             SubComp->RecreatePhysicsState();
             SubComp->SetVisibility(true);
@@ -3099,13 +3108,14 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
 
     for (const FGLBMeshSection& Sec : OutSections)
     {
-        if (Sec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
+        if (Sec.MeshName.StartsWith(TEXT("UC_"), ESearchCase::IgnoreCase) ||
+            Sec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
             Sec.MeshName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
             Sec.MeshName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase) ||
             Sec.MeshName.StartsWith(TEXT("UCP_"), ESearchCase::IgnoreCase))
         {
             UCXSections.Add(Sec);
-            UE_LOG(LogTemp, Warning, TEXT("[FBX UCX DETECTED] Ozel UCX Collision Parçası Bulundu: %s (%d Vertices)"),
+            UE_LOG(LogTemp, Warning, TEXT("[FBX UC/UCX DETECTED] Ozel Collision Parçası Bulundu (Görselden Gizlendi): %s (%d Vertices)"),
                 *Sec.MeshName, Sec.Vertices.Num());
         }
         else
@@ -3120,6 +3130,7 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
         {
             FString TargetName = UcxSec.MeshName;
             TargetName.RemoveFromStart(TEXT("UCX_"), ESearchCase::IgnoreCase);
+            TargetName.RemoveFromStart(TEXT("UC_"), ESearchCase::IgnoreCase);
             TargetName.RemoveFromStart(TEXT("UBX_"), ESearchCase::IgnoreCase);
             TargetName.RemoveFromStart(TEXT("USP_"), ESearchCase::IgnoreCase);
             TargetName.RemoveFromStart(TEXT("UCP_"), ESearchCase::IgnoreCase);
@@ -3160,18 +3171,6 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
         }
 
         OutSections = VisualSections;
-    }
-    else if (UCXSections.Num() > 0 && VisualSections.Num() == 0)
-    {
-        // Standalone collision FBX mode: treat UCX sections as primary visible and colliding geometry!
-        VisualSections = UCXSections;
-        for (FGLBMeshSection& VisSec : VisualSections)
-        {
-            VisSec.CollisionConvexVertices = VisSec.Vertices;
-            VisSec.bHasCustomUCXCollision = true;
-        }
-        OutSections = VisualSections;
-        UE_LOG(LogTemp, Warning, TEXT("[FBX UCX ONLY] Dosyada sadece UCX parçaları bulundu (%d adet). Hem görsel hem collision olarak yüklendi!"), OutSections.Num());
     }
 
     UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Total FBX Visual Sections: %d (With %d UCX Collision Hulls)"),

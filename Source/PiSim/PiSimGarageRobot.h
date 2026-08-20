@@ -111,6 +111,11 @@ protected:
 
 public:    
     virtual void Tick(float DeltaTime) override;
+    virtual void OnConstruction(const FTransform& Transform) override;
+
+    /** Overall Scale Multiplier for the CAD / FBX Model (Default: 1.0) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Transform", meta = (ClampMin = "0.001", ClampMax = "1000.0"))
+    float ModelScaleMultiplier = 1.0f;
 
     /** Root Static Mesh Component for the Robot Chassis */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Garage")
