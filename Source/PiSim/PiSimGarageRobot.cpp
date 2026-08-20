@@ -530,25 +530,18 @@ void APiSimGarageRobot::BeginPlay()
     TArray<FGLBMeshSection> Sections;
     bool bLoadedDiskModel = false;
 
-    // 0) PRE-COOKED BINARY CACHE LOADER: Fast 0.001s Instant Loading from Saved/Robots/Baked/ (Auto-invalidated if FBX is newer)
-    FString BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_collision_baked.bin");
+    // 0) PRECOOKER 2 BINARY CACHE LOADER: Check rbot1_baked.bin & robot_baked.bin
+    FString BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/rbot1_baked.bin");
     if (!FPaths::FileExists(BakedFilePath))
     {
         BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");
     }
-    bool bBakedValid = FPaths::FileExists(BakedFilePath);
-    if (bBakedValid && bFbxExists)
+    if (!FPaths::FileExists(BakedFilePath))
     {
-        FDateTime FbxTime = FPlatformFileManager::Get().GetPlatformFile().GetTimeStamp(*FbxFullPath);
-        FDateTime BakedTime = FPlatformFileManager::Get().GetPlatformFile().GetTimeStamp(*BakedFilePath);
-        if (FbxTime > BakedTime)
-        {
-            bBakedValid = false; // Invalidate stale baked file!
-            IFileManager::Get().Delete(*BakedFilePath);
-            UE_LOG(LogTemp, Warning, TEXT("[BeginPlay] Detected NEWER FBX model file! Deleted stale baked cache."));
-        }
+        BakedFilePath = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_collision_baked.bin");
     }
 
+    bool bBakedValid = FPaths::FileExists(BakedFilePath);
     if (bBakedValid)
     {
         TArray<uint8> BakedBytes;
@@ -577,14 +570,15 @@ void APiSimGarageRobot::BeginPlay()
             if (Sections.Num() > 0)
             {
                 bLoadedDiskModel = true;
-                LoadedModelFormatName = TEXT("PreCooker 2 Baked Model (.bin) [Auto Collision: KAPALI]");
+                FString BakedFileName = FPaths::GetCleanFilename(BakedFilePath);
+                LoadedModelFormatName = FString::Printf(TEXT("PreCooker 2 Model (%s) [Auto Collision: KAPALI]"), *BakedFileName);
                 if (GEngine)
                 {
-                    GEngine->AddOnScreenDebugMessage(-1, 20.0f, FColor::Emerald,
-                        FString::Printf(TEXT(">>> [PRECOOKER 2 MODELİ AKTİF!] Saved/Robots/Baked/robot_baked.bin İLE %d PARÇA 0.001sn YÜKLENDİ! <<<"), Sections.Num()));
+                    GEngine->AddOnScreenDebugMessage(-1, 25.0f, FColor::Emerald,
+                        FString::Printf(TEXT(">>> [PRECOOKER 2 MODELİ AKTİF!] Saved/Robots/Baked/%s İLE %d PARÇA 0.001sn YÜKLENDİ! <<<"), *BakedFileName, Sections.Num()));
                 }
+                UE_LOG(LogTemp, Warning, TEXT(">>> [PRECOOKER 2 MODELİ AKTİF!] %s ile %d parca yuklendi! <<<"), *BakedFilePath, Sections.Num());
             }
-
         }
     }
 
