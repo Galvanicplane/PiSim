@@ -64,7 +64,7 @@ bool APiSimFbxPreCooker2::BakeSingleFbxFile(const FString& FbxFilePath)
 
     // 1) Parse single FBX file normally without split/extra fancy logic
     TArray<FGLBMeshSection> MeshSections;
-    bool bParsed = APiSimGarageRobot::ParseFbxAllBinaryMeshes(FbxFilePath, MeshSections, 0.1f);
+    bool bParsed = APiSimGarageRobot::ParseFbxAllBinaryMeshes(FbxFilePath, MeshSections, ScaleMultiplier);
 
     if (!bParsed || MeshSections.Num() == 0)
     {

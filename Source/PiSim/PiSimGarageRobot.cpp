@@ -517,14 +517,10 @@ void APiSimGarageRobot::BeginPlay()
     }
 
     // Check disk paths for FBX and GLB files in Saved/Robots/Cache/
-    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot1.fbx");
+    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
     if (!FPaths::FileExists(FbxFullPath))
     {
         FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
-    }
-    if (!FPaths::FileExists(FbxFullPath))
-    {
-        FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
     }
     FString GlbFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.glb");
 
@@ -1657,15 +1653,23 @@ void APiSimGarageRobot::SetGarageViewMode(EGarageViewMode NewMode)
 void APiSimGarageRobot::ReimportCadModel()
 {
     // Delete stale pre-cooked baked binary cache
-    FString BakedFilePath1 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_collision_baked.bin");
-    FString BakedFilePath2 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");
+    FString BakedFilePath1 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot1_baked.bin");
+    FString BakedFilePath2 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/rbot1_baked.bin");
+    FString BakedFilePath3 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_baked.bin");
+    FString BakedFilePath4 = FPaths::ProjectSavedDir() / TEXT("Robots/Baked/robot_collision_baked.bin");
     if (FPaths::FileExists(BakedFilePath1)) IFileManager::Get().Delete(*BakedFilePath1);
     if (FPaths::FileExists(BakedFilePath2)) IFileManager::Get().Delete(*BakedFilePath2);
+    if (FPaths::FileExists(BakedFilePath3)) IFileManager::Get().Delete(*BakedFilePath3);
+    if (FPaths::FileExists(BakedFilePath4)) IFileManager::Get().Delete(*BakedFilePath4);
 
-    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
+    FString FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot1.fbx");
     if (!FPaths::FileExists(FbxFullPath))
     {
         FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.fbx");
+    }
+    if (!FPaths::FileExists(FbxFullPath))
+    {
+        FbxFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_collision.fbx");
     }
     FString GlbFullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot.glb");
 
@@ -1677,7 +1681,7 @@ void APiSimGarageRobot::ReimportCadModel()
         bSuccess = ParseFbxAllBinaryMeshes(FbxFullPath, Sections, CadUnitScaleMultiplier);
         if (bSuccess)
         {
-            LoadedModelFormatName = FString::Printf(TEXT("FBX (.fbx) [%s]"), *FPaths::GetCleanFilename(FbxFullPath));
+            LoadedModelFormatName = FString::Printf(TEXT("FBX (.fbx) [%s] (Ölçek: %.2f)"), *FPaths::GetCleanFilename(FbxFullPath), CadUnitScaleMultiplier);
         }
     }
     else if (FPaths::FileExists(GlbFullPath))
@@ -1685,7 +1689,7 @@ void APiSimGarageRobot::ReimportCadModel()
         bSuccess = ParseGlbAllBinaryMeshes(GlbFullPath, Sections, CadUnitScaleMultiplier);
         if (bSuccess)
         {
-            LoadedModelFormatName = TEXT("GLB (.glb) [Saved/Robots/Cache/robot.glb]");
+            LoadedModelFormatName = FString::Printf(TEXT("GLB (.glb) [Saved/Robots/Cache/robot.glb] (Ölçek: %.2f)"), CadUnitScaleMultiplier);
         }
     }
 
@@ -1733,6 +1737,7 @@ void APiSimGarageRobot::ReimportCadModel()
 
             FString MeshName = Sections[SecIdx].MeshName;
             bool bIsCMOnly = MeshName.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase);
+            bool bIsStructural = bIsCMOnly || MeshName.StartsWith(TEXT("COG"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("COL"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Cube"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Stick"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Buckett"), ESearchCase::IgnoreCase) || true;
 
             TArray<FVector2D> UV0;
             TArray<FLinearColor> VertexColors;
@@ -1742,9 +1747,24 @@ void APiSimGarageRobot::ReimportCadModel()
             SubComp->bCastDynamicShadow = true;
             SubComp->bAffectDistanceFieldLighting = false;
 
-            if (bIsCMOnly)
+            SubComp->CreateMeshSection_LinearColor(0, Sections[SecIdx].Vertices, Sections[SecIdx].Triangles, Sections[SecIdx].Normals, UV0, VertexColors, Tangents, true);
+            if (DefaultMat)
             {
-                SubComp->bUseComplexAsSimpleCollision = true;
+                SubComp->SetMaterial(0, DefaultMat);
+            }
+
+            if (bIsStructural)
+            {
+                SubComp->ClearCollisionConvexMeshes();
+                if (Sections[SecIdx].bHasCustomUCXCollision && Sections[SecIdx].CollisionConvexVertices.Num() > 0)
+                {
+                    SubComp->AddCollisionConvexMesh(Sections[SecIdx].CollisionConvexVertices);
+                }
+                else
+                {
+                    SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
+                }
+                SubComp->bUseComplexAsSimpleCollision = false;
                 SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
                 SubComp->SetCollisionObjectType(ECC_WorldDynamic);
                 SubComp->SetCollisionResponseToAllChannels(ECR_Block);
@@ -1757,12 +1777,6 @@ void APiSimGarageRobot::ReimportCadModel()
                 SubComp->bUseComplexAsSimpleCollision = false;
                 SubComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
                 SubComp->SetCollisionResponseToAllChannels(ECR_Ignore);
-            }
-
-            SubComp->CreateMeshSection_LinearColor(0, Sections[SecIdx].Vertices, Sections[SecIdx].Triangles, Sections[SecIdx].Normals, UV0, VertexColors, Tangents, bIsCMOnly);
-            if (DefaultMat)
-            {
-                SubComp->SetMaterial(0, DefaultMat);
             }
 
             SubComp->RecreatePhysicsState();
