@@ -3101,21 +3101,20 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
 
 
     // -------------------------------------------------------------
-    // UCX_ / UBX_ / USP_ / UCP_ COLLISION FILTERING AND ASSIGNMENT
+    // UNREAL STANDARD COLLISION PREFIXES: UCX_ / UBX_ / USP_ / UCP_
     // -------------------------------------------------------------
     TArray<FGLBMeshSection> VisualSections;
     TArray<FGLBMeshSection> UCXSections;
 
     for (const FGLBMeshSection& Sec : OutSections)
     {
-        if (Sec.MeshName.StartsWith(TEXT("UC_"), ESearchCase::IgnoreCase) ||
-            Sec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
+        if (Sec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
             Sec.MeshName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
             Sec.MeshName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase) ||
             Sec.MeshName.StartsWith(TEXT("UCP_"), ESearchCase::IgnoreCase))
         {
             UCXSections.Add(Sec);
-            UE_LOG(LogTemp, Warning, TEXT("[FBX UC/UCX DETECTED] Ozel Collision Parçası Bulundu (Görselden Gizlendi): %s (%d Vertices)"),
+            UE_LOG(LogTemp, Warning, TEXT("[FBX UCX DETECTED] Standart Unreal Collision Parçası Bulundu: %s (%d Vertices)"),
                 *Sec.MeshName, Sec.Vertices.Num());
         }
         else
@@ -3130,7 +3129,6 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
         {
             FString TargetName = UcxSec.MeshName;
             TargetName.RemoveFromStart(TEXT("UCX_"), ESearchCase::IgnoreCase);
-            TargetName.RemoveFromStart(TEXT("UC_"), ESearchCase::IgnoreCase);
             TargetName.RemoveFromStart(TEXT("UBX_"), ESearchCase::IgnoreCase);
             TargetName.RemoveFromStart(TEXT("USP_"), ESearchCase::IgnoreCase);
             TargetName.RemoveFromStart(TEXT("UCP_"), ESearchCase::IgnoreCase);
