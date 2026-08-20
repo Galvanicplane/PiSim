@@ -62,9 +62,9 @@ bool APiSimFbxPreCooker2::BakeSingleFbxFile(const FString& FbxFilePath)
     UE_LOG(LogTemp, Warning, TEXT("[PRECOOKER 2] FBX Okunuyor: %s (AutoGenerateCollision: %s)"),
         *FbxFilePath, bAutoGenerateCollision ? TEXT("ACIK") : TEXT("KAPALI"));
 
-    // 1) Parse single FBX file normally with user-configured ImportScale
+    // 1) Parse single FBX file normally without split/extra fancy logic
     TArray<FGLBMeshSection> MeshSections;
-    bool bParsed = APiSimGarageRobot::ParseFbxAllBinaryMeshes(FbxFilePath, MeshSections, ImportScale);
+    bool bParsed = APiSimGarageRobot::ParseFbxAllBinaryMeshes(FbxFilePath, MeshSections, 0.1f);
 
     if (!bParsed || MeshSections.Num() == 0)
     {

@@ -232,9 +232,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Garage")
     bool SaveConfig(const FString& ConfigFilePath = TEXT(""));
 
-    /** CAD Model Scale Multiplier (Default 1.0 for 1:1 scale conversion) */
+    /** CAD Model Scale Multiplier (Default 0.1 for mm->cm scale conversion) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Garage", meta = (ClampMin = "0.001", ClampMax = "1000.0"))
-    float CadUnitScaleMultiplier = 1.0f;
+    float CadUnitScaleMultiplier = 0.1f;
 
     /** Apply dynamic convex hull collision setup to chassis mesh */
     UFUNCTION(BlueprintCallable, Category = "PiSim|Garage")

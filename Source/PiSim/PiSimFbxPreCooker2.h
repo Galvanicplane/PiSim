@@ -27,10 +27,6 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|PreCooker 2")
     bool bAutoGenerateCollision = false;
 
-    /** Scale Multiplier applied to FBX geometry (Default: 1.0f, change to 10.0 or 100.0 if exported in millimeters/meters) */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|PreCooker 2", meta = (ClampMin = "0.001", ClampMax = "1000.0"))
-    float ImportScale = 1.0f;
-
     /** Optional custom full path if file is outside Saved/Robots/Cache/ */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|PreCooker 2")
     FString CustomFbxPath = TEXT("");
