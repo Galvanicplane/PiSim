@@ -1995,12 +1995,22 @@ void APiSimGarageRobot::SetPhysicsTestMode(EPhysicsTestMode TestMode)
 
         FString MeshName = SubMeshNames.IsValidIndex(i) ? SubMeshNames[i] : TEXT("");
         bool bIsCMOnly = MeshName.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase);
+        bool bIsStructural = bIsCMOnly || MeshName.StartsWith(TEXT("Chassis"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("COG"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("COL"), ESearchCase::IgnoreCase) || (i == 0);
 
-        if (bIsCMOnly && OriginalSubMeshVertices.IsValidIndex(i) && OriginalSubMeshVertices[i].Num() > 0)
+        if ((bIsCMOnly || bIsStructural) && OriginalSubMeshVertices.IsValidIndex(i) && OriginalSubMeshVertices[i].Num() > 0)
         {
             SubMeshComponents[i]->bUseComplexAsSimpleCollision = false;
             SubMeshComponents[i]->ClearCollisionConvexMeshes();
-            SubMeshComponents[i]->AddCollisionConvexMesh(OriginalSubMeshVertices[i]);
+            if (LoadedMeshSections.IsValidIndex(i) && LoadedMeshSections[i].bHasCustomUCXCollision && LoadedMeshSections[i].CollisionConvexVertices.Num() > 0)
+            {
+                SubMeshComponents[i]->AddCollisionConvexMesh(LoadedMeshSections[i].CollisionConvexVertices);
+                UE_LOG(LogTemp, Warning, TEXT("[PHYSICS TEST UCX] '%s' parçasına özel UCX Convex Collision uygulandı (%d vertex)!"),
+                    *MeshName, LoadedMeshSections[i].CollisionConvexVertices.Num());
+            }
+            else
+            {
+                SubMeshComponents[i]->AddCollisionConvexMesh(OriginalSubMeshVertices[i]);
+            }
 
             SubMeshComponents[i]->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
             SubMeshComponents[i]->SetCollisionObjectType(ECC_WorldDynamic);
@@ -3026,17 +3036,37 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Binary FBX format detected (%d bytes). Attempting Skin Bone Cluster Extraction..."), FileSize);
-        if (ParseFbxSkinClusters(FileBytes, FilePath, OutSections, ScaleMultiplier))
+        TMap<uint64, FString> ModelNames;
+        TMap<uint64, uint64> GeomToModelMap;
+        CollectFbxModelNamesAndConnections(FileBytes, 27, FileSize, ModelNames, GeomToModelMap);
+
+        bool bHasUCXModel = false;
+        for (const auto& Pair : ModelNames)
         {
-            UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER SUCCESS] Successfully extracted %d Skin Bone SubMesh Sections from FBX Clusters!"), OutSections.Num());
+            if (Pair.Value.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
+                Pair.Value.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
+                Pair.Value.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase))
+            {
+                bHasUCXModel = true;
+                break;
+            }
         }
-        else
+
+        bool bParsed = false;
+        if (!bHasUCXModel)
         {
-            TMap<uint64, FString> ModelNames;
-            TMap<uint64, uint64> GeomToModelMap;
-            CollectFbxModelNamesAndConnections(FileBytes, 27, FileSize, ModelNames, GeomToModelMap);
-            UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Found %d Model Names and %d Connections! Traversing FBX Node Tree..."), ModelNames.Num(), GeomToModelMap.Num());
+            UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Binary FBX format detected (%d bytes). Attempting Skin Bone Cluster Extraction..."), FileSize);
+            bParsed = ParseFbxSkinClusters(FileBytes, FilePath, OutSections, ScaleMultiplier);
+            if (bParsed)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER SUCCESS] Successfully extracted %d Skin Bone SubMesh Sections from FBX Clusters!"), OutSections.Num());
+            }
+        }
+
+        if (!bParsed)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Found %d Model Names and %d Connections (HasUCX: %d)! Traversing FBX Node Tree..."),
+                ModelNames.Num(), GeomToModelMap.Num(), bHasUCXModel ? 1 : 0);
             ParseFbxBinaryNodeTreeHelper(FileBytes, 27, FileSize, ModelNames, GeomToModelMap, OutSections, ScaleMultiplier);
 
             // Resolve ParentSectionIndex for each extracted section using FBX parent model connections
