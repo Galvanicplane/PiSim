@@ -389,7 +389,23 @@ void UPiSimGarageWidget::SetCadScaleMultiplierFromUI(float NewScaleMultiplier)
     if (TargetGarageRobot)
     {
         TargetGarageRobot->CadUnitScaleMultiplier = NewScaleMultiplier;
-        TargetGarageRobot->ReimportCadModel();
+        TargetGarageRobot->SetActorScale3D(FVector(NewScaleMultiplier, NewScaleMultiplier, NewScaleMultiplier));
+        if (TargetGarageRobot->RootComponent)
+        {
+            TargetGarageRobot->RootComponent->SetWorldScale3D(FVector(NewScaleMultiplier, NewScaleMultiplier, NewScaleMultiplier));
+        }
+        for (UProceduralMeshComponent* SubComp : TargetGarageRobot->SubMeshComponents)
+        {
+            if (SubComp)
+            {
+                SubComp->SetWorldScale3D(FVector(NewScaleMultiplier, NewScaleMultiplier, NewScaleMultiplier));
+            }
+        }
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow,
+                FString::Printf(TEXT(">>> [ÖLÇEK BUTONU: %.2fX] Robot boyutu anında güncellendi! <<<"), NewScaleMultiplier));
+        }
     }
 }
 
