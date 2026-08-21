@@ -301,7 +301,6 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
 
         if (CName.Equals(TEXT("C")) && CPropLen >= 19)
         {
-            // Prop 0: String "OO"
             uint32 StrLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 1]);
             int32 Off = CPropsStart + 5 + StrLen;
             if (Off + 18 <= (int32)CEnd)
@@ -394,6 +393,7 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
 
                     if (DataPtr && ArrayLen > 0)
                     {
+                        // Blender to Unreal coordinate conversion: (X, -Y, Z)
                         if (TypeCode == 'd')
                         {
                             const double* VData = reinterpret_cast<const double*>(DataPtr);
@@ -451,11 +451,12 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                             {
                                 if (PolyLoop.Num() >= 3)
                                 {
+                                    // Reverse winding order (0, p+1, p) because Y is inverted (-Y) for Unreal Engine!
                                     for (int32 p = 1; p < PolyLoop.Num() - 1; ++p)
                                     {
                                         Geom.Polygons.Add(PolyLoop[0]);
-                                        Geom.Polygons.Add(PolyLoop[p]);
                                         Geom.Polygons.Add(PolyLoop[p + 1]);
+                                        Geom.Polygons.Add(PolyLoop[p]);
                                     }
                                 }
                                 PolyLoop.Empty();
@@ -530,7 +531,7 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         OP = (int32)OEnd;
     }
 
-    // 5) Extract and Classify Each Geometry per Model
+    // 5) Extract and Classify Each Geometry per Model with Local Centering and Smoothed Normals
     for (const auto& GeomPair : GeomMap)
     {
         uint64 GeomID = GeomPair.Key;
@@ -603,23 +604,35 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                             {
                                 FImporterMeshSection Sec;
                                 Sec.MeshName = bIsUCXModel ? FString::Printf(TEXT("%s_%s"), *ModelName, *SubDef->BoneLabel) : SubDef->BoneLabel;
-                                Sec.Vertices = SubVerts;
-                                Sec.Triangles = SubTris;
 
-                                // Pivot calculation
+                                // 1) Calculate Exact Pivot Point (Centroid in World Space)
                                 FVector Center = FVector::ZeroVector;
                                 for (const FVector& V : SubVerts) Center += V;
                                 Sec.PivotPoint = Center / (float)SubVerts.Num();
 
-                                // Normals
-                                Sec.Normals.Init(FVector::UpVector, SubVerts.Num());
+                                // 2) Center Vertices around local origin (0,0,0) for component
+                                for (FVector& V : SubVerts)
+                                {
+                                    V = V - Sec.PivotPoint;
+                                }
+
+                                Sec.Vertices = SubVerts;
+                                Sec.Triangles = SubTris;
+
+                                // 3) Compute Outward-Facing Smoothed Vertex Normals
+                                Sec.Normals.Init(FVector::ZeroVector, SubVerts.Num());
                                 for (int32 t = 0; t + 2 < SubTris.Num(); t += 3)
                                 {
                                     int32 i0 = SubTris[t], i1 = SubTris[t + 1], i2 = SubTris[t + 2];
                                     FVector TriNormal = ((SubVerts[i1] - SubVerts[i0]) ^ (SubVerts[i2] - SubVerts[i0])).GetSafeNormal();
-                                    Sec.Normals[i0] = TriNormal;
-                                    Sec.Normals[i1] = TriNormal;
-                                    Sec.Normals[i2] = TriNormal;
+                                    Sec.Normals[i0] += TriNormal;
+                                    Sec.Normals[i1] += TriNormal;
+                                    Sec.Normals[i2] += TriNormal;
+                                }
+                                for (FVector& Norm : Sec.Normals)
+                                {
+                                    Norm = Norm.GetSafeNormal();
+                                    if (Norm.IsNearlyZero()) Norm = FVector::UpVector;
                                 }
 
                                 if (bIsUCXModel)
@@ -641,21 +654,30 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
             // Static unskinned geometry
             FImporterMeshSection Sec;
             Sec.MeshName = ModelName;
-            Sec.Vertices = Geom.Vertices;
-            Sec.Triangles = Geom.Polygons;
 
             FVector Center = FVector::ZeroVector;
             for (const FVector& V : Geom.Vertices) Center += V;
             Sec.PivotPoint = Center / (float)Geom.Vertices.Num();
 
-            Sec.Normals.Init(FVector::UpVector, Geom.Vertices.Num());
+            TArray<FVector> CenteredVerts = Geom.Vertices;
+            for (FVector& V : CenteredVerts) V = V - Sec.PivotPoint;
+
+            Sec.Vertices = CenteredVerts;
+            Sec.Triangles = Geom.Polygons;
+
+            Sec.Normals.Init(FVector::ZeroVector, CenteredVerts.Num());
             for (int32 t = 0; t + 2 < Geom.Polygons.Num(); t += 3)
             {
                 int32 i0 = Geom.Polygons[t], i1 = Geom.Polygons[t + 1], i2 = Geom.Polygons[t + 2];
-                FVector TriNormal = ((Geom.Vertices[i1] - Geom.Vertices[i0]) ^ (Geom.Vertices[i2] - Geom.Vertices[i0])).GetSafeNormal();
-                Sec.Normals[i0] = TriNormal;
-                Sec.Normals[i1] = TriNormal;
-                Sec.Normals[i2] = TriNormal;
+                FVector TriNormal = ((CenteredVerts[i1] - CenteredVerts[i0]) ^ (CenteredVerts[i2] - CenteredVerts[i0])).GetSafeNormal();
+                Sec.Normals[i0] += TriNormal;
+                Sec.Normals[i1] += TriNormal;
+                Sec.Normals[i2] += TriNormal;
+            }
+            for (FVector& Norm : Sec.Normals)
+            {
+                Norm = Norm.GetSafeNormal();
+                if (Norm.IsNearlyZero()) Norm = FVector::UpVector;
             }
 
             if (bIsUCXModel) OutUCX.Add(Sec);
@@ -736,17 +758,25 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         UProceduralMeshComponent* VisComp = NewObject<UProceduralMeshComponent>(this, CompName);
         VisComp->SetMobility(EComponentMobility::Movable);
 
-        // Hiyerarşik Kemik Bağlantısı (Parent-Child)
-        int32 ParentIdx = VisualSections[i].ParentSectionIndex;
-        if (ParentIdx >= 0 && VisualMeshComponents.IsValidIndex(ParentIdx) && VisualMeshComponents[ParentIdx])
-        {
-            VisComp->SetupAttachment(VisualMeshComponents[ParentIdx]);
-            VisComp->SetRelativeLocation(VisualSections[i].PivotPoint - VisualSections[ParentIdx].PivotPoint);
-        }
-        else
+        // Hiyerarşik Kemik Bağlantısı: Gövde dışındaki parçalar gövdeye bağlanır
+        if (i == 0)
         {
             VisComp->SetupAttachment(SceneRootComponent);
             VisComp->SetRelativeLocation(VisualSections[i].PivotPoint);
+        }
+        else
+        {
+            if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+            {
+                VisComp->SetupAttachment(VisualMeshComponents[0]);
+                // Gövdeye göre bağıl konum: (TekerlekPivot - GövdePivot)
+                VisComp->SetRelativeLocation(VisualSections[i].PivotPoint - VisualSections[0].PivotPoint);
+            }
+            else
+            {
+                VisComp->SetupAttachment(SceneRootComponent);
+                VisComp->SetRelativeLocation(VisualSections[i].PivotPoint);
+            }
         }
 
         VisComp->RegisterComponent();
@@ -769,7 +799,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
     }
 
     // -----------------------------------------------------------------------------------------
-    // 2) UCX LİSTESİNDEKİ PARÇALARI İLGİLİ GÖRSEL KEMİĞE BAĞLA, GÖRÜNMEZ YAP VE STATİK/DİNAMİK COLLISION VER
+    // 2) UCX LİSTESİNDEKİ PARÇALARI İLGİLİ GÖRSEL KEMİĞE BAĞLA VE STATİK/DİNAMİK COLLISION VER
     // -----------------------------------------------------------------------------------------
     for (int32 j = 0; j < UCXSections.Num(); ++j)
     {
@@ -777,21 +807,17 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         UProceduralMeshComponent* CollComp = NewObject<UProceduralMeshComponent>(this, CollCompName);
         CollComp->SetMobility(EComponentMobility::Movable);
 
-        // Hedef görsel parçayı bul (Örn: UCX_Chassis -> Chassis)
-        FString TargetName = UCXSections[j].MeshName;
-        TargetName.RemoveFromStart(TEXT("UCX_"), ESearchCase::IgnoreCase);
-        TargetName.RemoveFromStart(TEXT("UBX_"), ESearchCase::IgnoreCase);
-        TargetName.RemoveFromStart(TEXT("USP_"), ESearchCase::IgnoreCase);
-        TargetName.RemoveFromStart(TEXT("UCX"), ESearchCase::IgnoreCase);
-
+        // Hedef görsel parçayı bul (Örn: UCX_Chassis_wheel_FR -> wheel_FR veya UCX_Chassis_chassis -> chassis)
+        FString UcxName = UCXSections[j].MeshName;
         UProceduralMeshComponent* TargetVisComp = (VisualMeshComponents.Num() > 0) ? VisualMeshComponents[0] : nullptr;
+        int32 TargetVisIdx = 0;
+
         for (int32 v = 0; v < VisualSections.Num(); ++v)
         {
-            if (VisualSections[v].MeshName.Equals(TargetName, ESearchCase::IgnoreCase) ||
-                VisualSections[v].MeshName.Contains(TargetName, ESearchCase::IgnoreCase) ||
-                TargetName.Contains(VisualSections[v].MeshName, ESearchCase::IgnoreCase))
+            if (UcxName.Contains(VisualSections[v].MeshName, ESearchCase::IgnoreCase))
             {
                 TargetVisComp = VisualMeshComponents[v];
+                TargetVisIdx = v;
                 break;
             }
         }
@@ -822,7 +848,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         CollComp->RecreatePhysicsState();
         CollComp->UpdateBounds();
 
-        // GÖRÜNTÜYÜ GÖRÜNMEZ YAP (Render Kapalı)
+        // Görsel Render Gizli
         CollComp->SetVisibility(false);
         CollComp->SetHiddenInGame(true);
 
@@ -896,15 +922,6 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             }
         }
 
-        for (int32 j = 0; j < CollisionMeshComponents.Num(); ++j)
-        {
-            if (CollisionMeshComponents[j])
-            {
-                CollisionMeshComponents[j]->SetSimulatePhysics(false);
-                CollisionMeshComponents[j]->SetEnableGravity(false);
-            }
-        }
-
         // Hiyerarşiyi ve konumu yeniden sıfırla
         BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
 
@@ -923,7 +940,7 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
     UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter LOG] >>> CANLI CHAOS FİZİK SİMÜLASYONU BAŞLATILIYOR <<<"));
     UE_LOG(LogTemp, Warning, TEXT("===================================================================="));
 
-    // 1) Ana Gövdeyi Kök Yap
+    // 1) Ana Gövdeyi Kök Bileşen Yap
     if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
     {
         VisualMeshComponents[0]->SetMobility(EComponentMobility::Movable);
@@ -931,40 +948,63 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         SetRootComponent(VisualMeshComponents[0]);
     }
 
-    // Hedef fizik bileşenleri: Varsa UCX (CollisionMeshComponents), yoksa VisualMeshComponents
-    bool bHasUCX = (CollisionMeshComponents.Num() > 0);
-    TArray<UProceduralMeshComponent*>& PhysComps = bHasUCX ? CollisionMeshComponents : VisualMeshComponents;
-
-    for (int32 i = 0; i < PhysComps.Num(); ++i)
+    // 2) Her Parçaya Kütle, Zırh ve Dinamik Fizik Ver
+    for (int32 i = 0; i < VisualMeshComponents.Num(); ++i)
     {
-        UProceduralMeshComponent* Comp = PhysComps[i];
-        if (!Comp) continue;
+        UProceduralMeshComponent* VisComp = VisualMeshComponents[i];
+        if (!VisComp || !VisualSections.IsValidIndex(i)) continue;
 
-        FString CompName = Comp->GetName();
         float Mass = (i == 0) ? 30.0f : 2.5f;
 
+        // İlgili UCX Convex Hull'unu aktar (veya kendi geometrisi)
+        VisComp->ClearCollisionConvexMeshes();
+        bool bFoundUCX = false;
+        for (const FImporterMeshSection& UcxSec : UCXSections)
+        {
+            if (UcxSec.MeshName.Contains(VisualSections[i].MeshName, ESearchCase::IgnoreCase))
+            {
+                VisComp->AddCollisionConvexMesh(UcxSec.Vertices);
+                bFoundUCX = true;
+                break;
+            }
+        }
+        if (!bFoundUCX)
+        {
+            VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
+        }
+
+        VisComp->bUseComplexAsSimpleCollision = false;
+        VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+        VisComp->SetCollisionObjectType(ECC_WorldDynamic);
+        VisComp->SetCollisionResponseToAllChannels(ECR_Block);
+        VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zeminle çarpış
+        VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+        VisComp->RecreatePhysicsState();
+        VisComp->UpdateBounds();
+
         // Dinamik Fiziği Aç
-        Comp->SetMobility(EComponentMobility::Movable);
-        Comp->SetSimulatePhysics(true);
-        Comp->SetEnableGravity(true);
-        Comp->SetMassOverrideInKg(NAME_None, Mass, true);
-        Comp->SetLinearDamping(0.8f);
-        Comp->SetAngularDamping(1.5f);
-        Comp->WakeRigidBody();
+        VisComp->SetMobility(EComponentMobility::Movable);
+        VisComp->SetSimulatePhysics(true);
+        VisComp->SetEnableGravity(true);
+        VisComp->SetMassOverrideInKg(NAME_None, Mass, true);
+        VisComp->SetLinearDamping(0.8f);
+        VisComp->SetAngularDamping(1.5f);
+        VisComp->WakeRigidBody();
 
         UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' bileşenine CANLI DİNAMİK FİZİK verildi | Kütle: %.1f kg | Yerçekimi: AÇIK"),
-            *CompName, Mass);
+            *VisualSections[i].MeshName, Mass);
 
-        // Gövde Dışındaki Tekerlekler İçin Fiziksel Eklem (Constraint)
-        if (i > 0 && PhysComps[0])
+        // 3) Gövde Dışındaki Tekerlekler İçin Fiziksel Eklem (Constraint) Bağla
+        if (i > 0 && VisualMeshComponents[0])
         {
-            FName ConstraintName = *FString::Printf(TEXT("PhysicsJoint_%d"), i);
+            FName ConstraintName = *FString::Printf(TEXT("PhysicsJoint_%d_%s"), i, *VisualSections[i].MeshName);
             UPhysicsConstraintComponent* Constraint = NewObject<UPhysicsConstraintComponent>(this, ConstraintName);
-            Constraint->SetupAttachment(PhysComps[0]);
+            Constraint->SetupAttachment(VisualMeshComponents[0]);
+            Constraint->SetRelativeLocation(VisualSections[i].PivotPoint - VisualSections[0].PivotPoint);
             Constraint->RegisterComponent();
 
-            Constraint->SetConstrainedComponents(PhysComps[0], NAME_None, Comp, NAME_None);
-            Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
+            Constraint->SetConstrainedComponents(VisualMeshComponents[0], NAME_None, VisComp, NAME_None);
+            Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f); // Serbest tekerlek dönüşü
             Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
             Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
             Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
@@ -979,7 +1019,7 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
     if (GEngine)
     {
         GEngine->AddOnScreenDebugMessage(801, 10.0f, FColor::Cyan,
-            FString::Printf(TEXT("🚀 >>> [CHAOS FİZİK AKTİF!] %d Parçaya Canlı Dinamik Fizik Verildi <<<"), PhysComps.Num()));
+            FString::Printf(TEXT("🚀 >>> [CHAOS FİZİK AKTİF!] %d Parça Canlı Simüle Ediliyor <<<"), VisualMeshComponents.Num()));
         
         GEngine->AddOnScreenDebugMessage(802, 10.0f, FColor::Emerald,
             FString::Printf(TEXT("🛡️ >>> [GÖVDE: 30.0 KG | YERÇEKİMİ: AÇIK] Zemin Çarpışması Aktif <<<")));
