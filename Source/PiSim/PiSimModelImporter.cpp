@@ -3,6 +3,7 @@
 
 #include "PiSimModelImporter.h"
 #include "PiSimGarageRobot.h"
+#include "PiSimHUD.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 #include "Materials/MaterialInterface.h"
@@ -39,7 +40,7 @@ void APiSimModelImporter::BeginPlay()
 {
     Super::BeginPlay();
 
-    // Enable Mouse Cursor & Interactive Events for Player Controller
+    // Enable Mouse Cursor, HUD & Interactive Events for Player Controller
     if (GetWorld())
     {
         APlayerController* PC = GetWorld()->GetFirstPlayerController();
@@ -48,7 +49,15 @@ void APiSimModelImporter::BeginPlay()
             PC->bShowMouseCursor = true;
             PC->bEnableClickEvents = true;
             PC->bEnableMouseOverEvents = true;
-            PC->SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false));
+            FInputModeGameAndUI InputMode;
+            InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+            InputMode.SetHideCursorDuringCapture(false);
+            PC->SetInputMode(InputMode);
+
+            if (!PC->GetHUD())
+            {
+                PC->ClientSetHUD(APiSimHUD::StaticClass());
+            }
         }
     }
 

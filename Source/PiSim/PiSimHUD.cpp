@@ -4,6 +4,7 @@
 #include "Engine/Canvas.h"
 #include "Kismet/GameplayStatics.h"
 #include "PiSimGarageRobot.h"
+#include "PiSimModelImporter.h"
 #include "ProceduralMeshComponent.h"
 
 APiSimHUD::APiSimHUD()
@@ -45,8 +46,6 @@ void APiSimHUD::DrawHUD()
         return;
     }
 
-    AActor* FoundActor = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimGarageRobot::StaticClass());
-    APiSimGarageRobot* Robot = Cast<APiSimGarageRobot>(FoundActor);
     APlayerController* PC = GetOwningPlayerController() ? GetOwningPlayerController() : GetWorld()->GetFirstPlayerController();
 
     float MouseX = 0.0f;
@@ -58,6 +57,119 @@ void APiSimHUD::DrawHUD()
         PC->GetMousePosition(MouseX, MouseY);
         bLeftClickJustPressed = PC->WasInputKeyJustPressed(EKeys::LeftMouseButton);
     }
+
+    // =========================================================================
+    // DEDICATED HUD FOR PiSimModelImporter
+    // =========================================================================
+    AActor* FoundImporter = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimModelImporter::StaticClass());
+    APiSimModelImporter* Importer = Cast<APiSimModelImporter>(FoundImporter);
+
+    if (Importer)
+    {
+        // 1. TOP HEADER BAR
+        DrawRect(FLinearColor(0.03f, 0.05f, 0.09f, 0.95f), 0, 0, Canvas->SizeX, 68);
+        DrawRect(FLinearColor(0.0f, 0.94f, 1.0f, 0.85f), 0, 66, Canvas->SizeX, 2);
+
+        FCanvasTextItem HeaderText(FVector2D(24, 18), FText::FromString(TEXT("🚀 PiSim MODEL IMPORTER | DEDICATED FBX & UCX TEST SYSTEM")), GEngine->GetMediumFont(), FLinearColor(0.0f, 0.94f, 1.0f, 1.0f));
+        Canvas->DrawItem(HeaderText);
+
+        // Scale Buttons: 0.1X, 1.0X, 10.0X
+        float ScaleBtnLabels[3] = { 0.1f, 1.0f, 10.0f };
+        const TCHAR* ScaleBtnTexts[3] = { TEXT("🔍 0.1X"), TEXT("📐 1.0X (Default)"), TEXT("🔬 10.0X") };
+
+        for (int32 s = 0; s < 3; ++s)
+        {
+            float BtnX = 480.0f + (s * 135.0f);
+            float BtnY = 16.0f;
+            float BtnW = 125.0f;
+            float BtnH = 34.0f;
+
+            bool bHover = (MouseX >= BtnX && MouseX <= (BtnX + BtnW) && MouseY >= BtnY && MouseY <= (BtnY + BtnH));
+            bool bIsActive = FMath::IsNearlyEqual(Importer->ImportScaleMultiplier, ScaleBtnLabels[s], 0.01f);
+
+            if (bHover && bLeftClickJustPressed)
+            {
+                if (s == 0) Importer->SetScale_0_1X();
+                else if (s == 1) Importer->SetScale_1_0X();
+                else if (s == 2) Importer->SetScale_10_0X();
+            }
+
+            FLinearColor Bg = bIsActive ? FLinearColor(0.0f, 0.94f, 1.0f, 0.95f) : (bHover ? FLinearColor(0.2f, 0.45f, 0.65f, 0.9f) : FLinearColor(0.12f, 0.18f, 0.28f, 0.85f));
+            FLinearColor TxtCol = bIsActive ? FLinearColor::Black : FLinearColor::White;
+            DrawRect(Bg, BtnX, BtnY, BtnW, BtnH);
+
+            FCanvasTextItem BtnTxt(FVector2D(BtnX + 10, BtnY + 9), FText::FromString(ScaleBtnTexts[s]), GEngine->GetSmallFont(), TxtCol);
+            Canvas->DrawItem(BtnTxt);
+        }
+
+        // Reimport Button
+        float ReimpBtnX = 480.0f + (3 * 135.0f);
+        float ReimpBtnY = 16.0f;
+        float ReimpBtnW = 145.0f;
+        float ReimpBtnH = 34.0f;
+        bool bReimpHover = (MouseX >= ReimpBtnX && MouseX <= (ReimpBtnX + ReimpBtnW) && MouseY >= ReimpBtnY && MouseY <= (ReimpBtnY + ReimpBtnH));
+        if (bReimpHover && bLeftClickJustPressed)
+        {
+            Importer->ImportAndSpawnRobot();
+        }
+        FLinearColor ReimpBg = bReimpHover ? FLinearColor(0.0f, 1.0f, 0.5f, 0.95f) : FLinearColor(0.1f, 0.5f, 0.25f, 0.85f);
+        DrawRect(ReimpBg, ReimpBtnX, ReimpBtnY, ReimpBtnW, ReimpBtnH);
+        FCanvasTextItem ReimpTxt(FVector2D(ReimpBtnX + 10, ReimpBtnY + 9), FText::FromString(TEXT("🔄 REIMPORT FBX")), GEngine->GetSmallFont(), FLinearColor::White);
+        Canvas->DrawItem(ReimpTxt);
+
+        // Physics Simulation Toggle Button
+        float PhysBtnX = ReimpBtnX + ReimpBtnW + 15.0f;
+        float PhysBtnY = 16.0f;
+        float PhysBtnW = 200.0f;
+        float PhysBtnH = 34.0f;
+        bool bPhysHover = (MouseX >= PhysBtnX && MouseX <= (PhysBtnX + PhysBtnW) && MouseY >= PhysBtnY && MouseY <= (PhysBtnY + PhysBtnH));
+        if (bPhysHover && bLeftClickJustPressed)
+        {
+            Importer->TogglePhysicsSimulation();
+        }
+        FLinearColor PhysBg = Importer->bIsPhysicsSimulating ? FLinearColor(0.95f, 0.4f, 0.0f, 0.95f) : (bPhysHover ? FLinearColor(0.3f, 0.5f, 0.7f, 0.9f) : FLinearColor(0.15f, 0.25f, 0.4f, 0.85f));
+        DrawRect(PhysBg, PhysBtnX, PhysBtnY, PhysBtnW, PhysBtnH);
+        FString PhysStr = Importer->bIsPhysicsSimulating ? TEXT("⚡ FİZİK: AKTİF (AÇIK)") : TEXT("⚡ FİZİĞİ SİMÜLE ET");
+        FCanvasTextItem PhysTxt(FVector2D(PhysBtnX + 12, PhysBtnY + 9), FText::FromString(PhysStr), GEngine->GetSmallFont(), FLinearColor::White);
+        Canvas->DrawItem(PhysTxt);
+
+        // Left Telemetry Info Card
+        float CardX = 24.0f;
+        float CardY = 88.0f;
+        float CardW = 350.0f;
+        float CardH = 320.0f;
+        DrawRect(FLinearColor(0.04f, 0.07f, 0.12f, 0.92f), CardX, CardY, CardW, CardH);
+        DrawRect(FLinearColor(0.0f, 0.94f, 1.0f, 0.8f), CardX, CardY, CardW, 2);
+
+        FCanvasTextItem CardTitle(FVector2D(CardX + 16, CardY + 14), FText::FromString(TEXT("📊 MODEL & TEST BİLGİSİ")), GEngine->GetSmallFont(), FLinearColor(0.0f, 0.94f, 1.0f, 1.0f));
+        Canvas->DrawItem(CardTitle);
+
+        FString InfoLines[] = {
+            FString::Printf(TEXT("📁 Dosya: Saved/Robots/Cache/robot_import_test.fbx")),
+            FString::Printf(TEXT("🎨 Görsel Parçalar: %d Adet (Render Açık)"), Importer->VisualMeshComponents.Num()),
+            FString::Printf(TEXT("🛡️ UCX Çarpışma: %d Adet (Chaos Collision)"), Importer->CollisionMeshComponents.Num()),
+            FString::Printf(TEXT("📐 Geçerli Ölçek: %.2fX"), Importer->ImportScaleMultiplier),
+            FString::Printf(TEXT("⚡ Fizik Simülasyonu: %s"), Importer->bIsPhysicsSimulating ? TEXT("AÇIK (Yerçekimi Aktif)") : TEXT("KAPALI (Statik Havada)")),
+            FString(TEXT("----------------------------------------")),
+            FString(TEXT("🎮 KAMERA KONTROLLERİ:")),
+            FString(TEXT("  • Sol Tık + Sürükle: 360° Orbit Döndür")),
+            FString(TEXT("  • Sağ Tık + Sürükle: Kamerayı Kaydır (Pan)")),
+            FString(TEXT("  • Fare Tekerleği: Yaklaş / Uzaklaş (Zoom)"))
+        };
+
+        for (int32 line = 0; line < 10; ++line)
+        {
+            FLinearColor LineColor = (line < 5) ? FLinearColor::White : FLinearColor(0.7f, 0.85f, 1.0f, 1.0f);
+            if (line == 4) LineColor = Importer->bIsPhysicsSimulating ? FLinearColor(0.2f, 1.0f, 0.4f, 1.0f) : FLinearColor(1.0f, 0.6f, 0.2f, 1.0f);
+            FCanvasTextItem LineTxt(FVector2D(CardX + 16, CardY + 44 + (line * 24)), FText::FromString(InfoLines[line]), GEngine->GetSmallFont(), LineColor);
+            Canvas->DrawItem(LineTxt);
+        }
+
+        return; // Done rendering Model Importer HUD
+    }
+
+    AActor* FoundActor = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimGarageRobot::StaticClass());
+    APiSimGarageRobot* Robot = Cast<APiSimGarageRobot>(FoundActor);
 
     int32 SelectedIdx = (ActiveGarageWidget) ? ActiveGarageWidget->SelectedJointIndex : 0;
     float CurrAngle = (Robot && Robot->JointLimitsList.IsValidIndex(SelectedIdx)) ? Robot->JointLimitsList[SelectedIdx].CurrentAngle : 0.0f;
