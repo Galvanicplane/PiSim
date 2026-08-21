@@ -1,5 +1,5 @@
 // PiSimModelImporter.cpp
-// Clean, Dedicated FBX Importer with strict Visual vs UCX Collision Separation, Hierarchy Linking, Scale Control, and Chaos Physics Toggle.
+// Full-Featured Pawn for GameMode with 360 Orbit Camera, Mouse Controls, Interactive Screen UI, and Strict Visual vs UCX Collision Separation.
 
 #include "PiSimModelImporter.h"
 #include "Misc/Paths.h"
@@ -7,6 +7,8 @@
 #include "Misc/Compression.h"
 #include "HAL/PlatformFileManager.h"
 #include "Materials/MaterialInterface.h"
+#include "GameFramework/PlayerController.h"
+#include "Components/InputComponent.h"
 #include "Engine/Engine.h"
 
 APiSimModelImporter::APiSimModelImporter()
@@ -24,6 +26,8 @@ APiSimModelImporter::APiSimModelImporter()
     OrbitSpringArm->SetRelativeRotation(FRotator(-20.0f, 45.0f, 0.0f));
     OrbitSpringArm->bUsePawnControlRotation = false;
     OrbitSpringArm->bDoCollisionTest = false;
+    OrbitSpringArm->bEnableCameraLag = true;
+    OrbitSpringArm->CameraLagSpeed = 12.0f;
 
     OrbitCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("OrbitCamera"));
     OrbitCamera->SetupAttachment(OrbitSpringArm, USpringArmComponent::SocketName);
@@ -35,31 +39,124 @@ APiSimModelImporter::APiSimModelImporter()
 void APiSimModelImporter::BeginPlay()
 {
     Super::BeginPlay();
+
+    // Enable Mouse Cursor & Interactive Events for Player Controller
+    if (GetWorld())
+    {
+        APlayerController* PC = GetWorld()->GetFirstPlayerController();
+        if (PC)
+        {
+            PC->bShowMouseCursor = true;
+            PC->bEnableClickEvents = true;
+            PC->bEnableMouseOverEvents = true;
+            PC->SetInputMode(FInputModeGameAndUI().SetHideCursorDuringCapture(false));
+        }
+    }
+
+    // Auto-spawn model from Saved/Robots/Cache/robot_import_test.fbx at startup
     BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
+}
+
+void APiSimModelImporter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+    Super::SetupPlayerInputComponent(PlayerInputComponent);
+
+    if (PlayerInputComponent)
+    {
+        PlayerInputComponent->BindAction(TEXT("LeftMouseClick"), IE_Pressed, this, &APiSimModelImporter::OnLeftMouseDown);
+        PlayerInputComponent->BindAction(TEXT("LeftMouseClick"), IE_Released, this, &APiSimModelImporter::OnLeftMouseUp);
+        PlayerInputComponent->BindAction(TEXT("RightMouseClick"), IE_Pressed, this, &APiSimModelImporter::OnRightMouseDown);
+        PlayerInputComponent->BindAction(TEXT("RightMouseClick"), IE_Released, this, &APiSimModelImporter::OnRightMouseUp);
+        PlayerInputComponent->BindAxis(TEXT("MouseWheelAxis"), this, &APiSimModelImporter::OnMouseWheelAxis);
+    }
+}
+
+void APiSimModelImporter::OnLeftMouseDown()
+{
+    bIsLeftMouseDown = true;
+}
+
+void APiSimModelImporter::OnLeftMouseUp()
+{
+    bIsLeftMouseDown = false;
+}
+
+void APiSimModelImporter::OnRightMouseDown()
+{
+    bIsRightMouseDown = true;
+}
+
+void APiSimModelImporter::OnRightMouseUp()
+{
+    bIsRightMouseDown = false;
+}
+
+void APiSimModelImporter::OnMouseWheelAxis(float Val)
+{
+    if (FMath::Abs(Val) > 0.01f && OrbitSpringArm)
+    {
+        OrbitSpringArm->TargetArmLength = FMath::Clamp(OrbitSpringArm->TargetArmLength - Val * 35.0f, 50.0f, 1500.0f);
+    }
 }
 
 void APiSimModelImporter::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+
+    // Mouse Orbit Camera Dragging
+    if (GetWorld())
+    {
+        APlayerController* PC = GetWorld()->GetFirstPlayerController();
+        if (PC && OrbitSpringArm)
+        {
+            float MouseX = 0.0f, MouseY = 0.0f;
+            PC->GetInputMouseDelta(MouseX, MouseY);
+
+            // Left Mouse Drag -> 360 Orbit Camera
+            if (PC->IsInputKeyDown(EKeys::LeftMouseButton) && (FMath::Abs(MouseX) > 0.001f || FMath::Abs(MouseY) > 0.001f))
+            {
+                FRotator ArmRot = OrbitSpringArm->GetRelativeRotation();
+                ArmRot.Yaw += MouseX * 2.5f;
+                ArmRot.Pitch = FMath::Clamp(ArmRot.Pitch + MouseY * 2.0f, -80.0f, 80.0f);
+                OrbitSpringArm->SetRelativeRotation(ArmRot);
+            }
+
+            // Right Mouse Drag -> Pan Camera Target
+            if (PC->IsInputKeyDown(EKeys::RightMouseButton) && (FMath::Abs(MouseX) > 0.001f || FMath::Abs(MouseY) > 0.001f))
+            {
+                FVector ArmLoc = OrbitSpringArm->GetRelativeLocation();
+                ArmLoc.Y += MouseX * 1.5f;
+                ArmLoc.Z += MouseY * 1.5f;
+                OrbitSpringArm->SetRelativeLocation(ArmLoc);
+            }
+
+            // Mouse Wheel Zoom
+            if (PC->IsInputKeyDown(EKeys::MouseScrollUp))
+            {
+                OrbitSpringArm->TargetArmLength = FMath::Clamp(OrbitSpringArm->TargetArmLength - 25.0f, 50.0f, 1500.0f);
+            }
+            else if (PC->IsInputKeyDown(EKeys::MouseScrollDown))
+            {
+                OrbitSpringArm->TargetArmLength = FMath::Clamp(OrbitSpringArm->TargetArmLength + 25.0f, 50.0f, 1500.0f);
+            }
+        }
+    }
 }
 
 void APiSimModelImporter::ClearSpawnedComponents()
 {
-    // Destroy previous visual components
     for (UProceduralMeshComponent* VisComp : VisualMeshComponents)
     {
         if (VisComp) VisComp->DestroyComponent();
     }
     VisualMeshComponents.Empty();
 
-    // Destroy previous collision components
     for (UProceduralMeshComponent* CollComp : CollisionMeshComponents)
     {
         if (CollComp) CollComp->DestroyComponent();
     }
     CollisionMeshComponents.Empty();
 
-    // Destroy physics constraints
     for (UPhysicsConstraintComponent* Constraint : JointConstraints)
     {
         if (Constraint) Constraint->DestroyComponent();
@@ -132,7 +229,6 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         return false;
     }
 
-    // Unpack Skin Clusters / Geometry Nodes
     int32 Pos = 27;
     TArray<FVector> AllVerts;
     TArray<int32> AllPolys;
@@ -595,7 +691,6 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
 // =========================================================================================
 void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
 {
-    // Hedef bileşenler: Varsa CollisionMeshComponents, yoksa VisualMeshComponents
     TArray<UProceduralMeshComponent*>& TargetComps = (CollisionMeshComponents.Num() > 0) ? CollisionMeshComponents : VisualMeshComponents;
 
     for (int32 i = 0; i < TargetComps.Num(); ++i)

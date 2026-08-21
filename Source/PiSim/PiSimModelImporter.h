@@ -1,5 +1,5 @@
 // PiSimModelImporter.h
-// Clean, Dedicated FBX Importer with strict Visual vs UCX Collision Separation, Hierarchy Linking, Scale Control, and Chaos Physics Toggle.
+// Full-Featured Pawn for GameMode with 360 Orbit Camera, Mouse Controls, Interactive Screen UI, and Strict Visual vs UCX Collision Separation.
 
 #pragma once
 
@@ -64,12 +64,13 @@ public:
 
 protected:
     virtual void BeginPlay() override;
+    virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
 public:
     virtual void Tick(float DeltaTime) override;
 
     // =========================================================================
-    // COMPONENTS
+    // COMPONENTS & SPACEX 360 ORBIT CAMERA
     // =========================================================================
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Components")
     USceneComponent* SceneRootComponent;
@@ -143,6 +144,19 @@ public:
     /** Activates or disables live Chaos physics simulation and gravity */
     void SetPhysicsSimulationActive(bool bActive);
 
+    // =========================================================================
+    // MOUSE ORBIT & ZOOM CONTROLS
+    // =========================================================================
+    void OnLeftMouseDown();
+    void OnLeftMouseUp();
+    void OnRightMouseDown();
+    void OnRightMouseUp();
+    void OnMouseWheelAxis(float Val);
+
 private:
     void ClearSpawnedComponents();
+
+    bool bIsLeftMouseDown = false;
+    bool bIsRightMouseDown = false;
+    FVector2D LastMousePosition = FVector2D::ZeroVector;
 };
