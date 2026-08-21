@@ -85,7 +85,33 @@ void APiSimModelImporter::SetupPlayerInputComponent(UInputComponent* PlayerInput
         // Direct Key Binds for Mouse Scroll Wheel Zoom
         PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &APiSimModelImporter::ZoomIn);
         PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &APiSimModelImporter::ZoomOut);
+
+        // G and F Keys to Control Wheel Rotation Speed (RPM)
+        PlayerInputComponent->BindKey(EKeys::G, IE_Pressed, this, &APiSimModelImporter::IncreaseWheelRpm);
+        PlayerInputComponent->BindKey(EKeys::F, IE_Pressed, this, &APiSimModelImporter::DecreaseWheelRpm);
     }
+}
+
+void APiSimModelImporter::IncreaseWheelRpm()
+{
+    AppliedWheelRpm += 1.0f;
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(701, 3.0f, FColor::Cyan,
+            FString::Printf(TEXT("🏎️ >>> [TEKERLEK DÖNÜŞÜ (RPM)]: %+.1f RPM (G Tuşu: +1 RPM) <<<"), AppliedWheelRpm));
+    }
+    UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter LOG] Tekerlek Dönüş Hızı: %+.1f RPM"), AppliedWheelRpm);
+}
+
+void APiSimModelImporter::DecreaseWheelRpm()
+{
+    AppliedWheelRpm -= 1.0f;
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(701, 3.0f, FColor::Orange,
+            FString::Printf(TEXT("🏎️ >>> [TEKERLEK DÖNÜŞÜ (RPM)]: %+.1f RPM (F Tuşu: -1 RPM) <<<"), AppliedWheelRpm));
+    }
+    UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter LOG] Tekerlek Dönüş Hızı: %+.1f RPM"), AppliedWheelRpm);
 }
 
 void APiSimModelImporter::OnLeftMouseDown()
@@ -127,6 +153,23 @@ void APiSimModelImporter::ZoomOut()
 void APiSimModelImporter::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+
+    // Canlı Tekerlek Fiziksel Dönüşü (Roll X ekseninde 1 RPM = 6 deg/sec)
+    if (bIsPhysicsSimulating && FMath::Abs(AppliedWheelRpm) > 0.001f)
+    {
+        float AngularSpeedDegPerSec = AppliedWheelRpm * 6.0f; // 1 RPM = 6 deg/sec
+
+        for (int32 i = 1; i < VisualMeshComponents.Num(); ++i)
+        {
+            if (VisualMeshComponents[i])
+            {
+                // Tekerleğin kendi lokal X ekseni (yuvarlanma ekseni)
+                FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f);
+                FVector WorldAxle = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalAxle);
+                VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(WorldAxle * AngularSpeedDegPerSec, false);
+            }
+        }
+    }
 
     // Mouse Orbit & Pan Camera Dragging
     if (GetWorld())

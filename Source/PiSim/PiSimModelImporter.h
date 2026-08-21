@@ -113,6 +113,10 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Settings")
     bool bIsPhysicsSimulating = false;
 
+    /** Applied wheel rotation speed in RPM (Controllable via G and F keys) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
+    float AppliedWheelRpm = 0.0f;
+
     // =========================================================================
     // CALL-IN-EDITOR BUTTONS (Details Panel)
     // =========================================================================
@@ -144,7 +148,7 @@ public:
     void SetPhysicsSimulationActive(bool bActive);
 
     // =========================================================================
-    // MOUSE ORBIT & ZOOM CONTROLS
+    // MOUSE ORBIT & ZOOM & RPM CONTROLS
     // =========================================================================
     void OnLeftMouseDown();
     void OnLeftMouseUp();
@@ -152,6 +156,8 @@ public:
     void OnRightMouseUp();
     void ZoomIn();
     void ZoomOut();
+    void IncreaseWheelRpm();
+    void DecreaseWheelRpm();
 
 private:
     void ClearSpawnedComponents();

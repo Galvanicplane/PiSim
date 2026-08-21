@@ -174,7 +174,7 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                     .Padding(0.0f, 14.0f, 0.0f, 0.0f)
                     [
                         SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("🎮 KAMERA KONTROLLERİ:\n  • Sol Tık + Sürükle: 360° Orbit Dön\n  • Sağ Tık + Sürükle: Kamerayı Kaydır\n  • Fare Tekerleği: Yaklaş / Uzaklaş")))
+                        .Text(FText::FromString(TEXT("🎮 KONTROLLER:\n  • G Tuşu: Tekerlek Hızına +1 RPM Ekle\n  • F Tuşu: Tekerlek Hızından -1 RPM Çıkar\n  • Sol Tık + Sürükle: 360° Orbit Dön\n  • Sağ Tık + Sürükle: Kamerayı Kaydır\n  • Fare Tekerleği: Yaklaş / Uzaklaş")))
                         .Font(NormalFont)
                         .ColorAndOpacity(FLinearColor(0.7f, 0.85f, 1.0f, 0.9f))
                     ]
@@ -198,13 +198,15 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         FString Info = FString::Printf(
             TEXT("📁 Dosya: Saved/Robots/Cache/robot_import_test.fbx\n"
                  "🎨 Görsel Parçalar: %d Adet (Render Açık)\n"
-                 "🛡️ UCX Çarpışma: %d Adet (Chaos Collision Açık)\n"
+                 "🛡️ UCX Çarpışma: %d Adet (Chaos Zırhı Giydirildi)\n"
                  "📐 Geçerli Ölçek: %.2fX\n"
-                 "⚡ Fizik Simülasyonu: %s"),
+                 "⚡ Fizik Simülasyonu: %s\n"
+                 "🏎️ Tekerlek Hızı (RPM): %+.1f RPM (G: +1 | F: -1)"),
             TargetImporter->VisualMeshComponents.Num(),
-            TargetImporter->CollisionMeshComponents.Num(),
+            TargetImporter->UCXSections.Num(),
             TargetImporter->ImportScaleMultiplier,
-            TargetImporter->bIsPhysicsSimulating ? TEXT("AKTİF (Yerçekimi Açık)") : TEXT("KAPALI (Statik)")
+            TargetImporter->bIsPhysicsSimulating ? TEXT("AKTİF (Canlı)") : TEXT("KAPALI (Statik)"),
+            TargetImporter->AppliedWheelRpm
         );
         StatusTextBlock->SetText(FText::FromString(Info));
     }
