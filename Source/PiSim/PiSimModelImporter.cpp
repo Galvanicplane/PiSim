@@ -82,7 +82,7 @@ void APiSimModelImporter::SetupPlayerInputComponent(UInputComponent* PlayerInput
         PlayerInputComponent->BindAction(TEXT("RightMouseClick"), IE_Pressed, this, &APiSimModelImporter::OnRightMouseDown);
         PlayerInputComponent->BindAction(TEXT("RightMouseClick"), IE_Released, this, &APiSimModelImporter::OnRightMouseUp);
 
-        // Direct Key Binds for Mouse Scroll Wheel Zoom (Works 100% without Axis Mappings!)
+        // Direct Key Binds for Mouse Scroll Wheel Zoom
         PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &APiSimModelImporter::ZoomIn);
         PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &APiSimModelImporter::ZoomOut);
     }
@@ -249,18 +249,63 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         ImpSec.MaxAngle = 90.0f;
         ImpSec.RotationAxis = FVector(0.0f, 1.0f, 0.0f);
 
-        // UCX ve Görsel Ayrımı
-        if (Sec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
-            Sec.MeshName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
-            Sec.MeshName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase))
+        // =====================================================================================
+        // UCX İSİM AYIKLAMA (UCX_, UBX_, USP_, UCX veya Cube.001)
+        // =====================================================================================
+        bool bIsUCX = Sec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
+                      Sec.MeshName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
+                      Sec.MeshName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase) ||
+                      Sec.MeshName.StartsWith(TEXT("UCX"), ESearchCase::IgnoreCase) ||
+                      Sec.MeshName.Contains(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
+                      Sec.MeshName.Contains(TEXT("Cube.00"), ESearchCase::IgnoreCase);
+
+        if (bIsUCX)
         {
             OutUCX.Add(ImpSec);
-            UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] UCX Çarpışma Parçası Ayrıldı: %s (%d Verts)"), *Sec.MeshName, Sec.Vertices.Num());
         }
         else
         {
             OutVisual.Add(ImpSec);
-            UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] Görsel Parça Ayrıldı: %s (%d Verts, %d Tris)"), *Sec.MeshName, Sec.Vertices.Num(), Sec.Triangles.Num() / 3);
+        }
+    }
+
+    // =========================================================================================
+    // HEM LOGA HEM DE EKRANA HER İKİ LİSTEYİ DE DETAYLICA YAZDIR!
+    // =========================================================================================
+    UE_LOG(LogTemp, Warning, TEXT("===================================================================="));
+    UE_LOG(LogTemp, Warning, TEXT(">>> [PiSimModelImporter] FBX AYRIŞTIRMA RAPORU (%s) <<<"), *FilePath);
+    UE_LOG(LogTemp, Warning, TEXT("🎨 GÖRSEL PARÇA LİSTESİ (Toplam: %d Adet):"), OutVisual.Num());
+    for (int32 v = 0; v < OutVisual.Num(); ++v)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("   [%d] VisualMesh: '%s' | Vertices: %d | Triangles: %d | Pivot: %s"),
+            v, *OutVisual[v].MeshName, OutVisual[v].Vertices.Num(), OutVisual[v].Triangles.Num() / 3, *OutVisual[v].PivotPoint.ToString());
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("🛡️ UCX COLLISION PARÇA LİSTESİ (Toplam: %d Adet):"), OutUCX.Num());
+    for (int32 u = 0; u < OutUCX.Num(); ++u)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("   [%d] UCXMesh: '%s' | Vertices: %d | Triangles: %d | Pivot: %s"),
+            u, *OutUCX[u].MeshName, OutUCX[u].Vertices.Num(), OutUCX[u].Triangles.Num() / 3, *OutUCX[u].PivotPoint.ToString());
+    }
+    UE_LOG(LogTemp, Warning, TEXT("===================================================================="));
+
+    // Canlı Ekrana Renkli Bildirimler Bas
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(501, 15.0f, FColor::Cyan,
+            FString::Printf(TEXT("🎨 [GÖRSEL LİSTE: %d PARÇA]"), OutVisual.Num()));
+        for (int32 v = 0; v < FMath::Min(OutVisual.Num(), 5); ++v)
+        {
+            GEngine->AddOnScreenDebugMessage(510 + v, 15.0f, FColor::White,
+                FString::Printf(TEXT("   • Visual [%d]: %s (%d Verts, %d Tris)"), v, *OutVisual[v].MeshName, OutVisual[v].Vertices.Num(), OutVisual[v].Triangles.Num() / 3));
+        }
+
+        GEngine->AddOnScreenDebugMessage(530, 15.0f, FColor::Yellow,
+            FString::Printf(TEXT("🛡️ [UCX COLLISION LİSTE: %d PARÇA]"), OutUCX.Num()));
+        for (int32 u = 0; u < FMath::Min(OutUCX.Num(), 5); ++u)
+        {
+            GEngine->AddOnScreenDebugMessage(540 + u, 15.0f, FColor::Orange,
+                FString::Printf(TEXT("   • UCX [%d]: %s (%d Verts)"), u, *OutUCX[u].MeshName, OutUCX[u].Vertices.Num()));
         }
     }
 
@@ -289,6 +334,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
 
     // -----------------------------------------------------------------------------------------
     // 1) GÖRSEL LİSTEDEKİ PARÇALARI SAHNEYE OLUŞTUR, KEMİKLERE BAĞLA VE GÖRÜNÜR KIL
+    //    (KESİNLİKLE COLLISION YOK - PURE RENDER!)
     // -----------------------------------------------------------------------------------------
     for (int32 i = 0; i < VisualSections.Num(); ++i)
     {
@@ -319,7 +365,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         VisComp->CreateMeshSection_LinearColor(0, VisualSections[i].Vertices, VisualSections[i].Triangles, VisualSections[i].Normals, UV0, VertexColors, Tangents, false);
         if (DefaultMat) VisComp->SetMaterial(0, DefaultMat);
 
-        // GÖRÜNÜR KIL (Render Açık, Çarpışma Kapalı - Çarpışmayı UCX yapacak!)
+        // GÖRÜNÜR KIL (Render Açık, Çarpışma TAMAMEN KAPALI!)
         VisComp->SetVisibility(true);
         VisComp->SetHiddenInGame(false);
         VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -329,7 +375,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
     }
 
     // -----------------------------------------------------------------------------------------
-    // 2) UCX LİSTESİNDEKİ PARÇALARI İLGİLİ GÖRSEL KEMİĞE BAĞLA, GÖRÜNMEZ YAP VE COLLISION AKTİFLEŞTİR
+    // 2) UCX LİSTESİNDEKİ PARÇALARI İLGİLİ GÖRSEL KEMİĞE BAĞLA, GÖRÜNMEZ YAP VE STATİK/DİNAMİK COLLISION VER
     // -----------------------------------------------------------------------------------------
     for (int32 j = 0; j < UCXSections.Num(); ++j)
     {
@@ -342,6 +388,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         TargetName.RemoveFromStart(TEXT("UCX_"), ESearchCase::IgnoreCase);
         TargetName.RemoveFromStart(TEXT("UBX_"), ESearchCase::IgnoreCase);
         TargetName.RemoveFromStart(TEXT("USP_"), ESearchCase::IgnoreCase);
+        TargetName.RemoveFromStart(TEXT("UCX"), ESearchCase::IgnoreCase);
 
         UProceduralMeshComponent* TargetVisComp = (VisualMeshComponents.Num() > 0) ? VisualMeshComponents[0] : nullptr;
         for (int32 v = 0; v < VisualSections.Num(); ++v)
@@ -368,14 +415,16 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
 
         CollComp->RegisterComponent();
 
-        // ÇARPIŞMAYI AKTİFLEŞTİR (Chaos Convex Hull)
+        // ÇARPIŞMAYI AKTİFLEŞTİR (Chaos Convex Hull - Başlangıçtan İtibaren Aktif!)
         CollComp->ClearCollisionConvexMeshes();
         CollComp->AddCollisionConvexMesh(UCXSections[j].Vertices);
         CollComp->bUseComplexAsSimpleCollision = false;
         CollComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
         CollComp->SetCollisionObjectType(ECC_WorldDynamic);
         CollComp->SetCollisionResponseToAllChannels(ECR_Block);
-        CollComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
+        CollComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zeminle çarpış
+        CollComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+        CollComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
         CollComp->RecreatePhysicsState();
         CollComp->UpdateBounds();
 
@@ -417,13 +466,6 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
             }
         }
     }
-
-    if (GEngine)
-    {
-        GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::Green,
-            FString::Printf(TEXT(">>> [PiSimModelImporter] %d GÖRSEL VE %d UCX ÇARPIŞMA PARÇASI YÜKLENDİ (Ölçek: %.2fX) <<<"),
-                VisualMeshComponents.Num(), CollisionMeshComponents.Num(), Scale));
-    }
 }
 
 // =========================================================================================
@@ -460,6 +502,15 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             }
         }
 
+        for (int32 j = 0; j < CollisionMeshComponents.Num(); ++j)
+        {
+            if (CollisionMeshComponents[j])
+            {
+                CollisionMeshComponents[j]->SetSimulatePhysics(false);
+                CollisionMeshComponents[j]->SetEnableGravity(false);
+            }
+        }
+
         // Hiyerarşiyi ve konumu yeniden sıfırla
         BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
 
@@ -478,7 +529,7 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
     UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter LOG] >>> CANLI CHAOS FİZİK SİMÜLASYONU BAŞLATILIYOR <<<"));
     UE_LOG(LogTemp, Warning, TEXT("===================================================================="));
 
-    // 1) Ana Gövdeyi (Chassis) Kök Bileşen Yap
+    // 1) Ana Gövdeyi Kök Yap
     if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
     {
         VisualMeshComponents[0]->SetMobility(EComponentMobility::Movable);
@@ -486,71 +537,39 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         SetRootComponent(VisualMeshComponents[0]);
     }
 
-    // 2) Her Parçaya Solid Çarpışma, Kütle ve Dinamik Fizik Ver
-    for (int32 i = 0; i < VisualMeshComponents.Num(); ++i)
-    {
-        UProceduralMeshComponent* VisComp = VisualMeshComponents[i];
-        if (!VisComp || !VisualSections.IsValidIndex(i)) continue;
+    // Hedef fizik bileşenleri: Varsa UCX (CollisionMeshComponents), yoksa VisualMeshComponents
+    bool bHasUCX = (CollisionMeshComponents.Num() > 0);
+    TArray<UProceduralMeshComponent*>& PhysComps = bHasUCX ? CollisionMeshComponents : VisualMeshComponents;
 
-        FString Name = VisualSections[i].MeshName;
+    for (int32 i = 0; i < PhysComps.Num(); ++i)
+    {
+        UProceduralMeshComponent* Comp = PhysComps[i];
+        if (!Comp) continue;
+
+        FString CompName = Comp->GetName();
         float Mass = (i == 0) ? 30.0f : 2.5f;
 
-        // Varsa UCX Geometrisini, Yoksa Kendi Vertexlerini Collision Olarak Ata
-        VisComp->ClearCollisionConvexMeshes();
-
-        // İlgili UCX parçasını ara
-        bool bAppliedUCX = false;
-        for (const FImporterMeshSection& UcxSec : UCXSections)
-        {
-            if (UcxSec.MeshName.Contains(Name, ESearchCase::IgnoreCase))
-            {
-                VisComp->AddCollisionConvexMesh(UcxSec.Vertices);
-                bAppliedUCX = true;
-                UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' parçasına özel '%s' UCX çarpışma kalkanı uygulandı (%d Verts)."),
-                    *Name, *UcxSec.MeshName, UcxSec.Vertices.Num());
-                break;
-            }
-        }
-
-        if (!bAppliedUCX)
-        {
-            VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
-            UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' parçasına kendi 3D geometrisi çarpışma kalkanı yapıldı (%d Verts)."),
-                *Name, VisualSections[i].Vertices.Num());
-        }
-
-        VisComp->bUseComplexAsSimpleCollision = false;
-        VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-        VisComp->SetCollisionObjectType(ECC_WorldDynamic);
-        VisComp->SetCollisionResponseToAllChannels(ECR_Block);
-        VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zeminle çarpış
-        VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-        VisComp->RecreatePhysicsState();
-        VisComp->UpdateBounds();
-
         // Dinamik Fiziği Aç
-        VisComp->SetMobility(EComponentMobility::Movable);
-        VisComp->SetSimulatePhysics(true);
-        VisComp->SetEnableGravity(true);
-        VisComp->SetMassOverrideInKg(NAME_None, Mass, true);
-        VisComp->SetLinearDamping(0.8f);
-        VisComp->SetAngularDamping(1.5f);
-        VisComp->WakeRigidBody();
+        Comp->SetMobility(EComponentMobility::Movable);
+        Comp->SetSimulatePhysics(true);
+        Comp->SetEnableGravity(true);
+        Comp->SetMassOverrideInKg(NAME_None, Mass, true);
+        Comp->SetLinearDamping(0.8f);
+        Comp->SetAngularDamping(1.5f);
+        Comp->WakeRigidBody();
 
-        UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' (Bileşen %d) FİZİK AKTİF! | Kütle: %.1f kg | Yerçekimi: AÇIK"),
-            *Name, i, Mass);
+        UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' bileşenine CANLI DİNAMİK FİZİK verildi | Kütle: %.1f kg | Yerçekimi: AÇIK"),
+            *CompName, Mass);
 
-        // 3) Gövde Dışındaki Parçalar (Tekerlekler) İçin Fiziksel Eklem (Constraint) Oluştur
-        if (i > 0 && VisualMeshComponents[0])
+        // Gövde Dışındaki Tekerlekler İçin Fiziksel Eklem (Constraint)
+        if (i > 0 && PhysComps[0])
         {
-            FName ConstraintName = *FString::Printf(TEXT("PhysicsJoint_%d_%s"), i, *Name);
+            FName ConstraintName = *FString::Printf(TEXT("PhysicsJoint_%d"), i);
             UPhysicsConstraintComponent* Constraint = NewObject<UPhysicsConstraintComponent>(this, ConstraintName);
-            Constraint->SetupAttachment(VisualMeshComponents[0]);
-            Constraint->SetRelativeLocation(VisualSections[i].PivotPoint);
+            Constraint->SetupAttachment(PhysComps[0]);
             Constraint->RegisterComponent();
 
-            // Gövde ile Tekerleği Birbirine Fiziksel Olarak Kilitle (Revolute / Serbest Dönüşlü Eklem)
-            Constraint->SetConstrainedComponents(VisualMeshComponents[0], NAME_None, VisComp, NAME_None);
+            Constraint->SetConstrainedComponents(PhysComps[0], NAME_None, Comp, NAME_None);
             Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
             Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
             Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
@@ -559,20 +578,19 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
 
             JointConstraints.Add(Constraint);
-            UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' tekerleği gövdeye dönebilir Fiziksel Eklem (Constraint) ile bağlandı!"), *Name);
         }
     }
 
-    // 4) Ekran Bildirimleri (Canlı Renklerle)
+    // Ekran Bildirimleri
     if (GEngine)
     {
         GEngine->AddOnScreenDebugMessage(801, 10.0f, FColor::Cyan,
-            FString::Printf(TEXT("🚀 >>> [CHAOS FİZİK AKTİF!] %d Parça Canlı Dinamik Gövdeye Dönüştürüldü <<<"), VisualMeshComponents.Num()));
+            FString::Printf(TEXT("🚀 >>> [CHAOS FİZİK AKTİF!] %d Parçaya Canlı Dinamik Fizik Verildi <<<"), PhysComps.Num()));
         
         GEngine->AddOnScreenDebugMessage(802, 10.0f, FColor::Emerald,
-            FString::Printf(TEXT("🛡️ >>> [GÖVDE: 30.0 KG | YERÇEKİMİ: AÇIK] Zeminle Çarpışma Tamamen Bloklandı <<<")));
+            FString::Printf(TEXT("🛡️ >>> [GÖVDE: 30.0 KG | YERÇEKİMİ: AÇIK] Zemin Çarpışması Aktif <<<")));
 
         GEngine->AddOnScreenDebugMessage(803, 10.0f, FColor::Yellow,
-            FString::Printf(TEXT("⚙️ >>> [%d ADET EKLEM KISITLAMASI BAĞLANDI] Tekerlekler Serbestçe Dönebilir! <<<"), JointConstraints.Num()));
+            FString::Printf(TEXT("⚙️ >>> [%d ADET EKLEM KISITLAMASI BAĞLANDI] Tekerlekler Serbest Dönüyor! <<<"), JointConstraints.Num()));
     }
 }
