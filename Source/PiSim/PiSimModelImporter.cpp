@@ -2,8 +2,8 @@
 // Full-Featured Pawn for GameMode with 360 Orbit Camera, Mouse Controls, Interactive Screen UI, and Strict Visual vs UCX Collision Separation.
 
 #include "PiSimModelImporter.h"
+#include "PiSimModelImporterWidget.h"
 #include "PiSimGarageRobot.h"
-#include "PiSimHUD.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 #include "Materials/MaterialInterface.h"
@@ -53,10 +53,16 @@ void APiSimModelImporter::BeginPlay()
             InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
             InputMode.SetHideCursorDuringCapture(false);
             PC->SetInputMode(InputMode);
+        }
 
-            if (!PC->GetHUD())
+        // Create and Add Dedicated HUD Widget to Viewport (Z-Order: 100)
+        if (!ImporterWidget)
+        {
+            ImporterWidget = CreateWidget<UPiSimModelImporterWidget>(GetWorld(), UPiSimModelImporterWidget::StaticClass());
+            if (ImporterWidget)
             {
-                PC->ClientSetHUD(APiSimHUD::StaticClass());
+                ImporterWidget->TargetImporter = this;
+                ImporterWidget->AddToViewport(100);
             }
         }
     }
@@ -75,7 +81,10 @@ void APiSimModelImporter::SetupPlayerInputComponent(UInputComponent* PlayerInput
         PlayerInputComponent->BindAction(TEXT("LeftMouseClick"), IE_Released, this, &APiSimModelImporter::OnLeftMouseUp);
         PlayerInputComponent->BindAction(TEXT("RightMouseClick"), IE_Pressed, this, &APiSimModelImporter::OnRightMouseDown);
         PlayerInputComponent->BindAction(TEXT("RightMouseClick"), IE_Released, this, &APiSimModelImporter::OnRightMouseUp);
-        PlayerInputComponent->BindAxis(TEXT("MouseWheelAxis"), this, &APiSimModelImporter::OnMouseWheelAxis);
+
+        // Direct Key Binds for Mouse Scroll Wheel Zoom (Works 100% without Axis Mappings!)
+        PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &APiSimModelImporter::ZoomIn);
+        PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &APiSimModelImporter::ZoomOut);
     }
 }
 
@@ -99,11 +108,19 @@ void APiSimModelImporter::OnRightMouseUp()
     bIsRightMouseDown = false;
 }
 
-void APiSimModelImporter::OnMouseWheelAxis(float Val)
+void APiSimModelImporter::ZoomIn()
 {
-    if (FMath::Abs(Val) > 0.01f && OrbitSpringArm)
+    if (OrbitSpringArm)
     {
-        OrbitSpringArm->TargetArmLength = FMath::Clamp(OrbitSpringArm->TargetArmLength - Val * 35.0f, 50.0f, 1500.0f);
+        OrbitSpringArm->TargetArmLength = FMath::Clamp(OrbitSpringArm->TargetArmLength - 35.0f, 30.0f, 2500.0f);
+    }
+}
+
+void APiSimModelImporter::ZoomOut()
+{
+    if (OrbitSpringArm)
+    {
+        OrbitSpringArm->TargetArmLength = FMath::Clamp(OrbitSpringArm->TargetArmLength + 35.0f, 30.0f, 2500.0f);
     }
 }
 
@@ -111,7 +128,7 @@ void APiSimModelImporter::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
-    // Mouse Orbit Camera Dragging
+    // Mouse Orbit & Pan Camera Dragging
     if (GetWorld())
     {
         APlayerController* PC = GetWorld()->GetFirstPlayerController();
@@ -136,16 +153,6 @@ void APiSimModelImporter::Tick(float DeltaTime)
                 ArmLoc.Y += MouseX * 1.5f;
                 ArmLoc.Z += MouseY * 1.5f;
                 OrbitSpringArm->SetRelativeLocation(ArmLoc);
-            }
-
-            // Mouse Wheel Zoom
-            if (PC->IsInputKeyDown(EKeys::MouseScrollUp))
-            {
-                OrbitSpringArm->TargetArmLength = FMath::Clamp(OrbitSpringArm->TargetArmLength - 25.0f, 50.0f, 1500.0f);
-            }
-            else if (PC->IsInputKeyDown(EKeys::MouseScrollDown))
-            {
-                OrbitSpringArm->TargetArmLength = FMath::Clamp(OrbitSpringArm->TargetArmLength + 25.0f, 50.0f, 1500.0f);
             }
         }
     }

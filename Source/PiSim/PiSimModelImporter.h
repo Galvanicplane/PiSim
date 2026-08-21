@@ -11,6 +11,8 @@
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "PiSimModelImporter.generated.h"
 
+class UPiSimModelImporterWidget;
+
 USTRUCT(BlueprintType)
 struct FImporterMeshSection
 {
@@ -28,13 +30,9 @@ struct FImporterMeshSection
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Mesh")
     FVector PivotPoint = FVector::ZeroVector;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Mesh")
+    // Heavy vertex/triangle arrays excluded from PropertyEditor reflection to prevent Editor freezes
     TArray<FVector> Vertices;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Mesh")
     TArray<int32> Triangles;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Mesh")
     TArray<FVector> Normals;
 
     // Physics & Joint properties
@@ -97,13 +95,14 @@ public:
     TArray<UPhysicsConstraintComponent*> JointConstraints;
 
     // =========================================================================
-    // SEPARATED PARSED FBX DATA LISTS
+    // SEPARATED PARSED FBX DATA LISTS (Transient to prevent lag)
     // =========================================================================
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Data")
     TArray<FImporterMeshSection> VisualSections;
-
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Data")
     TArray<FImporterMeshSection> UCXSections;
+
+    // Active On-Screen Slate UI Widget
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|UI")
+    UPiSimModelImporterWidget* ImporterWidget = nullptr;
 
     // =========================================================================
     // CONTROLS & SETTINGS (Clean 1.0f 1:1 Scale by default)
@@ -151,12 +150,12 @@ public:
     void OnLeftMouseUp();
     void OnRightMouseDown();
     void OnRightMouseUp();
-    void OnMouseWheelAxis(float Val);
+    void ZoomIn();
+    void ZoomOut();
 
 private:
     void ClearSpawnedComponents();
 
     bool bIsLeftMouseDown = false;
     bool bIsRightMouseDown = false;
-    FVector2D LastMousePosition = FVector2D::ZeroVector;
 };
