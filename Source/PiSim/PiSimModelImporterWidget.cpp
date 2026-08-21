@@ -58,7 +58,7 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.12f, 0.22f, 0.35f, 1.0f))
-                    .OnClicked(this, &UPiSimModelImporterWidget::OnScale01Clicked)
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnScale01Clicked))
                     [
                         SNew(STextBlock)
                         .Text(FText::FromString(TEXT(" 🔍 0.1X ")))
@@ -74,7 +74,7 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.0f, 0.5f, 0.8f, 1.0f))
-                    .OnClicked(this, &UPiSimModelImporterWidget::OnScale10Clicked)
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnScale10Clicked))
                     [
                         SNew(STextBlock)
                         .Text(FText::FromString(TEXT(" 📐 1.0X (Default) ")))
@@ -90,7 +90,7 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.12f, 0.22f, 0.35f, 1.0f))
-                    .OnClicked(this, &UPiSimModelImporterWidget::OnScale100Clicked)
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnScale100Clicked))
                     [
                         SNew(STextBlock)
                         .Text(FText::FromString(TEXT(" 🔬 10.0X ")))
@@ -106,7 +106,7 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.1f, 0.55f, 0.3f, 1.0f))
-                    .OnClicked(this, &UPiSimModelImporterWidget::OnReimportClicked)
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnReimportClicked))
                     [
                         SNew(STextBlock)
                         .Text(FText::FromString(TEXT(" 🔄 REIMPORT FBX ")))
@@ -122,7 +122,7 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.85f, 0.45f, 0.0f, 1.0f))
-                    .OnClicked(this, &UPiSimModelImporterWidget::OnTogglePhysicsClicked)
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnTogglePhysicsClicked))
                     [
                         SAssignNew(PhysicsButtonText, STextBlock)
                         .Text(FText::FromString(TEXT(" ⚡ FİZİĞİ SİMÜLE ET ")))
