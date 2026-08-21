@@ -749,12 +749,11 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
     UMaterialInterface* DefaultMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 
     // -----------------------------------------------------------------------------------------
-    // 1) GÖRSEL LİSTEDEKİ PARÇALARI SAHNEYE OLUŞTUR, KEMİKLERE BAĞLA VE GÖRÜNÜR KIL
-    //    (KESİNLİKLE COLLISION YOK - PURE RENDER!)
+    // 1) HER PARÇA İÇİN GÖRSEL RENDER VE UCX COLLISION'I TEK BİR DİNAMİK GÖVDEDE BİRLEŞTİR
     // -----------------------------------------------------------------------------------------
     for (int32 i = 0; i < VisualSections.Num(); ++i)
     {
-        FName CompName = *FString::Printf(TEXT("VisualSubMesh_%d_%s"), i, *VisualSections[i].MeshName);
+        FName CompName = *FString::Printf(TEXT("RobotSubMesh_%d_%s"), i, *VisualSections[i].MeshName);
         UProceduralMeshComponent* VisComp = NewObject<UProceduralMeshComponent>(this, CompName);
         VisComp->SetMobility(EComponentMobility::Movable);
 
@@ -785,74 +784,42 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         TArray<FLinearColor> VertexColors;
         TArray<FProcMeshTangent> Tangents;
 
-        // Görsel Modeli Çiz
+        // Görsel Modeli Çiz (Render)
         VisComp->CreateMeshSection_LinearColor(0, VisualSections[i].Vertices, VisualSections[i].Triangles, VisualSections[i].Normals, UV0, VertexColors, Tangents, false);
         if (DefaultMat) VisComp->SetMaterial(0, DefaultMat);
 
-        // GÖRÜNÜR KIL (Render Açık, Çarpışma TAMAMEN KAPALI!)
         VisComp->SetVisibility(true);
         VisComp->SetHiddenInGame(false);
-        VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        VisComp->SetCollisionResponseToAllChannels(ECR_Ignore);
 
-        VisualMeshComponents.Add(VisComp);
-    }
-
-    // -----------------------------------------------------------------------------------------
-    // 2) UCX LİSTESİNDEKİ PARÇALARI İLGİLİ GÖRSEL KEMİĞE BAĞLA VE STATİK/DİNAMİK COLLISION VER
-    // -----------------------------------------------------------------------------------------
-    for (int32 j = 0; j < UCXSections.Num(); ++j)
-    {
-        FName CollCompName = *FString::Printf(TEXT("UCXCollision_%d_%s"), j, *UCXSections[j].MeshName);
-        UProceduralMeshComponent* CollComp = NewObject<UProceduralMeshComponent>(this, CollCompName);
-        CollComp->SetMobility(EComponentMobility::Movable);
-
-        // Hedef görsel parçayı bul (Örn: UCX_Chassis_wheel_FR -> wheel_FR veya UCX_Chassis_chassis -> chassis)
-        FString UcxName = UCXSections[j].MeshName;
-        UProceduralMeshComponent* TargetVisComp = (VisualMeshComponents.Num() > 0) ? VisualMeshComponents[0] : nullptr;
-        int32 TargetVisIdx = 0;
-
-        for (int32 v = 0; v < VisualSections.Num(); ++v)
+        // İLGİLİ UCX CONVEX HULL'UNU BUL VE PARÇAYA ZIRH OLARAK GİYDİR
+        VisComp->ClearCollisionConvexMeshes();
+        bool bFoundUCX = false;
+        for (int32 j = 0; j < UCXSections.Num(); ++j)
         {
-            if (UcxName.Contains(VisualSections[v].MeshName, ESearchCase::IgnoreCase))
+            if (UCXSections[j].MeshName.Contains(VisualSections[i].MeshName, ESearchCase::IgnoreCase))
             {
-                TargetVisComp = VisualMeshComponents[v];
-                TargetVisIdx = v;
+                VisComp->AddCollisionConvexMesh(UCXSections[j].Vertices);
+                bFoundUCX = true;
                 break;
             }
         }
-
-        if (TargetVisComp)
+        if (!bFoundUCX)
         {
-            CollComp->SetupAttachment(TargetVisComp);
-            CollComp->SetRelativeLocation(FVector::ZeroVector);
-        }
-        else
-        {
-            CollComp->SetupAttachment(SceneRootComponent);
-            CollComp->SetRelativeLocation(UCXSections[j].PivotPoint);
+            VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
         }
 
-        CollComp->RegisterComponent();
+        // STATİK HALDE DE SOLID ÇARPIŞMA %100 AKTİF!
+        VisComp->bUseComplexAsSimpleCollision = false;
+        VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+        VisComp->SetCollisionObjectType(ECC_WorldDynamic);
+        VisComp->SetCollisionResponseToAllChannels(ECR_Block);
+        VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zemini bloklar
+        VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+        VisComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+        VisComp->RecreatePhysicsState();
+        VisComp->UpdateBounds();
 
-        // ÇARPIŞMAYI AKTİFLEŞTİR (Chaos Convex Hull - Başlangıçtan İtibaren Aktif!)
-        CollComp->ClearCollisionConvexMeshes();
-        CollComp->AddCollisionConvexMesh(UCXSections[j].Vertices);
-        CollComp->bUseComplexAsSimpleCollision = false;
-        CollComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-        CollComp->SetCollisionObjectType(ECC_WorldDynamic);
-        CollComp->SetCollisionResponseToAllChannels(ECR_Block);
-        CollComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zeminle çarpış
-        CollComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-        CollComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-        CollComp->RecreatePhysicsState();
-        CollComp->UpdateBounds();
-
-        // Görsel Render Gizli
-        CollComp->SetVisibility(false);
-        CollComp->SetHiddenInGame(true);
-
-        CollisionMeshComponents.Add(CollComp);
+        VisualMeshComponents.Add(VisComp);
     }
 
     // -----------------------------------------------------------------------------------------
