@@ -2,10 +2,9 @@
 // Full-Featured Pawn for GameMode with 360 Orbit Camera, Mouse Controls, Interactive Screen UI, and Strict Visual vs UCX Collision Separation.
 
 #include "PiSimModelImporter.h"
+#include "PiSimGarageRobot.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
-#include "Misc/Compression.h"
-#include "HAL/PlatformFileManager.h"
 #include "Materials/MaterialInterface.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/InputComponent.h"
@@ -207,320 +206,45 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
 
     if (!FPaths::FileExists(FilePath))
     {
-        UE_LOG(LogTemp, Error, TEXT("[PiSimModelImporter] FBX dosyasi bulunamadi: %s"), *FilePath);
+        UE_LOG(LogTemp, Error, TEXT("[PiSimModelImporter] FBX dosyasi diskte bulunamadi: %s"), *FilePath);
         return false;
     }
 
-    TArray<uint8> FileBytes;
-    if (!FFileHelper::LoadFileToArray(FileBytes, *FilePath))
+    TArray<FGLBMeshSection> ExtractedSections;
+    if (!APiSimGarageRobot::ParseFbxAllBinaryMeshes(FilePath, ExtractedSections, Scale) || ExtractedSections.Num() == 0)
     {
-        UE_LOG(LogTemp, Error, TEXT("[PiSimModelImporter] FBX dosya baytlari okunamadi: %s"), *FilePath);
+        UE_LOG(LogTemp, Error, TEXT("[PiSimModelImporter] FBX dosya ayrıştırma başarısız: %s"), *FilePath);
         return false;
     }
 
-    int32 FileSize = FileBytes.Num();
-    if (FileSize < 23) return false;
-
-    // Header check
-    FString HeaderStr = FString(20, (const ANSICHAR*)FileBytes.GetData());
-    if (!HeaderStr.StartsWith(TEXT("Kaydara FBX Binary")))
+    for (const FGLBMeshSection& Sec : ExtractedSections)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] Binary FBX degil!"));
-        return false;
-    }
+        FImporterMeshSection ImpSec;
+        ImpSec.MeshName = Sec.MeshName;
+        ImpSec.ParentSectionIndex = Sec.ParentSectionIndex;
+        ImpSec.DepthLevel = Sec.DepthLevel;
+        ImpSec.PivotPoint = Sec.PivotPoint;
+        ImpSec.Vertices = Sec.Vertices;
+        ImpSec.Triangles = Sec.Triangles;
+        ImpSec.Normals = Sec.Normals;
+        ImpSec.MassKg = (Sec.MassKg > 0.0f) ? Sec.MassKg : 2.5f;
+        ImpSec.Friction = (Sec.Friction > 0.0f) ? Sec.Friction : 0.85f;
+        ImpSec.MinAngle = -90.0f;
+        ImpSec.MaxAngle = 90.0f;
+        ImpSec.RotationAxis = FVector(0.0f, 1.0f, 0.0f);
 
-    int32 Pos = 27;
-    TArray<FVector> AllVerts;
-    TArray<int32> AllPolys;
-    TMap<FString, TArray<int32>> Clusters;
-
-    while (Pos + 13 < FileSize)
-    {
-        uint32 NodeEnd = *reinterpret_cast<const uint32*>(&FileBytes[Pos]);
-        uint32 NumProps = *reinterpret_cast<const uint32*>(&FileBytes[Pos + 4]);
-        uint32 PropLen = *reinterpret_cast<const uint32*>(&FileBytes[Pos + 8]);
-        uint8 NameLen = FileBytes[Pos + 12];
-
-        if (NodeEnd == 0 || NodeEnd > (uint32)FileSize || Pos + 13 + NameLen > FileSize) break;
-
-        FString NodeName = FString(NameLen, (const ANSICHAR*)&FileBytes[Pos + 13]);
-        int32 PropsStart = Pos + 13 + NameLen;
-        int32 ChildrenStart = PropsStart + PropLen;
-
-        if (NodeName.Equals(TEXT("Objects")))
+        // UCX ve Görsel Ayrımı
+        if (Sec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
+            Sec.MeshName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
+            Sec.MeshName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase))
         {
-            int32 Sub = ChildrenStart;
-            while (Sub + 13 < (int32)NodeEnd)
-            {
-                uint32 SubEnd = *reinterpret_cast<const uint32*>(&FileBytes[Sub]);
-                uint32 SubNumProps = *reinterpret_cast<const uint32*>(&FileBytes[Sub + 4]);
-                uint32 SubPropLen = *reinterpret_cast<const uint32*>(&FileBytes[Sub + 8]);
-                uint8 SubNameLen = FileBytes[Sub + 12];
-
-                if (SubEnd == 0 || SubEnd > NodeEnd || Sub + 13 + SubNameLen > (int32)NodeEnd) break;
-
-                FString SubName = FString(SubNameLen, (const ANSICHAR*)&FileBytes[Sub + 13]);
-                int32 SubPropsStart = Sub + 13 + SubNameLen;
-                int32 SubChildrenStart = SubPropsStart + SubPropLen;
-
-                if (SubName.Equals(TEXT("Geometry")))
-                {
-                    int32 ChildP = SubChildrenStart;
-                    while (ChildP + 13 < (int32)SubEnd)
-                    {
-                        uint32 CEnd = *reinterpret_cast<const uint32*>(&FileBytes[ChildP]);
-                        uint32 CNumProps = *reinterpret_cast<const uint32*>(&FileBytes[ChildP + 4]);
-                        uint32 CPropLen = *reinterpret_cast<const uint32*>(&FileBytes[ChildP + 8]);
-                        uint8 CNameLen = FileBytes[ChildP + 12];
-
-                        if (CEnd == 0 || CEnd > SubEnd || ChildP + 13 + CNameLen > (int32)SubEnd) break;
-
-                        FString CName = FString(CNameLen, (const ANSICHAR*)&FileBytes[ChildP + 13]);
-                        int32 CPropsStart = ChildP + 13 + CNameLen;
-
-                        if (CName.Equals(TEXT("Vertices")) && CPropsStart + 13 <= (int32)CEnd)
-                        {
-                            uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart]);
-                            uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 4]);
-                            uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 8]);
-                            int32 DataOffset = CPropsStart + 12;
-                            uint32 UncompSize = ArrayLen * sizeof(double);
-
-                            const uint8* DataPtr = nullptr;
-                            TArray<uint8> UncompBuf;
-                            if (Encoding == 0 && DataOffset + (int32)UncompSize <= (int32)CEnd)
-                            {
-                                DataPtr = &FileBytes[DataOffset];
-                            }
-                            else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)CEnd)
-                            {
-                                UncompBuf.AddUninitialized(UncompSize);
-                                if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
-                                {
-                                    DataPtr = UncompBuf.GetData();
-                                }
-                            }
-
-                            if (DataPtr && ArrayLen > 0)
-                            {
-                                const double* DblData = reinterpret_cast<const double*>(DataPtr);
-                                for (uint32 v = 0; v + 2 < ArrayLen; v += 3)
-                                {
-                                    // Coordinate conversion: Right-handed to Unreal Left-handed (Y inverted)
-                                    AllVerts.Add(FVector((float)DblData[v] * Scale, -(float)DblData[v + 1] * Scale, (float)DblData[v + 2] * Scale));
-                                }
-                            }
-                        }
-                        else if (CName.Equals(TEXT("PolygonVertexIndex")) && CPropsStart + 13 <= (int32)CEnd)
-                        {
-                            uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart]);
-                            uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 4]);
-                            uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 8]);
-                            int32 DataOffset = CPropsStart + 12;
-                            uint32 UncompSize = ArrayLen * sizeof(int32);
-
-                            const uint8* DataPtr = nullptr;
-                            TArray<uint8> UncompBuf;
-                            if (Encoding == 0 && DataOffset + (int32)UncompSize <= (int32)CEnd)
-                            {
-                                DataPtr = &FileBytes[DataOffset];
-                            }
-                            else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)CEnd)
-                            {
-                                UncompBuf.AddUninitialized(UncompSize);
-                                if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
-                                {
-                                    DataPtr = UncompBuf.GetData();
-                                }
-                            }
-
-                            if (DataPtr && ArrayLen > 0)
-                            {
-                                const int32* PIndices = reinterpret_cast<const int32*>(DataPtr);
-                                TArray<int32> PolyLoop;
-                                for (uint32 idx = 0; idx < ArrayLen; ++idx)
-                                {
-                                    int32 Val = PIndices[idx];
-                                    bool bIsLast = (Val < 0);
-                                    int32 RealVal = bIsLast ? (-Val - 1) : Val;
-                                    PolyLoop.Add(RealVal);
-
-                                    if (bIsLast)
-                                    {
-                                        int32 LoopCount = PolyLoop.Num();
-                                        if (LoopCount >= 3)
-                                        {
-                                            for (int32 p = 1; p < LoopCount - 1; ++p)
-                                            {
-                                                AllPolys.Add(PolyLoop[0]);
-                                                AllPolys.Add(PolyLoop[p]);
-                                                AllPolys.Add(PolyLoop[p + 1]);
-                                            }
-                                        }
-                                        PolyLoop.Empty();
-                                    }
-                                }
-                            }
-                        }
-
-                        ChildP = CEnd;
-                    }
-                }
-                else if (SubName.Equals(TEXT("Deformer")))
-                {
-                    int32 PPos = SubPropsStart;
-                    int32 StrPos = PPos + 9;
-                    FString DefLabel = TEXT("");
-                    if (StrPos < SubChildrenStart && FileBytes[StrPos] == 'S' && StrPos + 5 <= SubChildrenStart)
-                    {
-                        uint32 SLen = *reinterpret_cast<const uint32*>(&FileBytes[StrPos + 1]);
-                        if (StrPos + 5 + (int32)SLen <= SubChildrenStart)
-                        {
-                            DefLabel = FString(SLen, (const ANSICHAR*)&FileBytes[StrPos + 5]);
-                            int32 NullIdx = -1;
-                            if (DefLabel.FindChar('\0', NullIdx)) DefLabel = DefLabel.Left(NullIdx);
-                            int32 ColonIdx = -1;
-                            if (DefLabel.FindChar(':', ColonIdx)) DefLabel = DefLabel.Mid(ColonIdx + 1);
-                        }
-                    }
-
-                    int32 CCurr = SubChildrenStart;
-                    while (CCurr + 13 < (int32)SubEnd)
-                    {
-                        uint32 CEnd = *reinterpret_cast<const uint32*>(&FileBytes[CCurr]);
-                        uint32 CNumProps = *reinterpret_cast<const uint32*>(&FileBytes[CCurr + 4]);
-                        uint32 CPropLen = *reinterpret_cast<const uint32*>(&FileBytes[CCurr + 8]);
-                        uint8 CNameLen = FileBytes[CCurr + 12];
-
-                        if (CEnd == 0 || CEnd > SubEnd || CCurr + 13 + CNameLen > (int32)SubEnd) break;
-
-                        FString CName = FString(CNameLen, (const ANSICHAR*)&FileBytes[CCurr + 13]);
-                        int32 CPropsStart = CCurr + 13 + CNameLen;
-
-                        if (CName.Equals(TEXT("Indexes")) && CPropsStart + 13 <= (int32)CEnd)
-                        {
-                            uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart]);
-                            uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 4]);
-                            uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 8]);
-                            int32 DataOffset = CPropsStart + 12;
-                            uint32 UncompSize = ArrayLen * sizeof(int32);
-
-                            const uint8* DataPtr = nullptr;
-                            TArray<uint8> UncompBuf;
-                            if (Encoding == 0 && DataOffset + (int32)UncompSize <= (int32)CEnd)
-                            {
-                                DataPtr = &FileBytes[DataOffset];
-                            }
-                            else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)CEnd)
-                            {
-                                UncompBuf.AddUninitialized(UncompSize);
-                                if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
-                                {
-                                    DataPtr = UncompBuf.GetData();
-                                }
-                            }
-
-                            if (DataPtr && ArrayLen > 0 && !DefLabel.IsEmpty())
-                            {
-                                const int32* IdxData = reinterpret_cast<const int32*>(DataPtr);
-                                TArray<int32>& ClusterIndices = Clusters.FindOrAdd(DefLabel);
-                                for (uint32 i = 0; i < ArrayLen; ++i)
-                                {
-                                    ClusterIndices.Add(IdxData[i]);
-                                }
-                            }
-                        }
-                        CCurr = CEnd;
-                    }
-                }
-
-                Sub = SubEnd;
-            }
+            OutUCX.Add(ImpSec);
+            UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] UCX Çarpışma Parçası Ayrıldı: %s (%d Verts)"), *Sec.MeshName, Sec.Vertices.Num());
         }
-        Pos = NodeEnd;
-    }
-
-    if (Clusters.Num() == 0 || AllVerts.Num() == 0 || AllPolys.Num() == 0)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] FBX Skin cluster bulunamadi!"));
-        return false;
-    }
-
-    TArray<FString> ClusterKeys;
-    Clusters.GetKeys(ClusterKeys);
-    ClusterKeys.Sort([](const FString& A, const FString& B) {
-        bool bAChassis = A.Contains(TEXT("chassis"), ESearchCase::IgnoreCase);
-        bool bBChassis = B.Contains(TEXT("chassis"), ESearchCase::IgnoreCase);
-        if (bAChassis != bBChassis) return bAChassis;
-        return A < B;
-    });
-
-    for (int32 c = 0; c < ClusterKeys.Num(); ++c)
-    {
-        const FString& CName = ClusterKeys[c];
-        const TArray<int32>& IdxArr = Clusters[CName];
-        TSet<int32> VertSet(IdxArr);
-
-        FImporterMeshSection MeshSec;
-        MeshSec.MeshName = CName;
-        MeshSec.ParentSectionIndex = (c == 0 ? -1 : 0);
-        MeshSec.DepthLevel = (c == 0 ? 0 : 1);
-        MeshSec.MassKg = (c == 0 ? 30.0f : 2.5f);
-        MeshSec.Friction = 0.85f;
-        MeshSec.MinAngle = -90.0f;
-        MeshSec.MaxAngle = 90.0f;
-        MeshSec.RotationAxis = FVector(0.0f, 1.0f, 0.0f); // Wheel spin Y-axis
-
-        TMap<int32, int32> VertMap;
-        for (int32 p = 0; p + 2 < AllPolys.Num(); p += 3)
+        else
         {
-            int32 v0 = AllPolys[p];
-            int32 v1 = AllPolys[p + 1];
-            int32 v2 = AllPolys[p + 2];
-
-            if (VertSet.Contains(v0) && VertSet.Contains(v1) && VertSet.Contains(v2))
-            {
-                int32 nv0 = VertMap.FindOrAdd(v0, MeshSec.Vertices.Num());
-                if (nv0 == MeshSec.Vertices.Num()) { MeshSec.Vertices.Add(AllVerts[v0]); MeshSec.Normals.Add(FVector(0, 0, 1)); }
-
-                int32 nv1 = VertMap.FindOrAdd(v1, MeshSec.Vertices.Num());
-                if (nv1 == MeshSec.Vertices.Num()) { MeshSec.Vertices.Add(AllVerts[v1]); MeshSec.Normals.Add(FVector(0, 0, 1)); }
-
-                int32 nv2 = VertMap.FindOrAdd(v2, MeshSec.Vertices.Num());
-                if (nv2 == MeshSec.Vertices.Num()) { MeshSec.Vertices.Add(AllVerts[v2]); MeshSec.Normals.Add(FVector(0, 0, 1)); }
-
-                MeshSec.Triangles.Add(nv0);
-                MeshSec.Triangles.Add(nv1);
-                MeshSec.Triangles.Add(nv2);
-            }
-        }
-
-        if (MeshSec.Vertices.Num() > 0)
-        {
-            FVector Centroid = FVector::ZeroVector;
-            for (const FVector& V : MeshSec.Vertices) Centroid += V;
-            Centroid /= (float)MeshSec.Vertices.Num();
-            MeshSec.PivotPoint = Centroid;
-
-            for (FVector& V : MeshSec.Vertices) V -= Centroid;
-
-            // =================================================================================
-            // [İSTEK 2] ADINDA UCX GEÇENLERİ UCXSections'A, GEÇMEYENLERİ VisualSections'A AT
-            // =================================================================================
-            if (MeshSec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
-                MeshSec.MeshName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
-                MeshSec.MeshName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase))
-            {
-                OutUCX.Add(MeshSec);
-                UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] UCX Çarpışma Parçası Yakalandı: %s (%d Vertices)"),
-                    *MeshSec.MeshName, MeshSec.Vertices.Num());
-            }
-            else
-            {
-                OutVisual.Add(MeshSec);
-                UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] Görsel Parça Yakalandı: %s (%d Vertices, %d Tris)"),
-                    *MeshSec.MeshName, MeshSec.Vertices.Num(), MeshSec.Triangles.Num() / 3);
-            }
+            OutVisual.Add(ImpSec);
+            UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] Görsel Parça Ayrıldı: %s (%d Verts, %d Tris)"), *Sec.MeshName, Sec.Vertices.Num(), Sec.Triangles.Num() / 3);
         }
     }
 
