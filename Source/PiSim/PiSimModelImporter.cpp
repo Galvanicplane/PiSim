@@ -220,52 +220,446 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
     OutVisual.Empty();
     OutUCX.Empty();
 
-    if (!FPaths::FileExists(FilePath))
+    TArray<uint8> FileBytes;
+    if (!FFileHelper::LoadFileToArray(FileBytes, *FilePath) || FileBytes.Num() < 64)
     {
-        UE_LOG(LogTemp, Error, TEXT("[PiSimModelImporter] FBX dosyasi diskte bulunamadi: %s"), *FilePath);
+        UE_LOG(LogTemp, Error, TEXT("[PiSimModelImporter] FBX dosyasi okunamadi: %s"), *FilePath);
         return false;
     }
 
-    TArray<FGLBMeshSection> ExtractedSections;
-    if (!APiSimGarageRobot::ParseFbxAllBinaryMeshes(FilePath, ExtractedSections, Scale) || ExtractedSections.Num() == 0)
+    int32 FileSize = FileBytes.Num();
+    int32 Pos = 27;
+
+    struct FRawFbxGeom
     {
-        UE_LOG(LogTemp, Error, TEXT("[PiSimModelImporter] FBX dosya ayrıştırma başarısız: %s"), *FilePath);
-        return false;
-    }
+        FString Label;
+        TArray<FVector> Vertices;
+        TArray<int32> Polygons;
+    };
 
-    for (const FGLBMeshSection& Sec : ExtractedSections)
+    struct FRawFbxSubDef
     {
-        FImporterMeshSection ImpSec;
-        ImpSec.MeshName = Sec.MeshName;
-        ImpSec.ParentSectionIndex = Sec.ParentSectionIndex;
-        ImpSec.DepthLevel = Sec.DepthLevel;
-        ImpSec.PivotPoint = Sec.PivotPoint;
-        ImpSec.Vertices = Sec.Vertices;
-        ImpSec.Triangles = Sec.Triangles;
-        ImpSec.Normals = Sec.Normals;
-        ImpSec.MassKg = (Sec.MassKg > 0.0f) ? Sec.MassKg : 2.5f;
-        ImpSec.Friction = (Sec.Friction > 0.0f) ? Sec.Friction : 0.85f;
-        ImpSec.MinAngle = -90.0f;
-        ImpSec.MaxAngle = 90.0f;
-        ImpSec.RotationAxis = FVector(0.0f, 1.0f, 0.0f);
+        FString BoneLabel;
+        TArray<int32> Indices;
+    };
 
-        // =====================================================================================
-        // UCX İSİM AYIKLAMA (UCX_, UBX_, USP_, UCX veya Cube.001)
-        // =====================================================================================
-        bool bIsUCX = Sec.MeshName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
-                      Sec.MeshName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
-                      Sec.MeshName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase) ||
-                      Sec.MeshName.StartsWith(TEXT("UCX"), ESearchCase::IgnoreCase) ||
-                      Sec.MeshName.Contains(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
-                      Sec.MeshName.Contains(TEXT("Cube.00"), ESearchCase::IgnoreCase);
+    TMap<uint64, FString> ModelMap;
+    TMap<uint64, FRawFbxGeom> GeomMap;
+    TMap<uint64, FString> DeformerMap;
+    TMap<uint64, FRawFbxSubDef> SubDeformerMap;
 
-        if (bIsUCX)
+    TMap<uint64, TArray<uint64>> ChildToParents;
+    TMap<uint64, TArray<uint64>> ParentToChildren;
+
+    // 1) FBX Node Parser Helper
+    auto ParseNodeHeader = [&](int32 P, uint32& OutEnd, uint32& OutNumProps, uint32& OutPropLen, FString& OutName, int32& OutPropsStart, int32& OutChildStart) -> bool
+    {
+        if (P + 13 > FileSize) return false;
+        OutEnd = *reinterpret_cast<const uint32*>(&FileBytes[P]);
+        OutNumProps = *reinterpret_cast<const uint32*>(&FileBytes[P + 4]);
+        OutPropLen = *reinterpret_cast<const uint32*>(&FileBytes[P + 8]);
+        uint8 NLen = FileBytes[P + 12];
+        if (OutEnd == 0 || OutEnd > (uint32)FileSize || P + 13 + NLen > FileSize) return false;
+        OutName = FString(NLen, (const ANSICHAR*)&FileBytes[P + 13]);
+        OutPropsStart = P + 13 + NLen;
+        OutChildStart = OutPropsStart + OutPropLen;
+        return true;
+    };
+
+    // 2) Top-Level Iterate: Find Objects and Connections
+    int32 ObjectsStart = 0, ObjectsEnd = 0;
+    int32 ConnsStart = 0, ConnsEnd = 0;
+
+    while (Pos + 13 < FileSize)
+    {
+        uint32 NEnd, NNumProps, NPropLen;
+        FString NName;
+        int32 NPropsStart, NChildStart;
+        if (!ParseNodeHeader(Pos, NEnd, NNumProps, NPropLen, NName, NPropsStart, NChildStart)) break;
+
+        if (NName.Equals(TEXT("Objects")))
         {
-            OutUCX.Add(ImpSec);
+            ObjectsStart = NChildStart;
+            ObjectsEnd = (int32)NEnd;
         }
-        else
+        else if (NName.Equals(TEXT("Connections")))
         {
-            OutVisual.Add(ImpSec);
+            ConnsStart = NChildStart;
+            ConnsEnd = (int32)NEnd;
+        }
+        Pos = (int32)NEnd;
+    }
+
+    // 3) Parse Connections (OO, ChildID, ParentID)
+    int32 CP = ConnsStart;
+    while (CP + 13 < ConnsEnd)
+    {
+        uint32 CEnd, CNumProps, CPropLen;
+        FString CName;
+        int32 CPropsStart, CChildStart;
+        if (!ParseNodeHeader(CP, CEnd, CNumProps, CPropLen, CName, CPropsStart, CChildStart)) break;
+
+        if (CName.Equals(TEXT("C")) && CPropLen >= 19)
+        {
+            // Prop 0: String "OO"
+            uint32 StrLen = *reinterpret_cast<const uint32*>(&FileBytes[CPropsStart + 1]);
+            int32 Off = CPropsStart + 5 + StrLen;
+            if (Off + 18 <= (int32)CEnd)
+            {
+                uint64 ChildID = *reinterpret_cast<const uint64*>(&FileBytes[Off + 1]);
+                Off += 9;
+                uint64 ParentID = *reinterpret_cast<const uint64*>(&FileBytes[Off + 1]);
+
+                ChildToParents.FindOrAdd(ChildID).Add(ParentID);
+                ParentToChildren.FindOrAdd(ParentID).Add(ChildID);
+            }
+        }
+        CP = (int32)CEnd;
+    }
+
+    // 4) Parse Objects (Model, Geometry, Deformer)
+    int32 OP = ObjectsStart;
+    while (OP + 13 < ObjectsEnd)
+    {
+        uint32 OEnd, ONumProps, OPropLen;
+        FString OName;
+        int32 OPropsStart, OChildStart;
+        if (!ParseNodeHeader(OP, OEnd, ONumProps, OPropLen, OName, OPropsStart, OChildStart)) break;
+
+        uint64 ObjID = 0;
+        if (OPropsStart + 9 <= OChildStart && FileBytes[OPropsStart] == 'L')
+        {
+            ObjID = *reinterpret_cast<const uint64*>(&FileBytes[OPropsStart + 1]);
+        }
+
+        // Extract Label String
+        FString LabelStr = TEXT("");
+        for (int32 off = OPropsStart; off + 5 < OChildStart && off < OPropsStart + 60; ++off)
+        {
+            if (FileBytes[off] == 'S')
+            {
+                uint32 sLen = *reinterpret_cast<const uint32*>(&FileBytes[off + 1]);
+                if (off + 5 + (int32)sLen <= OChildStart)
+                {
+                    LabelStr = FString(sLen, (const ANSICHAR*)&FileBytes[off + 5]);
+                    int32 NullIdx;
+                    if (LabelStr.FindChar('\0', NullIdx)) LabelStr = LabelStr.Left(NullIdx);
+                    break;
+                }
+            }
+        }
+
+        if (OName.Equals(TEXT("Model")))
+        {
+            ModelMap.Add(ObjID, LabelStr);
+        }
+        else if (OName.Equals(TEXT("Geometry")))
+        {
+            FRawFbxGeom Geom;
+            Geom.Label = LabelStr;
+
+            int32 GP = OChildStart;
+            while (GP + 13 < (int32)OEnd)
+            {
+                uint32 GEnd, GNumProps, GPropLen;
+                FString GName;
+                int32 GPropsStart, GChildStart;
+                if (!ParseNodeHeader(GP, GEnd, GNumProps, GPropLen, GName, GPropsStart, GChildStart)) break;
+
+                if (GName.Equals(TEXT("Vertices")) && GPropLen > 12)
+                {
+                    uint8 TypeCode = FileBytes[GPropsStart];
+                    uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[GPropsStart + 1]);
+                    uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[GPropsStart + 5]);
+                    uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[GPropsStart + 9]);
+                    int32 DataOffset = GPropsStart + 13;
+
+                    int32 ElemSize = (TypeCode == 'd' ? 8 : 4);
+                    int32 UncompSize = ArrayLen * ElemSize;
+                    TArray<uint8> UncompBuf;
+                    const uint8* DataPtr = nullptr;
+
+                    if (Encoding == 0 && DataOffset + UncompSize <= (int32)GEnd)
+                    {
+                        DataPtr = &FileBytes[DataOffset];
+                    }
+                    else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)GEnd)
+                    {
+                        UncompBuf.AddUninitialized(UncompSize);
+                        if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
+                        {
+                            DataPtr = UncompBuf.GetData();
+                        }
+                    }
+
+                    if (DataPtr && ArrayLen > 0)
+                    {
+                        if (TypeCode == 'd')
+                        {
+                            const double* VData = reinterpret_cast<const double*>(DataPtr);
+                            for (uint32 v = 0; v + 2 < ArrayLen; v += 3)
+                            {
+                                Geom.Vertices.Add(FVector(VData[v] * Scale, -VData[v + 1] * Scale, VData[v + 2] * Scale));
+                            }
+                        }
+                        else if (TypeCode == 'f')
+                        {
+                            const float* VData = reinterpret_cast<const float*>(DataPtr);
+                            for (uint32 v = 0; v + 2 < ArrayLen; v += 3)
+                            {
+                                Geom.Vertices.Add(FVector(VData[v] * Scale, -VData[v + 1] * Scale, VData[v + 2] * Scale));
+                            }
+                        }
+                    }
+                }
+                else if (GName.Equals(TEXT("PolygonVertexIndex")) && GPropLen > 12)
+                {
+                    uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[GPropsStart + 1]);
+                    uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[GPropsStart + 5]);
+                    uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[GPropsStart + 9]);
+                    int32 DataOffset = GPropsStart + 13;
+
+                    int32 UncompSize = ArrayLen * 4;
+                    TArray<uint8> UncompBuf;
+                    const uint8* DataPtr = nullptr;
+
+                    if (Encoding == 0 && DataOffset + UncompSize <= (int32)GEnd)
+                    {
+                        DataPtr = &FileBytes[DataOffset];
+                    }
+                    else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)GEnd)
+                    {
+                        UncompBuf.AddUninitialized(UncompSize);
+                        if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
+                        {
+                            DataPtr = UncompBuf.GetData();
+                        }
+                    }
+
+                    if (DataPtr && ArrayLen > 0)
+                    {
+                        const int32* PIndices = reinterpret_cast<const int32*>(DataPtr);
+                        TArray<int32> PolyLoop;
+                        for (uint32 idx = 0; idx < ArrayLen; ++idx)
+                        {
+                            int32 Val = PIndices[idx];
+                            bool bIsLast = (Val < 0);
+                            int32 RealIdx = bIsLast ? (-Val - 1) : Val;
+                            PolyLoop.Add(RealIdx);
+
+                            if (bIsLast)
+                            {
+                                if (PolyLoop.Num() >= 3)
+                                {
+                                    for (int32 p = 1; p < PolyLoop.Num() - 1; ++p)
+                                    {
+                                        Geom.Polygons.Add(PolyLoop[0]);
+                                        Geom.Polygons.Add(PolyLoop[p]);
+                                        Geom.Polygons.Add(PolyLoop[p + 1]);
+                                    }
+                                }
+                                PolyLoop.Empty();
+                            }
+                        }
+                    }
+                }
+                GP = (int32)GEnd;
+            }
+            GeomMap.Add(ObjID, Geom);
+        }
+        else if (OName.Equals(TEXT("Deformer")))
+        {
+            int32 DP = OChildStart;
+            TArray<int32> SubIndices;
+
+            while (DP + 13 < (int32)OEnd)
+            {
+                uint32 DEnd, DNumProps, DPropLen;
+                FString DName;
+                int32 DPropsStart, DChildStart;
+                if (!ParseNodeHeader(DP, DEnd, DNumProps, DPropLen, DName, DPropsStart, DChildStart)) break;
+
+                if (DName.Equals(TEXT("Indexes")) && DPropLen > 12)
+                {
+                    uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[DPropsStart + 1]);
+                    uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[DPropsStart + 5]);
+                    uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[DPropsStart + 9]);
+                    int32 DataOffset = DPropsStart + 13;
+
+                    int32 UncompSize = ArrayLen * 4;
+                    TArray<uint8> UncompBuf;
+                    const uint8* DataPtr = nullptr;
+
+                    if (Encoding == 0 && DataOffset + UncompSize <= (int32)DEnd)
+                    {
+                        DataPtr = &FileBytes[DataOffset];
+                    }
+                    else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)DEnd)
+                    {
+                        UncompBuf.AddUninitialized(UncompSize);
+                        if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
+                        {
+                            DataPtr = UncompBuf.GetData();
+                        }
+                    }
+
+                    if (DataPtr && ArrayLen > 0)
+                    {
+                        const int32* PIndices = reinterpret_cast<const int32*>(DataPtr);
+                        for (uint32 idx = 0; idx < ArrayLen; ++idx)
+                        {
+                            SubIndices.Add(PIndices[idx]);
+                        }
+                    }
+                }
+                DP = (int32)DEnd;
+            }
+
+            if (SubIndices.Num() > 0)
+            {
+                FRawFbxSubDef SubDef;
+                SubDef.BoneLabel = LabelStr;
+                SubDef.Indices = SubIndices;
+                SubDeformerMap.Add(ObjID, SubDef);
+            }
+            else
+            {
+                DeformerMap.Add(ObjID, LabelStr);
+            }
+        }
+        OP = (int32)OEnd;
+    }
+
+    // 5) Extract and Classify Each Geometry per Model
+    for (const auto& GeomPair : GeomMap)
+    {
+        uint64 GeomID = GeomPair.Key;
+        const FRawFbxGeom& Geom = GeomPair.Value;
+
+        // Find Parent Model
+        FString ModelName = Geom.Label;
+        if (const TArray<uint64>* Parents = ChildToParents.Find(GeomID))
+        {
+            for (uint64 PID : *Parents)
+            {
+                if (const FString* MName = ModelMap.Find(PID))
+                {
+                    ModelName = *MName;
+                    break;
+                }
+            }
+        }
+
+        bool bIsUCXModel = ModelName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
+                           ModelName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
+                           ModelName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase) ||
+                           ModelName.StartsWith(TEXT("UCX"), ESearchCase::IgnoreCase) ||
+                           ModelName.Contains(TEXT("UCX"), ESearchCase::IgnoreCase);
+
+        // Find Skin Deformers connected to this Geometry
+        TArray<uint64> GeomSkinDeformers;
+        if (const TArray<uint64>* Children = ParentToChildren.Find(GeomID))
+        {
+            for (uint64 CID : *Children)
+            {
+                if (DeformerMap.Contains(CID)) GeomSkinDeformers.Add(CID);
+            }
+        }
+
+        if (GeomSkinDeformers.Num() > 0)
+        {
+            for (uint64 SkinDefID : GeomSkinDeformers)
+            {
+                if (const TArray<uint64>* SubDefs = ParentToChildren.Find(SkinDefID))
+                {
+                    for (uint64 SubDefID : *SubDefs)
+                    {
+                        if (const FRawFbxSubDef* SubDef = SubDeformerMap.Find(SubDefID))
+                        {
+                            TSet<int32> BoneVertSet(SubDef->Indices);
+                            TArray<FVector> SubVerts;
+                            TArray<int32> SubTris;
+                            TMap<int32, int32> VertMap;
+
+                            for (int32 p = 0; p + 2 < Geom.Polygons.Num(); p += 3)
+                            {
+                                int32 V0 = Geom.Polygons[p];
+                                int32 V1 = Geom.Polygons[p + 1];
+                                int32 V2 = Geom.Polygons[p + 2];
+
+                                if (BoneVertSet.Contains(V0) && BoneVertSet.Contains(V1) && BoneVertSet.Contains(V2))
+                                {
+                                    if (!VertMap.Contains(V0)) { VertMap.Add(V0, SubVerts.Num()); SubVerts.Add(Geom.Vertices[V0]); }
+                                    if (!VertMap.Contains(V1)) { VertMap.Add(V1, SubVerts.Num()); SubVerts.Add(Geom.Vertices[V1]); }
+                                    if (!VertMap.Contains(V2)) { VertMap.Add(V2, SubVerts.Num()); SubVerts.Add(Geom.Vertices[V2]); }
+
+                                    SubTris.Add(VertMap[V0]);
+                                    SubTris.Add(VertMap[V1]);
+                                    SubTris.Add(VertMap[V2]);
+                                }
+                            }
+
+                            if (SubVerts.Num() > 0 && SubTris.Num() > 0)
+                            {
+                                FImporterMeshSection Sec;
+                                Sec.MeshName = bIsUCXModel ? FString::Printf(TEXT("%s_%s"), *ModelName, *SubDef->BoneLabel) : SubDef->BoneLabel;
+                                Sec.Vertices = SubVerts;
+                                Sec.Triangles = SubTris;
+
+                                // Pivot calculation
+                                FVector Center = FVector::ZeroVector;
+                                for (const FVector& V : SubVerts) Center += V;
+                                Sec.PivotPoint = Center / (float)SubVerts.Num();
+
+                                // Normals
+                                Sec.Normals.Init(FVector::UpVector, SubVerts.Num());
+                                for (int32 t = 0; t + 2 < SubTris.Num(); t += 3)
+                                {
+                                    int32 i0 = SubTris[t], i1 = SubTris[t + 1], i2 = SubTris[t + 2];
+                                    FVector TriNormal = ((SubVerts[i1] - SubVerts[i0]) ^ (SubVerts[i2] - SubVerts[i0])).GetSafeNormal();
+                                    Sec.Normals[i0] = TriNormal;
+                                    Sec.Normals[i1] = TriNormal;
+                                    Sec.Normals[i2] = TriNormal;
+                                }
+
+                                if (bIsUCXModel)
+                                {
+                                    OutUCX.Add(Sec);
+                                }
+                                else
+                                {
+                                    OutVisual.Add(Sec);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        else if (Geom.Vertices.Num() > 0 && Geom.Polygons.Num() > 0)
+        {
+            // Static unskinned geometry
+            FImporterMeshSection Sec;
+            Sec.MeshName = ModelName;
+            Sec.Vertices = Geom.Vertices;
+            Sec.Triangles = Geom.Polygons;
+
+            FVector Center = FVector::ZeroVector;
+            for (const FVector& V : Geom.Vertices) Center += V;
+            Sec.PivotPoint = Center / (float)Geom.Vertices.Num();
+
+            Sec.Normals.Init(FVector::UpVector, Geom.Vertices.Num());
+            for (int32 t = 0; t + 2 < Geom.Polygons.Num(); t += 3)
+            {
+                int32 i0 = Geom.Polygons[t], i1 = Geom.Polygons[t + 1], i2 = Geom.Polygons[t + 2];
+                FVector TriNormal = ((Geom.Vertices[i1] - Geom.Vertices[i0]) ^ (Geom.Vertices[i2] - Geom.Vertices[i0])).GetSafeNormal();
+                Sec.Normals[i0] = TriNormal;
+                Sec.Normals[i1] = TriNormal;
+                Sec.Normals[i2] = TriNormal;
+            }
+
+            if (bIsUCXModel) OutUCX.Add(Sec);
+            else OutVisual.Add(Sec);
         }
     }
 
