@@ -431,35 +431,148 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
 // =========================================================================================
 void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
 {
-    TArray<UProceduralMeshComponent*>& TargetComps = (CollisionMeshComponents.Num() > 0) ? CollisionMeshComponents : VisualMeshComponents;
-
-    for (int32 i = 0; i < TargetComps.Num(); ++i)
+    if (VisualMeshComponents.Num() == 0)
     {
-        UProceduralMeshComponent* Comp = TargetComps[i];
-        if (!Comp) continue;
-
-        if (bActive)
+        if (GEngine)
         {
-            Comp->SetMobility(EComponentMobility::Movable);
-            Comp->SetSimulatePhysics(true);
-            Comp->SetEnableGravity(true);
-            float Mass = (i == 0 ? 30.0f : 2.5f);
-            Comp->SetMassOverrideInKg(NAME_None, Mass, true);
-            Comp->SetLinearDamping(0.8f);
-            Comp->SetAngularDamping(2.0f);
-            Comp->WakeRigidBody();
+            GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, TEXT(">>> [HATA] Sahnede yüklü parça bulunamadı! <<<"));
         }
-        else
+        return;
+    }
+
+    if (!bActive)
+    {
+        // -------------------------------------------------------------------------------------
+        // FİZİĞİ DURDUR (Statik Garaj Moduna Dön)
+        // -------------------------------------------------------------------------------------
+        for (UPhysicsConstraintComponent* Constraint : JointConstraints)
         {
-            Comp->SetSimulatePhysics(false);
-            Comp->SetEnableGravity(false);
+            if (Constraint) Constraint->DestroyComponent();
+        }
+        JointConstraints.Empty();
+
+        for (int32 i = 0; i < VisualMeshComponents.Num(); ++i)
+        {
+            if (VisualMeshComponents[i])
+            {
+                VisualMeshComponents[i]->SetSimulatePhysics(false);
+                VisualMeshComponents[i]->SetEnableGravity(false);
+            }
+        }
+
+        // Hiyerarşiyi ve konumu yeniden sıfırla
+        BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
+
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(801, 8.0f, FColor::Orange, TEXT("🛑 >>> [FİZİK SİMÜLASYONU DURDURULDU] Robot Statik Moda Alındı <<<"));
+        }
+        UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter LOG] Fizik simülasyonu durduruldu."));
+        return;
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // FİZİĞİ AKTİFLEŞTİR (Canlı Chaos Multi-Body Gazebo Simülasyonu)
+    // -----------------------------------------------------------------------------------------
+    UE_LOG(LogTemp, Warning, TEXT("===================================================================="));
+    UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter LOG] >>> CANLI CHAOS FİZİK SİMÜLASYONU BAŞLATILIYOR <<<"));
+    UE_LOG(LogTemp, Warning, TEXT("===================================================================="));
+
+    // 1) Ana Gövdeyi (Chassis) Kök Bileşen Yap
+    if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+    {
+        VisualMeshComponents[0]->SetMobility(EComponentMobility::Movable);
+        VisualMeshComponents[0]->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+        SetRootComponent(VisualMeshComponents[0]);
+    }
+
+    // 2) Her Parçaya Solid Çarpışma, Kütle ve Dinamik Fizik Ver
+    for (int32 i = 0; i < VisualMeshComponents.Num(); ++i)
+    {
+        UProceduralMeshComponent* VisComp = VisualMeshComponents[i];
+        if (!VisComp || !VisualSections.IsValidIndex(i)) continue;
+
+        FString Name = VisualSections[i].MeshName;
+        float Mass = (i == 0) ? 30.0f : 2.5f;
+
+        // Varsa UCX Geometrisini, Yoksa Kendi Vertexlerini Collision Olarak Ata
+        VisComp->ClearCollisionConvexMeshes();
+
+        // İlgili UCX parçasını ara
+        bool bAppliedUCX = false;
+        for (const FImporterMeshSection& UcxSec : UCXSections)
+        {
+            if (UcxSec.MeshName.Contains(Name, ESearchCase::IgnoreCase))
+            {
+                VisComp->AddCollisionConvexMesh(UcxSec.Vertices);
+                bAppliedUCX = true;
+                UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' parçasına özel '%s' UCX çarpışma kalkanı uygulandı (%d Verts)."),
+                    *Name, *UcxSec.MeshName, UcxSec.Vertices.Num());
+                break;
+            }
+        }
+
+        if (!bAppliedUCX)
+        {
+            VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
+            UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' parçasına kendi 3D geometrisi çarpışma kalkanı yapıldı (%d Verts)."),
+                *Name, VisualSections[i].Vertices.Num());
+        }
+
+        VisComp->bUseComplexAsSimpleCollision = false;
+        VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+        VisComp->SetCollisionObjectType(ECC_WorldDynamic);
+        VisComp->SetCollisionResponseToAllChannels(ECR_Block);
+        VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zeminle çarpış
+        VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+        VisComp->RecreatePhysicsState();
+        VisComp->UpdateBounds();
+
+        // Dinamik Fiziği Aç
+        VisComp->SetMobility(EComponentMobility::Movable);
+        VisComp->SetSimulatePhysics(true);
+        VisComp->SetEnableGravity(true);
+        VisComp->SetMassOverrideInKg(NAME_None, Mass, true);
+        VisComp->SetLinearDamping(0.8f);
+        VisComp->SetAngularDamping(1.5f);
+        VisComp->WakeRigidBody();
+
+        UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' (Bileşen %d) FİZİK AKTİF! | Kütle: %.1f kg | Yerçekimi: AÇIK"),
+            *Name, i, Mass);
+
+        // 3) Gövde Dışındaki Parçalar (Tekerlekler) İçin Fiziksel Eklem (Constraint) Oluştur
+        if (i > 0 && VisualMeshComponents[0])
+        {
+            FName ConstraintName = *FString::Printf(TEXT("PhysicsJoint_%d_%s"), i, *Name);
+            UPhysicsConstraintComponent* Constraint = NewObject<UPhysicsConstraintComponent>(this, ConstraintName);
+            Constraint->SetupAttachment(VisualMeshComponents[0]);
+            Constraint->SetRelativeLocation(VisualSections[i].PivotPoint);
+            Constraint->RegisterComponent();
+
+            // Gövde ile Tekerleği Birbirine Fiziksel Olarak Kilitle (Revolute / Serbest Dönüşlü Eklem)
+            Constraint->SetConstrainedComponents(VisualMeshComponents[0], NAME_None, VisComp, NAME_None);
+            Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
+            Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+            Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+            Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+            Constraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+            Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+
+            JointConstraints.Add(Constraint);
+            UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' tekerleği gövdeye dönebilir Fiziksel Eklem (Constraint) ile bağlandı!"), *Name);
         }
     }
 
+    // 4) Ekran Bildirimleri (Canlı Renklerle)
     if (GEngine)
     {
-        FColor MsgColor = bActive ? FColor::Emerald : FColor::Orange;
-        GEngine->AddOnScreenDebugMessage(-1, 10.0f, MsgColor,
-            FString::Printf(TEXT(">>> [PiSimModelImporter] FİZİK SİMÜLASYONU: %s <<<"), bActive ? TEXT("AKTİF (Açık)") : TEXT("DEVRE DIŞI (Kapalı)")));
+        GEngine->AddOnScreenDebugMessage(801, 10.0f, FColor::Cyan,
+            FString::Printf(TEXT("🚀 >>> [CHAOS FİZİK AKTİF!] %d Parça Canlı Dinamik Gövdeye Dönüştürüldü <<<"), VisualMeshComponents.Num()));
+        
+        GEngine->AddOnScreenDebugMessage(802, 10.0f, FColor::Emerald,
+            FString::Printf(TEXT("🛡️ >>> [GÖVDE: 30.0 KG | YERÇEKİMİ: AÇIK] Zeminle Çarpışma Tamamen Bloklandı <<<")));
+
+        GEngine->AddOnScreenDebugMessage(803, 10.0f, FColor::Yellow,
+            FString::Printf(TEXT("⚙️ >>> [%d ADET EKLEM KISITLAMASI BAĞLANDI] Tekerlekler Serbestçe Dönebilir! <<<"), JointConstraints.Num()));
     }
 }
