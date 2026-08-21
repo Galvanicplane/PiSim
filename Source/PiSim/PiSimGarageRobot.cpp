@@ -701,13 +701,16 @@ void APiSimGarageRobot::BeginPlay()
             JointPivotPoints.Empty();
             JointLimitsList.Empty();
 
+            // =========================================================================================
+            // [AŞAMA 5.A] HER PARÇA İÇİN SAHNEDE BİLEŞEN (UProceduralMeshComponent) OLUŞTURMA
+            // =========================================================================================
             for (int32 SecIdx = 0; SecIdx < Sections.Num(); ++SecIdx)
             {
                 FName CompName = *FString::Printf(TEXT("CADSubMesh_%d_%s"), SecIdx, *Sections[SecIdx].MeshName);
                 UProceduralMeshComponent* SubComp = NewObject<UProceduralMeshComponent>(this, CompName);
-
                 SubComp->SetMobility(EComponentMobility::Movable);
 
+                // Hiyerarşik Ebeveyn Bağlantısı: Tekerlek gövdeye bağlanır
                 int32 ParentIdx = Sections[SecIdx].ParentSectionIndex;
                 if (ParentIdx >= 0 && SubMeshComponents.IsValidIndex(ParentIdx) && SubMeshComponents[ParentIdx])
                 {
@@ -722,8 +725,6 @@ void APiSimGarageRobot::BeginPlay()
 
                 SubComp->RegisterComponent();
 
-
-
                 FString MeshName = Sections[SecIdx].MeshName;
                 bool bIsCMOnly = MeshName.StartsWith(TEXT("CM_"), ESearchCase::IgnoreCase);
                 bool bIsStructural = bIsCMOnly || MeshName.StartsWith(TEXT("COG"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("COL"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Cube"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Stick"), ESearchCase::IgnoreCase) || MeshName.StartsWith(TEXT("Buckett"), ESearchCase::IgnoreCase) || bLoadedDiskModel;
@@ -732,21 +733,29 @@ void APiSimGarageRobot::BeginPlay()
                 TArray<FLinearColor> VertexColors;
                 TArray<FProcMeshTangent> Tangents;
 
-                // Configure Procedural Mesh collision and rendering settings directly during GLTF/FBX Model Import
                 SubComp->CastShadow = true;
                 SubComp->bCastDynamicShadow = true;
                 SubComp->bAffectDistanceFieldLighting = false;
 
+                // -------------------------------------------------------------------------------------
+                // 1) GÖRSEL MODELİ ÇİZME (RENDER):
+                // CreateMeshSection_LinearColor fonksiyonu dosyadaki Vertices, Triangles ve Normals dizilerini
+                // GPU'ya gönderir ve 3D parçayı ekrana çizer.
+                // -------------------------------------------------------------------------------------
                 SubComp->CreateMeshSection_LinearColor(0, Sections[SecIdx].Vertices, Sections[SecIdx].Triangles, Sections[SecIdx].Normals, UV0, VertexColors, Tangents, true);
                 if (DefaultMat)
                 {
                     SubComp->SetMaterial(0, DefaultMat);
                 }
 
-                // RESTORE PROVEN ROCK-SOLID COLLISION ON ALL SUB-MESHES
+                // -------------------------------------------------------------------------------------
+                // 2) ÇARPIŞMA (COLLISION) EKLEME:
+                // ClearCollisionConvexMeshes() eski çarpışma şeklini temizler.
+                // AddCollisionConvexMesh(Vertices) tepe noktalarını Chaos Fizik Motoruna (Convex Hull) olarak verir.
+                // -------------------------------------------------------------------------------------
                 SubComp->ClearCollisionConvexMeshes();
                 SubComp->AddCollisionConvexMesh(Sections[SecIdx].Vertices);
-                SubComp->bUseComplexAsSimpleCollision = false;
+                SubComp->bUseComplexAsSimpleCollision = false; // Basit dış bükey çarpışma (Convex Hull) kullanılır
                 SubComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
                 SubComp->SetCollisionObjectType(ECC_WorldDynamic);
                 SubComp->SetCollisionResponseToAllChannels(ECR_Block);
@@ -757,7 +766,7 @@ void APiSimGarageRobot::BeginPlay()
                 SubComp->RecreatePhysicsState();
                 SubComp->UpdateBounds();
 
-                // All components visible in scene
+                // Parçayı oyunda görünür kıl
                 SubComp->SetVisibility(true);
                 SubComp->SetHiddenInGame(false);
 
@@ -3054,6 +3063,11 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
     }
     else
     {
+        // =========================================================================================
+        // [AŞAMA 1] BINARY FBX AYRIŞTIRMA VE KEMİK KÜMELERİNİ (SKIN CLUSTERS) ÇIKARMA
+        // =========================================================================================
+        // Eğer FBX dosyası bir iskelet (Armature / Skinning) içeriyorsa, tekerlekler ve gövde kemiklere bağlıdır.
+        // ParseFbxSkinClusters() fonksiyonu her bir kemiğe (Chassis, Wheel_FL vb.) ait tepe noktalarını (Vertices) ayıklar.
         UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Binary FBX format detected (%d bytes). Attempting Skin Bone Cluster Extraction..."), FileSize);
         if (ParseFbxSkinClusters(FileBytes, FilePath, OutSections, ScaleMultiplier))
         {
@@ -3061,13 +3075,22 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
         }
         else
         {
+            // =========================================================================================
+            // [AŞAMA 2] STATİK / AYRI OBJELİ FBX DÜĞÜM AĞACINI (NODE TREE) TARAMA
+            // =========================================================================================
+            // Eğer modelde kemik (Skinning) yoksa, Blender'da ayrı ayrı duran objeler (Geometry / Model düğümleri) taranır.
             TMap<uint64, FString> ModelNames;
             TMap<uint64, uint64> GeomToModelMap;
             CollectFbxModelNamesAndConnections(FileBytes, 27, FileSize, ModelNames, GeomToModelMap);
             UE_LOG(LogTemp, Warning, TEXT("[FBX LOADER LOG] Found %d Model Names and %d Connections! Traversing FBX Node Tree..."), ModelNames.Num(), GeomToModelMap.Num());
+            
+            // Tüm 3D geometrileri (Vertices, Triangles, Normals) düğüm ağacından çeker
             ParseFbxBinaryNodeTreeHelper(FileBytes, 27, FileSize, ModelNames, GeomToModelMap, OutSections, ScaleMultiplier);
 
-            // Resolve ParentSectionIndex for each extracted section using FBX parent model connections
+            // =========================================================================================
+            // [AŞAMA 3] HİYERARŞİ VE EBEVEYN-ÇOCUK (PARENT-CHILD) İLİŞKİLERİNİ ÇÖZÜMLEME
+            // =========================================================================================
+            // Hangi tekerleğin gövdeye (Chassis) bağlı olduğunu FBX'in "Connections" düğümünden haritalandırır:
             TMap<uint64, int32> ModelToSecIdxMap;
             for (int32 s = 0; s < OutSections.Num(); ++s)
             {
@@ -3081,6 +3104,7 @@ bool APiSimGarageRobot::ParseFbxAllBinaryMeshes(const FString& FilePath, TArray<
                 }
             }
 
+            // Her alt parçanın ParentSectionIndex değerini belirler (-1: Ana Gövde, >=0: Bağlı olduğu parça)
             for (int32 s = 0; s < OutSections.Num(); ++s)
             {
                 OutSections[s].ParentSectionIndex = -1;
