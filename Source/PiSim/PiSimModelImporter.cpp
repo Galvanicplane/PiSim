@@ -1384,13 +1384,13 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
             NewCam->bAlwaysPersistRenderingState = true;
             NewCam->TextureTarget = VideoRenderTarget;
 
-            // Kalibrasyon: Güneş ışığı ve fiziksel aydınlatmada aşırı parlama / bembeyaz ekranı önle
+            // Kalibrasyon: UE5 Lumen ve Fiziksel Aydınlatmada kusursuz FPV pozlaması (EV100 Min: -10, Max: 20)
             NewCam->PostProcessSettings.bOverride_AutoExposureMethod = true;
-            NewCam->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Basic;
+            NewCam->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Histogram;
             NewCam->PostProcessSettings.bOverride_AutoExposureMinBrightness = true;
-            NewCam->PostProcessSettings.AutoExposureMinBrightness = 0.1f;
+            NewCam->PostProcessSettings.AutoExposureMinBrightness = -10.0f;
             NewCam->PostProcessSettings.bOverride_AutoExposureMaxBrightness = true;
-            NewCam->PostProcessSettings.AutoExposureMaxBrightness = 4.0f;
+            NewCam->PostProcessSettings.AutoExposureMaxBrightness = 20.0f;
             NewCam->PostProcessSettings.bOverride_AutoExposureBias = true;
             NewCam->PostProcessSettings.AutoExposureBias = 0.0f;
             NewCam->PostProcessSettings.bOverride_BloomIntensity = true;
