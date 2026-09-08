@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Styling/SlateBrush.h"
 #include "PiSimModelImporterWidget.generated.h"
 
 class APiSimModelImporter;
@@ -28,6 +29,8 @@ private:
     FReply OnReimportClicked();
     FReply OnTogglePhysicsClicked();
 
+    FSlateBrush CameraPreviewBrush;
+    TSharedPtr<class STextBlock> CameraPipInfoText;
     TSharedPtr<class STextBlock> ConnectionBadgeText;
     TSharedPtr<class SBorder> ConnectionBadgeBorder;
     TSharedPtr<class STextBlock> ConnectionStagesText;

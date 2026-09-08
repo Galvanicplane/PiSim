@@ -18,6 +18,7 @@
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 #include "Modules/ModuleManager.h"
+#include "DrawDebugHelpers.h"
 
 APiSimModelImporter::APiSimModelImporter()
 {
@@ -97,7 +98,7 @@ void APiSimModelImporter::BeginPlay()
         VideoRenderTarget = NewObject<UTextureRenderTarget2D>(this);
         VideoRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
         VideoRenderTarget->ClearColor = FLinearColor::Black;
-        VideoRenderTarget->TargetGamma = 1.2f;
+        VideoRenderTarget->TargetGamma = 2.2f;
         VideoRenderTarget->bAutoGenerateMips = false;
         VideoRenderTarget->InitCustomFormat(320, 240, PF_B8G8R8A8, false);
         VideoRenderTarget->UpdateResourceImmediate(true);
@@ -542,7 +543,6 @@ void APiSimModelImporter::Tick(float DeltaTime)
         if (VideoStreamTimer >= Interval)
         {
             VideoStreamTimer = 0.0f;
-            FpvCameraCapture->CaptureScene();
             CaptureAndSendVideoFrame();
             VideoFramesInWindow++;
         }
@@ -553,6 +553,17 @@ void APiSimModelImporter::Tick(float DeltaTime)
             VideoFpsActual = (float)VideoFramesInWindow / VideoFpsTimer;
             VideoFramesInWindow = 0;
             VideoFpsTimer = 0.0f;
+        }
+
+        // 3D Viewport Debug Visual: Kamera Konumu, Görüş Konisi ve Yön Oku
+        if (GetWorld())
+        {
+            FVector CamLoc = FpvCameraCapture->GetComponentLocation();
+            FRotator CamRot = FpvCameraCapture->GetComponentRotation();
+            DrawDebugCamera(GetWorld(), CamLoc, CamRot, 90.0f, 25.0f, FColor::Cyan, false, -1.0f, 0);
+            DrawDebugDirectionalArrow(GetWorld(), CamLoc, CamLoc + CamRot.Vector() * 45.0f, 8.0f, FColor::Yellow, false, -1.0f, 0, 2.2f);
+            DrawDebugBox(GetWorld(), CamLoc, FVector(4.0f), FColor::Emerald, false, -1.0f, 0, 1.5f);
+            DrawDebugString(GetWorld(), CamLoc + FVector(0.0f, 0.0f, 14.0f), TEXT("📷 S_Cam (FPV Kamera)"), nullptr, FColor::Cyan, 0.0f, true, 1.0f);
         }
     }
 
@@ -1368,9 +1379,24 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
             NewCam->SetMobility(EComponentMobility::Movable);
             NewCam->FOVAngle = 90.0f;
             NewCam->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
-            NewCam->bCaptureEveryFrame = false;
+            NewCam->bCaptureEveryFrame = true;
             NewCam->bCaptureOnMovement = false;
+            NewCam->bAlwaysPersistRenderingState = true;
             NewCam->TextureTarget = VideoRenderTarget;
+
+            // Kalibrasyon: Güneş ışığı ve fiziksel aydınlatmada aşırı parlama / bembeyaz ekranı önle
+            NewCam->PostProcessSettings.bOverride_AutoExposureMethod = true;
+            NewCam->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Basic;
+            NewCam->PostProcessSettings.bOverride_AutoExposureMinBrightness = true;
+            NewCam->PostProcessSettings.AutoExposureMinBrightness = 0.1f;
+            NewCam->PostProcessSettings.bOverride_AutoExposureMaxBrightness = true;
+            NewCam->PostProcessSettings.AutoExposureMaxBrightness = 4.0f;
+            NewCam->PostProcessSettings.bOverride_AutoExposureBias = true;
+            NewCam->PostProcessSettings.AutoExposureBias = 0.0f;
+            NewCam->PostProcessSettings.bOverride_BloomIntensity = true;
+            NewCam->PostProcessSettings.BloomIntensity = 0.0f;
+            NewCam->PostProcessSettings.bOverride_MotionBlurAmount = true;
+            NewCam->PostProcessSettings.MotionBlurAmount = 0.0f;
 
             // Sensör küpünün tam koordinatlarına monte et!
             if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])

@@ -9,6 +9,8 @@
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Images/SImage.h"
+#include "Engine/TextureRenderTarget2D.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/Engine.h"
 
@@ -323,6 +325,69 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                     ]
                 ]
             ]
+        ]
+
+        // ---------------------------------------------------------------------
+        // 4) BOTTOM RIGHT: CANLI FPV KAMERA MONİTÖRÜ (PiP PREVIEW)
+        // ---------------------------------------------------------------------
+        + SOverlay::Slot()
+        .HAlign(HAlign_Right)
+        .VAlign(VAlign_Bottom)
+        .Padding(FMargin(0.0f, 0.0f, 18.0f, 18.0f))
+        [
+            SNew(SBox)
+            .WidthOverride(260.0f)
+            [
+                SNew(SBorder)
+                .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
+                .Padding(FMargin(10.0f, 8.0f))
+                [
+                    SNew(SVerticalBox)
+
+                    // Header Bar
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 0.0f, 0.0f, 4.0f)
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot()
+                        .AutoWidth()
+                        .VAlign(VAlign_Center)
+                        [
+                            SNew(STextBlock)
+                            .Text(FText::FromString(TEXT("📷 CANLI FPV MONİTÖR (PiP)")))
+                            .Font(CardHeaderFont)
+                            .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
+                        ]
+                        + SHorizontalBox::Slot()
+                        .FillWidth(1.0f)
+                        + SHorizontalBox::Slot()
+                        .AutoWidth()
+                        .VAlign(VAlign_Center)
+                        [
+                            SAssignNew(CameraPipInfoText, STextBlock)
+                            .Text(FText::FromString(TEXT("320x240")))
+                            .Font(BadgeFont)
+                            .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
+                        ]
+                    ]
+
+                    // Video Preview Image Box
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .HAlign(HAlign_Center)
+                    .Padding(0.0f, 2.0f, 0.0f, 2.0f)
+                    [
+                        SNew(SBox)
+                        .WidthOverride(240.0f)
+                        .HeightOverride(180.0f)
+                        [
+                            SNew(SImage)
+                            .Image(&CameraPreviewBrush)
+                        ]
+                    ]
+                ]
+            ]
         ];
 }
 
@@ -499,6 +564,28 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
     {
         FString PhysText = TargetImporter->bIsPhysicsSimulating ? TEXT(" ⚡ FİZİK: AÇIK ") : TEXT(" ⚡ FİZİK SİMÜLE ET ");
         PhysicsButtonText->SetText(FText::FromString(PhysText));
+    }
+
+    // 8) CANLI FPV MONİTÖR (PiP Preview) Güncelleme
+    if (TargetImporter->VideoRenderTarget)
+    {
+        CameraPreviewBrush.SetResourceObject(TargetImporter->VideoRenderTarget);
+        CameraPreviewBrush.ImageSize = FVector2D(240.0f, 180.0f);
+        CameraPreviewBrush.DrawAs = ESlateBrushDrawType::Image;
+    }
+
+    if (CameraPipInfoText.IsValid())
+    {
+        if (TargetImporter->bEnableVideoStream && TargetImporter->FpvCameraCapture)
+        {
+            CameraPipInfoText->SetText(FText::FromString(FString::Printf(TEXT("🟢 %3.1f FPS | 5000"), TargetImporter->VideoFpsActual)));
+            CameraPipInfoText->SetColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.4f, 1.0f));
+        }
+        else
+        {
+            CameraPipInfoText->SetText(FText::FromString(TEXT("⏸️ S_Cam Yok")));
+            CameraPipInfoText->SetColorAndOpacity(FLinearColor(0.6f, 0.6f, 0.6f, 1.0f));
+        }
     }
 }
 
