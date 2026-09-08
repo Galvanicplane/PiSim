@@ -1398,22 +1398,24 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
             NewCam->PostProcessSettings.bOverride_MotionBlurAmount = true;
             NewCam->PostProcessSettings.MotionBlurAmount = 0.0f;
 
-            // Sensör küpünün tam koordinatlarına monte et!
+            // Sensör küpünün tam koordinatlarına monte et (90 derece sola dönüş ofseti ile)
+            FRotator CamRotation = Sensor.Rotation + FRotator(0.0f, -90.0f, 0.0f);
+
             if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
             {
                 NewCam->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::SnapToTargetNotIncludingScale);
                 // Gövdeye göre bağıl konum: (SensörPivot - GövdePivot)
                 FVector RelativeLoc = Sensor.PivotPoint - VisualSections[0].PivotPoint;
                 NewCam->SetRelativeLocation(RelativeLoc);
-                NewCam->SetRelativeRotation(Sensor.Rotation);
-                AddConnectionDebugLog(FString::Printf(TEXT("📷 [Sensör Eklendi] '%s' gövdeye bağlandı -> Bağıl Konum: (X=%.1f, Y=%.1f, Z=%.1f)"),
-                    *Sensor.SensorName, RelativeLoc.X, RelativeLoc.Y, RelativeLoc.Z));
+                NewCam->SetRelativeRotation(CamRotation);
+                AddConnectionDebugLog(FString::Printf(TEXT("📷 [Sensör Eklendi] '%s' gövdeye bağlandı -> Bağıl Konum: (X=%.1f, Y=%.1f, Z=%.1f), Rot: (P=%.1f, Y=%.1f, R=%.1f)"),
+                    *Sensor.SensorName, RelativeLoc.X, RelativeLoc.Y, RelativeLoc.Z, CamRotation.Pitch, CamRotation.Yaw, CamRotation.Roll));
             }
             else
             {
                 NewCam->AttachToComponent(SceneRootComponent, FAttachmentTransformRules::KeepRelativeTransform);
                 NewCam->SetRelativeLocation(Sensor.PivotPoint);
-                NewCam->SetRelativeRotation(Sensor.Rotation);
+                NewCam->SetRelativeRotation(CamRotation);
                 AddConnectionDebugLog(FString::Printf(TEXT("📷 [Sensör Eklendi] '%s' kök bileşene bağlandı -> Konum: %s"),
                     *Sensor.SensorName, *Sensor.PivotPoint.ToString()));
             }
