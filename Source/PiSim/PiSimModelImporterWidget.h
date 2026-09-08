@@ -30,10 +30,10 @@ private:
 
     TSharedPtr<class STextBlock> ConnectionBadgeText;
     TSharedPtr<class SBorder> ConnectionBadgeBorder;
-    TSharedPtr<class STextBlock> StatusTextBlock;
-    TSharedPtr<class STextBlock> TelemetryStatsText;
-    TSharedPtr<class STextBlock> ControlInputsText;
-    TSharedPtr<class STextBlock> KinematicsText;
+    TSharedPtr<class STextBlock> ConnectionStagesText;
+    TSharedPtr<class STextBlock> IncomingDataText;
+    TSharedPtr<class STextBlock> OutgoingTelemetryText;
+    TSharedPtr<class STextBlock> ModelCadStatusText;
     TSharedPtr<class STextBlock> ConnectionDebugLogText;
     TSharedPtr<class STextBlock> PhysicsButtonText;
     TSharedPtr<class SBorder> PhysicsButtonBorder;

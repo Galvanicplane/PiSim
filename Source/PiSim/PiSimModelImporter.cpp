@@ -70,24 +70,37 @@ void APiSimModelImporter::BeginPlay()
         }
     }
 
+    // Enforce Raspberry Pi 5 IP if default or empty (Matching proven PiSimPrimitiveCube behavior)
+    if (BridgeTargetIP.IsEmpty() || BridgeTargetIP == TEXT("127.0.0.1"))
+    {
+        BridgeTargetIP = TEXT("192.168.1.20");
+    }
+
     // Initialize UDP Network Manager for Raspberry Pi 5 Bridge
     UDPManager = MakeUnique<FPiSimUDPManager>();
     UDPManager->OnControlPacketReceived.AddUObject(this, &APiSimModelImporter::OnControlPacketReceived);
-    bool bBound = UDPManager->StartControlListener(7400);
+    bIsSocketBound = UDPManager->StartControlListener(7400);
     UDPManager->ReserveVideoSocket(5000);
 
-    if (bBound)
+    if (bIsSocketBound)
     {
-        AddConnectionDebugLog(TEXT("✅ UDP Port 7400 dinleyici aktif (0.0.0.0:7400)"));
+        ConnectionStage = 3;
+        ConnectionStageText = TEXT("Aşama 3: Pi 5 Handshake Bekleniyor (Port 7400)");
+        AddConnectionDebugLog(TEXT("✅ [Aşama 1] UDP Port 7400 soketi başarıyla açıldı (0.0.0.0:7400)"));
+        AddConnectionDebugLog(FString::Printf(TEXT("📡 [Aşama 2] Telemetri hedefleri hazır: %s:7401 & 127.0.0.1:7401"), *BridgeTargetIP));
+        AddConnectionDebugLog(TEXT("🟡 [Aşama 3] Pi 5 sinyali ve kontrol paketleri bekleniyor..."));
+
         if (GEngine)
         {
             GEngine->AddOnScreenDebugMessage(1001, 12.0f, FColor::Cyan,
-                TEXT("📡 [PiSim UDP] Dinleyici Aktif: 0.0.0.0:7400 dinleniyor... Pi 5 bekleniyor!"));
+                FString::Printf(TEXT("📡 [PiSim UDP] Dinleyici: 0.0.0.0:7400 | Hedef: %s:7401 | Pi 5 bekleniyor..."), *BridgeTargetIP));
         }
     }
     else
     {
-        AddConnectionDebugLog(TEXT("❌ HATA: UDP Port 7400 bağlanamadı!"));
+        ConnectionStage = 1;
+        ConnectionStageText = TEXT("❌ HATA: Port 7400 Soketi Açılamadı");
+        AddConnectionDebugLog(TEXT("❌ [Aşama 1 HATA] UDP Port 7400 soketi açılamadı! (Port başka bir uygulama tarafından kullanılıyor olabilir)"));
         if (GEngine)
         {
             GEngine->AddOnScreenDebugMessage(1001, 12.0f, FColor::Red,
@@ -104,7 +117,7 @@ void APiSimModelImporter::AddConnectionDebugLog(const FString& LogMsg)
     FString Timestamp = FDateTime::Now().ToString(TEXT("%H:%M:%S"));
     FString Entry = FString::Printf(TEXT("[%s] %s"), *Timestamp, *LogMsg);
     ConnectionDebugLogs.Add(Entry);
-    if (ConnectionDebugLogs.Num() > 6)
+    if (ConnectionDebugLogs.Num() > 7)
     {
         ConnectionDebugLogs.RemoveAt(0);
     }
@@ -209,11 +222,15 @@ void APiSimModelImporter::OnControlPacketReceived(const TArray<uint8>& PacketDat
         ConnectedPiIP = SenderIP;
         bIsPiConnected = true;
         LastPacketReceivedTime = (GetWorld()) ? GetWorld()->GetTimeSeconds() : 0.0f;
+        LastRxTimestampSec = LastPacketReceivedTime;
+        LastRxPacketBytes = PacketData.Num();
+        ConnectionStage = 4;
+        ConnectionStageText = FString::Printf(TEXT("Aşama 4: Canlı Veri Akışı Aktif (%s)"), *SenderIP);
     }
 
     if (!bWasConnected)
     {
-        AddConnectionDebugLog(FString::Printf(TEXT("🔗 BAĞLANTI KURULDU: %s bağlandı! (Paket: %d byte)"), *SenderIP, PacketData.Num()));
+        AddConnectionDebugLog(FString::Printf(TEXT("🟢 [Aşama 4] Pi 5 BAĞLANTISI KURULDU! IP: %s (Paket: %d bayt)"), *SenderIP, PacketData.Num()));
         if (GEngine)
         {
             GEngine->AddOnScreenDebugMessage(1002, 6.0f, FColor::Green,
@@ -226,6 +243,8 @@ void APiSimModelImporter::OnControlPacketReceived(const TArray<uint8>& PacketDat
     {
         TargetLinearX = TwistMsg.Linear.X;
         TargetAngularZ = TwistMsg.Angular.Z;
+        LastRxLinearVel = FVector(TwistMsg.Linear.X, TwistMsg.Linear.Y, TwistMsg.Linear.Z);
+        LastRxAngularVel = FVector(TwistMsg.Angular.X, TwistMsg.Angular.Y, TwistMsg.Angular.Z);
 
         // Differential drive kinematics model:
         // Track width L (~0.35m), Wheel radius R (~0.08m)
@@ -273,6 +292,10 @@ void APiSimModelImporter::PublishImuTelemetry(float DeltaTime)
     FVector AngularVelUE5 = Chassis->GetPhysicsAngularVelocityInDegrees();
     FQuat OrientationUE5 = Chassis->GetComponentQuat();
 
+    LastTxQuat = OrientationUE5;
+    LastTxGyro = AngularVelUE5;
+    LastTxAccel = CurrentLinearAccel;
+
     FROSImuMessage ImuMsg;
     ImuMsg.LinearAcceleration = FROS2UE5Converter::UE5ToROS2LinearAcceleration(CurrentLinearAccel);
     ImuMsg.AngularVelocity = FROS2UE5Converter::UE5ToROS2AngularVelocity(AngularVelUE5);
@@ -281,16 +304,25 @@ void APiSimModelImporter::PublishImuTelemetry(float DeltaTime)
     TArray<uint8> ImuBytes;
     if (ImuMsg.ToBinary(ImuBytes))
     {
-        FString TargetIP = (!ConnectedPiIP.IsEmpty() && ConnectedPiIP != TEXT("None")) ? ConnectedPiIP : TEXT("127.0.0.1");
-        UDPManager->SendControlData(ImuBytes, TargetIP, FPiSimUDPManager::DEFAULT_TELEMETRY_PORT);
+        LastTxPacketBytes = ImuBytes.Num();
+
+        // 1) Primary Target: BridgeTargetIP (Proven Raspberry Pi 5 Ethernet IP 192.168.1.20)
+        FString PrimaryIP = (!BridgeTargetIP.IsEmpty()) ? BridgeTargetIP : TEXT("192.168.1.20");
+        UDPManager->SendControlData(ImuBytes, PrimaryIP, FPiSimUDPManager::DEFAULT_TELEMETRY_PORT);
+
+        // 2) Secondary Target: ConnectedPiIP (If dynamically discovered or local 127.0.0.1)
+        if (!ConnectedPiIP.IsEmpty() && ConnectedPiIP != PrimaryIP && ConnectedPiIP != TEXT("None"))
+        {
+            UDPManager->SendControlData(ImuBytes, ConnectedPiIP, FPiSimUDPManager::DEFAULT_TELEMETRY_PORT);
+        }
 
         TotalPacketsSent++;
         TxCountInWindow++;
 
         if (TotalPacketsSent % 50 == 1)
         {
-            AddConnectionDebugLog(FString::Printf(TEXT("📡 TX Telemetri #%d -> %s:7401 (Hız: %.1f km/h)"),
-                TotalPacketsSent, *TargetIP, CurrentForwardSpeedKmh));
+            AddConnectionDebugLog(FString::Printf(TEXT("📡 TX Telemetri #%d -> %s:7401 (Hız: %.1f km/h, 80 Bayt)"),
+                TotalPacketsSent, *PrimaryIP, CurrentForwardSpeedKmh));
         }
     }
 }
@@ -315,7 +347,9 @@ void APiSimModelImporter::Tick(float DeltaTime)
             if (bIsPiConnected)
             {
                 bIsPiConnected = false;
-                AddConnectionDebugLog(TEXT("⚠️ ZAMAN AŞIMI: 3 saniyedir paket gelmedi (Bağlantı koptu)"));
+                ConnectionStage = 5;
+                ConnectionStageText = TEXT("Aşama 5: Zaman Aşımı (Pi 5 Bağlantısı Koptu)");
+                AddConnectionDebugLog(TEXT("🔴 [Aşama 5] ZAMAN AŞIMI: 3 saniyedir paket gelmedi, bağlantı koptu!"));
                 if (GEngine)
                 {
                     GEngine->AddOnScreenDebugMessage(1004, 4.0f, FColor::Red,

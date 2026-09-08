@@ -110,11 +110,24 @@ public:
     // =========================================================================
     // UDP COMMUNICATION & NETWORK TELEMETRY (Raspberry Pi 5 / Edge Bridge)
     // =========================================================================
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Network")
+    FString BridgeTargetIP = TEXT("192.168.1.20"); // Raspberry Pi 5 Ethernet IP (Proven Working Default)
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
     bool bIsPiConnected = false;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
+    bool bIsSocketBound = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
     FString ConnectedPiIP = TEXT("127.0.0.1");
+
+    /** Connection Stage (1: Soket Açık, 2: Hedef Hazır, 3: Pi5 Bekleniyor, 4: Bağlandı & Veri Akışı, 5: Zaman Aşımı) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
+    int32 ConnectionStage = 1;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
+    FString ConnectionStageText = TEXT("Aşama 1: Soket Başlatılıyor...");
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
     int32 TotalPacketsReceived = 0;
@@ -128,6 +141,19 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
     float TxPacketRateHz = 0.0f;
 
+    // Detailed GELEN VERİLER (RX from Pi 5)
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    int32 LastRxPacketBytes = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    float LastRxTimestampSec = -1.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    FVector LastRxLinearVel = FVector::ZeroVector; // m/s (Linear X, Y, Z)
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    FVector LastRxAngularVel = FVector::ZeroVector; // rad/s (Angular X, Y, Z)
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
     float TargetLinearX = 0.0f; // m/s (from Pi 5 cmd_vel)
 
@@ -135,16 +161,26 @@ public:
     float TargetAngularZ = 0.0f; // rad/s (from Pi 5 cmd_vel)
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
-    float CurrentForwardSpeedKmh = 0.0f;
-
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
-    FVector CurrentLinearAccel = FVector::ZeroVector;
-
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
     float LeftWheelsRpm = 0.0f;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
     float RightWheelsRpm = 0.0f;
+
+    // Detailed GİDEN VERİLER (TX to Pi 5)
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Telemetry")
+    int32 LastTxPacketBytes = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Telemetry")
+    float CurrentForwardSpeedKmh = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Telemetry")
+    FVector CurrentLinearAccel = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Telemetry")
+    FVector LastTxGyro = FVector::ZeroVector; // rad/s or deg/s
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Telemetry")
+    FQuat LastTxQuat = FQuat::Identity;
 
     /** Live bidirectional connection debug event log (Shown in HUD) */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")

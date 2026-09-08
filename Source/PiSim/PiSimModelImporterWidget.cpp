@@ -153,39 +153,39 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
         ]
 
         // ---------------------------------------------------------------------
-        // 2) LEFT TELEMETRY DASHBOARD (TRANSLUCENT GLASSMORPHISM)
+        // 2) LEFT PANEL: GELEN VERİLER & BAĞLANTI AŞAMALARI (Pi 5 ➔ UE5)
         // ---------------------------------------------------------------------
         + SOverlay::Slot()
         .HAlign(HAlign_Left)
         .VAlign(VAlign_Top)
-        .Padding(FMargin(18.0f, 68.0f, 0.0f, 0.0f))
+        .Padding(FMargin(18.0f, 64.0f, 0.0f, 0.0f))
         [
             SNew(SBox)
-            .WidthOverride(420.0f)
+            .WidthOverride(440.0f)
             [
                 SNew(SBorder)
-                .BorderBackgroundColor(FLinearColor(0.015f, 0.035f, 0.08f, 0.94f))
-                .Padding(FMargin(16.0f, 14.0f))
+                .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
+                .Padding(FMargin(14.0f, 12.0f))
                 [
                     SNew(SVerticalBox)
 
-                    // Card 1: Network & Ethernet Link
+                    // Card 1: Connection Stages (Bağlantı Aşamaları)
                     + SVerticalBox::Slot()
                     .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 4.0f)
+                    .Padding(0.0f, 0.0f, 0.0f, 3.0f)
                     [
                         SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("📡 ETHERNET HABERLEŞME & VERİ AKIŞI")))
+                        .Text(FText::FromString(TEXT("🔗 Pİ 5 BAĞLANTI AŞAMALARI (1 - 4)")))
                         .Font(CardHeaderFont)
                         .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
                     ]
 
                     + SVerticalBox::Slot()
                     .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                    .Padding(0.0f, 0.0f, 0.0f, 10.0f)
                     [
-                        SAssignNew(TelemetryStatsText, STextBlock)
-                        .Text(FText::FromString(TEXT("Ağ istatistikleri bekleniyor...")))
+                        SAssignNew(ConnectionStagesText, STextBlock)
+                        .Text(FText::FromString(TEXT("Aşama bilgileri hazırlanıyor...")))
                         .Font(DataFont)
                         .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
                     ]
@@ -196,91 +196,29 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                     .Padding(0.0f, 0.0f, 0.0f, 6.0f)
                     [
                         SNew(SBorder)
-                        .BorderBackgroundColor(FLinearColor(0.1f, 0.2f, 0.35f, 0.6f))
+                        .BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f))
                         .Padding(FMargin(0.0f, 0.5f))
                     ]
 
-                    // Card 2: Control Inputs (RX from Pi 5)
+                    // Card 2: Incoming Data (GELEN VERİLER - Pi 5 -> UE5)
                     + SVerticalBox::Slot()
                     .AutoHeight()
-                    .Padding(0.0f, 6.0f, 0.0f, 4.0f)
+                    .Padding(0.0f, 3.0f, 0.0f, 3.0f)
                     [
                         SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("🎮 AKTÜATÖR & KONTROL KOMUTLARI (Pi 5 ➔ UE5)")))
+                        .Text(FText::FromString(TEXT("🎮 GELEN VERİLER (Pi 5 ➔ UE5 - Twist Komutları)")))
                         .Font(CardHeaderFont)
                         .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
                     ]
 
                     + SVerticalBox::Slot()
                     .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 12.0f)
-                    [
-                        SAssignNew(ControlInputsText, STextBlock)
-                        .Text(FText::FromString(TEXT("Kontrol komutu yok...")))
-                        .Font(DataFont)
-                        .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
-                    ]
-
-                    // Separator
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-                    [
-                        SNew(SBorder)
-                        .BorderBackgroundColor(FLinearColor(0.1f, 0.2f, 0.35f, 0.6f))
-                        .Padding(FMargin(0.0f, 0.5f))
-                    ]
-
-                    // Card 3: Kinematics & IMU (TX to Pi 5)
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 6.0f, 0.0f, 4.0f)
-                    [
-                        SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("🏎️ ROBOT KİNEMATİK & IMU ÇIKTILARI (UE5 ➔ Pi 5)")))
-                        .Font(CardHeaderFont)
-                        .ColorAndOpacity(FLinearColor(1.0f, 0.65f, 0.1f, 1.0f))
-                    ]
-
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 12.0f)
-                    [
-                        SAssignNew(KinematicsText, STextBlock)
-                        .Text(FText::FromString(TEXT("Kinematik verisi hesaplanıyor...")))
-                        .Font(DataFont)
-                        .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
-                    ]
-
-                    // Separator
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-                    [
-                        SNew(SBorder)
-                        .BorderBackgroundColor(FLinearColor(0.1f, 0.2f, 0.35f, 0.6f))
-                        .Padding(FMargin(0.0f, 0.5f))
-                    ]
-
-                    // Card 4: Model & Collision Information
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 6.0f, 0.0f, 4.0f)
-                    [
-                        SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("📦 CAD GEOMETRİ & CHAOS FİZİK ZIRHI")))
-                        .Font(CardHeaderFont)
-                        .ColorAndOpacity(FLinearColor(0.7f, 0.85f, 1.0f, 0.9f))
-                    ]
-
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
                     .Padding(0.0f, 0.0f, 0.0f, 10.0f)
                     [
-                        SAssignNew(StatusTextBlock, STextBlock)
-                        .Text(FText::FromString(TEXT("Yükleniyor...")))
+                        SAssignNew(IncomingDataText, STextBlock)
+                        .Text(FText::FromString(TEXT("Gelen kontrol komutu bekleniyor...")))
                         .Font(DataFont)
-                        .ColorAndOpacity(FLinearColor(0.75f, 0.85f, 0.95f, 1.0f))
+                        .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
                     ]
 
                     // Separator
@@ -289,19 +227,19 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                     .Padding(0.0f, 0.0f, 0.0f, 6.0f)
                     [
                         SNew(SBorder)
-                        .BorderBackgroundColor(FLinearColor(0.1f, 0.2f, 0.35f, 0.6f))
+                        .BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f))
                         .Padding(FMargin(0.0f, 0.5f))
                     ]
 
-                    // Card 5: Live Connection & Handshake Debug Log
+                    // Card 3: Live Connection & Event Log (Canlı Bağlantı Günlüğü)
                     + SVerticalBox::Slot()
                     .AutoHeight()
-                    .Padding(0.0f, 4.0f, 0.0f, 4.0f)
+                    .Padding(0.0f, 3.0f, 0.0f, 3.0f)
                     [
                         SNew(STextBlock)
                         .Text(FText::FromString(TEXT("📋 CANLI BAĞLANTI & HATA GÜNLÜĞÜ (DEBUG LOG)")))
                         .Font(CardHeaderFont)
-                        .ColorAndOpacity(FLinearColor(1.0f, 0.45f, 0.35f, 1.0f))
+                        .ColorAndOpacity(FLinearColor(1.0f, 0.55f, 0.25f, 1.0f))
                     ]
 
                     + SVerticalBox::Slot()
@@ -311,6 +249,77 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                         .Text(FText::FromString(TEXT("Log bekleniyor...")))
                         .Font(DataFont)
                         .ColorAndOpacity(FLinearColor(1.0f, 0.92f, 0.75f, 1.0f))
+                    ]
+                ]
+            ]
+        ]
+
+        // ---------------------------------------------------------------------
+        // 3) RIGHT PANEL: GİDEN VERİLER & TELEMETRİ (UE5 ➔ Pi 5) & CAD
+        // ---------------------------------------------------------------------
+        + SOverlay::Slot()
+        .HAlign(HAlign_Right)
+        .VAlign(VAlign_Top)
+        .Padding(FMargin(0.0f, 64.0f, 18.0f, 0.0f))
+        [
+            SNew(SBox)
+            .WidthOverride(420.0f)
+            [
+                SNew(SBorder)
+                .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
+                .Padding(FMargin(14.0f, 12.0f))
+                [
+                    SNew(SVerticalBox)
+
+                    // Card 1: Outgoing Telemetry (GİDEN VERİLER - UE5 -> Pi 5)
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 0.0f, 0.0f, 3.0f)
+                    [
+                        SNew(STextBlock)
+                        .Text(FText::FromString(TEXT("📡 GİDEN VERİLER (UE5 ➔ Pi 5 - IMU TELEMETRİSİ)")))
+                        .Font(CardHeaderFont)
+                        .ColorAndOpacity(FLinearColor(1.0f, 0.75f, 0.1f, 1.0f))
+                    ]
+
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+                    [
+                        SAssignNew(OutgoingTelemetryText, STextBlock)
+                        .Text(FText::FromString(TEXT("Telemetri verisi hazırlanıyor...")))
+                        .Font(DataFont)
+                        .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
+                    ]
+
+                    // Separator
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                    [
+                        SNew(SBorder)
+                        .BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f))
+                        .Padding(FMargin(0.0f, 0.5f))
+                    ]
+
+                    // Card 2: CAD Geometry & Chaos Physics
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 3.0f, 0.0f, 3.0f)
+                    [
+                        SNew(STextBlock)
+                        .Text(FText::FromString(TEXT("📦 CAD GEOMETRİ & CHAOS FİZİK ZIRHI")))
+                        .Font(CardHeaderFont)
+                        .ColorAndOpacity(FLinearColor(0.7f, 0.85f, 1.0f, 0.95f))
+                    ]
+
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    [
+                        SAssignNew(ModelCadStatusText, STextBlock)
+                        .Text(FText::FromString(TEXT("Yükleniyor...")))
+                        .Font(DataFont)
+                        .ColorAndOpacity(FLinearColor(0.85f, 0.92f, 1.0f, 1.0f))
                     ]
                 ]
             ]
@@ -329,89 +338,87 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
 
     if (!TargetImporter) return;
 
-    // 1) Update Connection Badge & Colors
+    // 1) Top Connection Badge & Colors
     if (ConnectionBadgeText.IsValid() && ConnectionBadgeBorder.IsValid())
     {
         if (TargetImporter->bIsPiConnected)
         {
-            ConnectionBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.02f, 0.30f, 0.12f, 0.95f));
-            ConnectionBadgeText->SetText(FText::FromString(FString::Printf(TEXT("🟢 BAĞLI: %s"), *TargetImporter->ConnectedPiIP)));
+            ConnectionBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.02f, 0.32f, 0.12f, 0.95f));
+            ConnectionBadgeText->SetText(FText::FromString(FString::Printf(TEXT("🟢 BAĞLI: %s (Port 7400)"), *TargetImporter->ConnectedPiIP)));
             ConnectionBadgeText->SetColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.4f, 1.0f));
+        }
+        else if (TargetImporter->ConnectionStage == 5)
+        {
+            ConnectionBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.38f, 0.05f, 0.05f, 0.95f));
+            ConnectionBadgeText->SetText(FText::FromString(TEXT("🔴 BAĞLANTI KOPTU (Zaman Aşımı)")));
+            ConnectionBadgeText->SetColorAndOpacity(FLinearColor(1.0f, 0.3f, 0.3f, 1.0f));
         }
         else
         {
             ConnectionBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.28f, 0.18f, 0.02f, 0.95f));
-            ConnectionBadgeText->SetText(FText::FromString(TEXT("🟡 PI 5 BEKLENİYOR (Port 7400)")));
+            ConnectionBadgeText->SetText(FText::FromString(FString::Printf(TEXT("🟡 PI 5 BEKLENİYOR (Hedef: %s)"), *TargetImporter->BridgeTargetIP)));
             ConnectionBadgeText->SetColorAndOpacity(FLinearColor(1.0f, 0.85f, 0.2f, 1.0f));
         }
     }
 
-    // 2) Update Network Stats Text
-    if (TelemetryStatsText.IsValid())
+    // 2) SOL PANEL - Card 1: Connection Stages (Bağlantı Aşamaları)
+    if (ConnectionStagesText.IsValid())
     {
-        FString NetStr = FString::Printf(
-            TEXT("  • Pi 5 IP Adresi   : %s\n"
-                 "  • Gelen Veri Hızı  : %5.1f Hz  (Toplam: %d Paket)\n"
-                 "  • Giden Telemetri  : %5.1f Hz  (Toplam: %d Paket)\n"
-                 "  • Soket Portları   : Dinleme: 7400 | Telemetri: 7401"),
-            *TargetImporter->ConnectedPiIP,
+        FString SocketStatus = TargetImporter->bIsSocketBound ? TEXT("🟢 AÇIK (Dinliyor)") : TEXT("🔴 KAPALI / HATA");
+        FString Pi5Status = TargetImporter->bIsPiConnected ?
+            FString::Printf(TEXT("🟢 BAĞLANDI (IP: %s)"), *TargetImporter->ConnectedPiIP) :
+            (TargetImporter->ConnectionStage == 5 ? TEXT("🔴 KOPTU (Zaman Aşımı)") : TEXT("🟡 BEKLENİYOR..."));
+
+        FString LastPacketTimeStr;
+        if (TargetImporter->LastRxTimestampSec > 0.0f && GetWorld())
+        {
+            float TimeSinceLastSec = GetWorld()->GetTimeSeconds() - TargetImporter->LastRxTimestampSec;
+            LastPacketTimeStr = FString::Printf(TEXT("%.2f sn önce"), TimeSinceLastSec);
+        }
+        else
+        {
+            LastPacketTimeStr = TEXT("Henüz paket alınmadı");
+        }
+
+        FString StagesStr = FString::Printf(
+            TEXT("  • Aşama 1: UE5 Dinleme Soketi : 0.0.0.0:7400 [%s]\n"
+                 "  • Aşama 2: Telemetri Hedefleri: %s:7401 [🟢 HAZIR]\n"
+                 "  • Aşama 3: Pi 5 Handshake     : %s\n"
+                 "  • Aşama 4: Canlı Veri Akışı   : %5.1f Hz  (Toplam: %d Paket)\n"
+                 "  • Son Paket Geliş Zamanı      : %s"),
+            *SocketStatus,
+            *TargetImporter->BridgeTargetIP,
+            *Pi5Status,
             TargetImporter->RxPacketRateHz,
             TargetImporter->TotalPacketsReceived,
-            TargetImporter->TxPacketRateHz,
-            TargetImporter->TotalPacketsSent
+            *LastPacketTimeStr
         );
-        TelemetryStatsText->SetText(FText::FromString(NetStr));
+        ConnectionStagesText->SetText(FText::FromString(StagesStr));
     }
 
-    // 3) Update Control Inputs Text
-    if (ControlInputsText.IsValid())
+    // 3) SOL PANEL - Card 2: Incoming Data (GELEN VERİLER - Pi 5 ➔ UE5)
+    if (IncomingDataText.IsValid())
     {
-        FString CtrlStr = FString::Printf(
-            TEXT("  • Hedef Hız (m/s)  : %+.2f m/s\n"
-                 "  • Hedef Açısal Yaw : %+.2f rad/s\n"
-                 "  • Sol Tekerlekler  : %+6.1f RPM\n"
-                 "  • Sağ Tekerlekler  : %+6.1f RPM\n"
-                 "  • Manuel Ofset     : %+.1f RPM (G / F Tuşları)"),
+        FString InDataStr = FString::Printf(
+            TEXT("  • Son Paket Boyutu : %d Bayt (geometry_msgs/Twist)\n"
+                 "  • Doğrusal Hız (X) : %+.2f m/s  (Y: %+.2f, Z: %+.2f)\n"
+                 "  • Açısal Hız (Yaw) : %+.2f rad/s\n"
+                 "  • Sol Motor Hızı   : %+6.1f RPM\n"
+                 "  • Sağ Motor Hızı   : %+6.1f RPM\n"
+                 "  • Manuel RPM Ofset : %+.1f RPM (G / F Tuşları)"),
+            TargetImporter->LastRxPacketBytes,
             TargetImporter->TargetLinearX,
+            TargetImporter->LastRxLinearVel.Y,
+            TargetImporter->LastRxLinearVel.Z,
             TargetImporter->TargetAngularZ,
             TargetImporter->LeftWheelsRpm,
             TargetImporter->RightWheelsRpm,
             TargetImporter->AppliedWheelRpm
         );
-        ControlInputsText->SetText(FText::FromString(CtrlStr));
+        IncomingDataText->SetText(FText::FromString(InDataStr));
     }
 
-    // 4) Update Kinematics Text
-    if (KinematicsText.IsValid())
-    {
-        FString KinStr = FString::Printf(
-            TEXT("  • Gövde Hızı (km/h): %5.1f km/h\n"
-                 "  • Anlık İvme (X)   : %+6.2f m/s²\n"
-                 "  • Anlık İvme (Y)   : %+6.2f m/s²\n"
-                 "  • Anlık İvme (Z)   : %+6.2f m/s²"),
-            TargetImporter->CurrentForwardSpeedKmh,
-            TargetImporter->CurrentLinearAccel.X,
-            TargetImporter->CurrentLinearAccel.Y,
-            TargetImporter->CurrentLinearAccel.Z
-        );
-        KinematicsText->SetText(FText::FromString(KinStr));
-    }
-
-    // 5) Update Status / CAD Geometry Text
-    if (StatusTextBlock.IsValid())
-    {
-        FString StatusStr = FString::Printf(
-            TEXT("  • Görsel Parçalar  : %d Adet (Render)\n"
-                 "  • UCX Çarpışma     : %d Adet (Chaos Convex)\n"
-                 "  • Simülasyon Durumu: %s"),
-            TargetImporter->VisualMeshComponents.Num(),
-            TargetImporter->UCXSections.Num(),
-            TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ AKTİF (Chaos Simülasyonu)") : TEXT("⏸️ DURAKLATILDI (Statik)")
-        );
-        StatusTextBlock->SetText(FText::FromString(StatusStr));
-    }
-
-    // 6) Update Connection Debug Log Text
+    // 4) SOL PANEL - Card 3: Live Connection & Event Log (Canlı Bağlantı Günlüğü)
     if (ConnectionDebugLogText.IsValid())
     {
         if (TargetImporter->ConnectionDebugLogs.Num() > 0)
@@ -425,7 +432,51 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         }
     }
 
-    // 7) Update Physics Button Text
+    // 5) SAĞ PANEL - Card 1: Outgoing Telemetry (GİDEN VERİLER - UE5 ➔ Pi 5)
+    if (OutgoingTelemetryText.IsValid())
+    {
+        FString OutStr = FString::Printf(
+            TEXT("  • Telemetri Paketi : #%d (%d Bayt, %5.1f Hz)\n"
+                 "  • Gönderim Hedefi  : %s:7401 (Pi 5 Ethernet)\n"
+                 "  • Gövde Hızı       : %5.1f km/h\n"
+                 "  • İvmeölçer (Accel): X=%+5.2f, Y=%+5.2f, Z=%+5.2f m/s²\n"
+                 "  • Jiroskop (Gyro)  : X=%+5.2f, Y=%+5.2f, Z=%+5.2f deg/s\n"
+                 "  • Oryantasyon Quat : (X=%.3f, Y=%.3f, Z=%.3f, W=%.3f)"),
+            TargetImporter->TotalPacketsSent,
+            TargetImporter->LastTxPacketBytes > 0 ? TargetImporter->LastTxPacketBytes : 80,
+            TargetImporter->TxPacketRateHz,
+            *TargetImporter->BridgeTargetIP,
+            TargetImporter->CurrentForwardSpeedKmh,
+            TargetImporter->CurrentLinearAccel.X,
+            TargetImporter->CurrentLinearAccel.Y,
+            TargetImporter->CurrentLinearAccel.Z,
+            TargetImporter->LastTxGyro.X,
+            TargetImporter->LastTxGyro.Y,
+            TargetImporter->LastTxGyro.Z,
+            TargetImporter->LastTxQuat.X,
+            TargetImporter->LastTxQuat.Y,
+            TargetImporter->LastTxQuat.Z,
+            TargetImporter->LastTxQuat.W
+        );
+        OutgoingTelemetryText->SetText(FText::FromString(OutStr));
+    }
+
+    // 6) SAĞ PANEL - Card 2: CAD Geometry & Chaos Physics
+    if (ModelCadStatusText.IsValid())
+    {
+        FString CadStr = FString::Printf(
+            TEXT("  • Görsel Parçalar  : %d Adet (Procedural Mesh Render)\n"
+                 "  • UCX Çarpışma     : %d Adet (Chaos Convex Zırh)\n"
+                 "  • Simülasyon Durumu: %s\n"
+                 "  • Kamera Durumu    : Gövdeye Kilitli (World Location Snap)"),
+            TargetImporter->VisualMeshComponents.Num(),
+            TargetImporter->UCXSections.Num(),
+            TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ AKTİF (Chaos Simülasyonu)") : TEXT("⏸️ DURAKLATILDI (Statik)")
+        );
+        ModelCadStatusText->SetText(FText::FromString(CadStr));
+    }
+
+    // 7) Physics Button Text
     if (PhysicsButtonText.IsValid())
     {
         FString PhysText = TargetImporter->bIsPhysicsSimulating ? TEXT(" ⚡ FİZİK: AÇIK ") : TEXT(" ⚡ FİZİK SİMÜLE ET ");
