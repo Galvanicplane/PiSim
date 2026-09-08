@@ -177,6 +177,9 @@ public:
     FVector CurrentLinearAccel = FVector::ZeroVector;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Telemetry")
+    FVector LastTxAccel = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Telemetry")
     FVector LastTxGyro = FVector::ZeroVector; // rad/s or deg/s
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Telemetry")
