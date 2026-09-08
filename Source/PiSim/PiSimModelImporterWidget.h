@@ -34,6 +34,7 @@ private:
     TSharedPtr<class STextBlock> TelemetryStatsText;
     TSharedPtr<class STextBlock> ControlInputsText;
     TSharedPtr<class STextBlock> KinematicsText;
+    TSharedPtr<class STextBlock> ConnectionDebugLogText;
     TSharedPtr<class STextBlock> PhysicsButtonText;
     TSharedPtr<class SBorder> PhysicsButtonBorder;
 };

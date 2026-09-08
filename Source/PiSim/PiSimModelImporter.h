@@ -146,6 +146,12 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
     float RightWheelsRpm = 0.0f;
 
+    /** Live bidirectional connection debug event log (Shown in HUD) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
+    TArray<FString> ConnectionDebugLogs;
+
+    void AddConnectionDebugLog(const FString& LogMsg);
+
     // =========================================================================
     // CONTROLS & SETTINGS (Clean 1.0f 1:1 Scale by default)
     // =========================================================================

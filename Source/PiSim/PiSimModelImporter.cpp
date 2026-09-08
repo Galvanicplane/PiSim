@@ -73,12 +73,42 @@ void APiSimModelImporter::BeginPlay()
     // Initialize UDP Network Manager for Raspberry Pi 5 Bridge
     UDPManager = MakeUnique<FPiSimUDPManager>();
     UDPManager->OnControlPacketReceived.AddUObject(this, &APiSimModelImporter::OnControlPacketReceived);
-    UDPManager->StartControlListener(7400);
+    bool bBound = UDPManager->StartControlListener(7400);
     UDPManager->ReserveVideoSocket(5000);
-    UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] UDP Control Listener bound on Port 7400. Video Port 5000 ready."));
+
+    if (bBound)
+    {
+        AddConnectionDebugLog(TEXT("✅ UDP Port 7400 dinleyici aktif (0.0.0.0:7400)"));
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(1001, 12.0f, FColor::Cyan,
+                TEXT("📡 [PiSim UDP] Dinleyici Aktif: 0.0.0.0:7400 dinleniyor... Pi 5 bekleniyor!"));
+        }
+    }
+    else
+    {
+        AddConnectionDebugLog(TEXT("❌ HATA: UDP Port 7400 bağlanamadı!"));
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(1001, 12.0f, FColor::Red,
+                TEXT("❌ [PiSim UDP HATA] Port 7400 soketi açılamadı! (Port kullanımda olabilir)"));
+        }
+    }
 
     // Auto-spawn model from Saved/Robots/Cache/robot_import_test.fbx at startup
     BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
+}
+
+void APiSimModelImporter::AddConnectionDebugLog(const FString& LogMsg)
+{
+    FString Timestamp = FDateTime::Now().ToString(TEXT("%H:%M:%S"));
+    FString Entry = FString::Printf(TEXT("[%s] %s"), *Timestamp, *LogMsg);
+    ConnectionDebugLogs.Add(Entry);
+    if (ConnectionDebugLogs.Num() > 6)
+    {
+        ConnectionDebugLogs.RemoveAt(0);
+    }
+    UE_LOG(LogTemp, Warning, TEXT("[PiSim Debug] %s"), *Entry);
 }
 
 void APiSimModelImporter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -173,11 +203,22 @@ void APiSimModelImporter::ZoomOut()
 
 void APiSimModelImporter::OnControlPacketReceived(const TArray<uint8>& PacketData, const FString& SenderIP)
 {
+    bool bWasConnected = bIsPiConnected;
     if (!SenderIP.IsEmpty())
     {
         ConnectedPiIP = SenderIP;
         bIsPiConnected = true;
         LastPacketReceivedTime = (GetWorld()) ? GetWorld()->GetTimeSeconds() : 0.0f;
+    }
+
+    if (!bWasConnected)
+    {
+        AddConnectionDebugLog(FString::Printf(TEXT("🔗 BAĞLANTI KURULDU: %s bağlandı! (Paket: %d byte)"), *SenderIP, PacketData.Num()));
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(1002, 6.0f, FColor::Green,
+                FString::Printf(TEXT("✅ [PiSim UDP] BAĞLANTI KURULDU! IP: %s (Port 7400)"), *SenderIP));
+        }
     }
 
     FROSTwistMessage TwistMsg;
@@ -200,6 +241,18 @@ void APiSimModelImporter::OnControlPacketReceived(const TArray<uint8>& PacketDat
 
         TotalPacketsReceived++;
         RxCountInWindow++;
+
+        if (TotalPacketsReceived % 20 == 1 || FMath::Abs(TargetLinearX) > 0.01f || FMath::Abs(TargetAngularZ) > 0.01f)
+        {
+            AddConnectionDebugLog(FString::Printf(TEXT("🎮 RX #%d: LinX=%+.2f m/s, AngZ=%+.2f r/s -> Sol:%+.0f Sağ:%+.0f RPM"),
+                TotalPacketsReceived, TargetLinearX, TargetAngularZ, LeftWheelsRpm, RightWheelsRpm));
+            if (GEngine)
+            {
+                GEngine->AddOnScreenDebugMessage(1003, 1.2f, FColor::Emerald,
+                    FString::Printf(TEXT("🎮 [PiSim RX #%d] LinX: %+.2f m/s | AngZ: %+.2f r/s | RPM: Sol %+.0f, Sağ %+.0f"),
+                        TotalPacketsReceived, TargetLinearX, TargetAngularZ, LeftWheelsRpm, RightWheelsRpm));
+            }
+        }
     }
 }
 
@@ -233,6 +286,12 @@ void APiSimModelImporter::PublishImuTelemetry(float DeltaTime)
 
         TotalPacketsSent++;
         TxCountInWindow++;
+
+        if (TotalPacketsSent % 50 == 1)
+        {
+            AddConnectionDebugLog(FString::Printf(TEXT("📡 TX Telemetri #%d -> %s:7401 (Hız: %.1f km/h)"),
+                TotalPacketsSent, *TargetIP, CurrentForwardSpeedKmh));
+        }
     }
 }
 
@@ -253,7 +312,16 @@ void APiSimModelImporter::Tick(float DeltaTime)
         // Auto timeout if no packets received for 3 seconds
         if (GetWorld() && (GetWorld()->GetTimeSeconds() - LastPacketReceivedTime > 3.0f))
         {
-            bIsPiConnected = false;
+            if (bIsPiConnected)
+            {
+                bIsPiConnected = false;
+                AddConnectionDebugLog(TEXT("⚠️ ZAMAN AŞIMI: 3 saniyedir paket gelmedi (Bağlantı koptu)"));
+                if (GEngine)
+                {
+                    GEngine->AddOnScreenDebugMessage(1004, 4.0f, FColor::Red,
+                        TEXT("⚠️ [PiSim UDP] BAĞLANTI KOPTU! (3s Paket Alınamadı)"));
+                }
+            }
         }
     }
 
@@ -285,6 +353,13 @@ void APiSimModelImporter::Tick(float DeltaTime)
                 }
             }
         }
+    }
+
+    // 4) Kamerayı gövdenin dünya konumuna kilitle (Araç hareket ettikçe kamera tam arkasında kalsın)
+    if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0] && OrbitSpringArm)
+    {
+        FVector ChassisLoc = VisualMeshComponents[0]->GetComponentLocation();
+        OrbitSpringArm->SetWorldLocation(ChassisLoc + FVector(0.0f, 0.0f, 60.0f));
     }
 
     // Mouse Orbit & Pan Camera Dragging
@@ -1011,6 +1086,17 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
                 VisualMeshComponents[j]->IgnoreComponentWhenMoving(VisualMeshComponents[i], true);
             }
         }
+    }
+
+    // 4) Kamerayı direkt olarak araç gövdesine (Chassis) kilitle!
+    if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0] && OrbitSpringArm)
+    {
+        OrbitSpringArm->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+        OrbitSpringArm->SetRelativeLocation(FVector(0.0f, 0.0f, 60.0f));
+        OrbitSpringArm->TargetArmLength = 350.0f;
+        OrbitSpringArm->bInheritPitch = false;
+        OrbitSpringArm->bInheritRoll = false;
+        OrbitSpringArm->bInheritYaw = true;
     }
 }
 

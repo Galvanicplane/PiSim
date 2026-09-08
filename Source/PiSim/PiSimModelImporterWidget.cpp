@@ -275,11 +275,42 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
 
                     + SVerticalBox::Slot()
                     .AutoHeight()
+                    .Padding(0.0f, 0.0f, 0.0f, 10.0f)
                     [
                         SAssignNew(StatusTextBlock, STextBlock)
                         .Text(FText::FromString(TEXT("Yükleniyor...")))
                         .Font(DataFont)
                         .ColorAndOpacity(FLinearColor(0.75f, 0.85f, 0.95f, 1.0f))
+                    ]
+
+                    // Separator
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                    [
+                        SNew(SBorder)
+                        .BorderBackgroundColor(FLinearColor(0.1f, 0.2f, 0.35f, 0.6f))
+                        .Padding(FMargin(0.0f, 0.5f))
+                    ]
+
+                    // Card 5: Live Connection & Handshake Debug Log
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    .Padding(0.0f, 4.0f, 0.0f, 4.0f)
+                    [
+                        SNew(STextBlock)
+                        .Text(FText::FromString(TEXT("📋 CANLI BAĞLANTI & HATA GÜNLÜĞÜ (DEBUG LOG)")))
+                        .Font(CardHeaderFont)
+                        .ColorAndOpacity(FLinearColor(1.0f, 0.45f, 0.35f, 1.0f))
+                    ]
+
+                    + SVerticalBox::Slot()
+                    .AutoHeight()
+                    [
+                        SAssignNew(ConnectionDebugLogText, STextBlock)
+                        .Text(FText::FromString(TEXT("Log bekleniyor...")))
+                        .Font(DataFont)
+                        .ColorAndOpacity(FLinearColor(1.0f, 0.92f, 0.75f, 1.0f))
                     ]
                 ]
             ]
@@ -380,7 +411,21 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         StatusTextBlock->SetText(FText::FromString(StatusStr));
     }
 
-    // 6) Update Physics Button Text
+    // 6) Update Connection Debug Log Text
+    if (ConnectionDebugLogText.IsValid())
+    {
+        if (TargetImporter->ConnectionDebugLogs.Num() > 0)
+        {
+            FString Combined = FString::Join(TargetImporter->ConnectionDebugLogs, TEXT("\n"));
+            ConnectionDebugLogText->SetText(FText::FromString(Combined));
+        }
+        else
+        {
+            ConnectionDebugLogText->SetText(FText::FromString(TEXT("  Henüz bir bağlantı olayı kaydedilmedi.")));
+        }
+    }
+
+    // 7) Update Physics Button Text
     if (PhysicsButtonText.IsValid())
     {
         FString PhysText = TargetImporter->bIsPhysicsSimulating ? TEXT(" ⚡ FİZİK: AÇIK ") : TEXT(" ⚡ FİZİK SİMÜLE ET ");
