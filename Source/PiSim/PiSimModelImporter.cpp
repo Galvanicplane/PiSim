@@ -887,12 +887,12 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                                 Sec.Vertices = SubVerts;
                                 Sec.Triangles = SubTris;
 
-                                // 3) Compute Outward-Facing Smoothed Vertex Normals
+                                // 3) Compute Outward-Facing Smoothed Vertex Normals (Inverted cross product for correct exterior facing)
                                 Sec.Normals.Init(FVector::ZeroVector, SubVerts.Num());
                                 for (int32 t = 0; t + 2 < SubTris.Num(); t += 3)
                                 {
                                     int32 i0 = SubTris[t], i1 = SubTris[t + 1], i2 = SubTris[t + 2];
-                                    FVector TriNormal = ((SubVerts[i1] - SubVerts[i0]) ^ (SubVerts[i2] - SubVerts[i0])).GetSafeNormal();
+                                    FVector TriNormal = ((SubVerts[i2] - SubVerts[i0]) ^ (SubVerts[i1] - SubVerts[i0])).GetSafeNormal();
                                     Sec.Normals[i0] += TriNormal;
                                     Sec.Normals[i1] += TriNormal;
                                     Sec.Normals[i2] += TriNormal;
@@ -937,7 +937,7 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
             for (int32 t = 0; t + 2 < Geom.Polygons.Num(); t += 3)
             {
                 int32 i0 = Geom.Polygons[t], i1 = Geom.Polygons[t + 1], i2 = Geom.Polygons[t + 2];
-                FVector TriNormal = ((CenteredVerts[i1] - CenteredVerts[i0]) ^ (CenteredVerts[i2] - CenteredVerts[i0])).GetSafeNormal();
+                FVector TriNormal = ((CenteredVerts[i2] - CenteredVerts[i0]) ^ (CenteredVerts[i1] - CenteredVerts[i0])).GetSafeNormal();
                 Sec.Normals[i0] += TriNormal;
                 Sec.Normals[i1] += TriNormal;
                 Sec.Normals[i2] += TriNormal;
