@@ -13,6 +13,11 @@
 #include "GameFramework/PlayerController.h"
 #include "Components/InputComponent.h"
 #include "Engine/Engine.h"
+#include "Components/SceneCaptureComponent2D.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "IImageWrapper.h"
+#include "IImageWrapperModule.h"
+#include "Modules/ModuleManager.h"
 
 APiSimModelImporter::APiSimModelImporter()
 {
@@ -35,9 +40,18 @@ APiSimModelImporter::APiSimModelImporter()
     OrbitCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("OrbitCamera"));
     OrbitCamera->SetupAttachment(OrbitSpringArm, USpringArmComponent::SocketName);
 
+    // FPV Video Stream Camera Sensor
+    FpvCameraCapture = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("FpvCameraCapture"));
+    FpvCameraCapture->SetupAttachment(SceneRootComponent);
+    FpvCameraCapture->FOVAngle = 90.0f;
+    FpvCameraCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+    FpvCameraCapture->bCaptureEveryFrame = false;
+    FpvCameraCapture->bCaptureOnMovement = false;
+
     ImportScaleMultiplier = 1.0f; // Pure 1:1 scale by default
     bIsPhysicsSimulating = false;
 }
+
 
 void APiSimModelImporter::BeginPlay()
 {
@@ -82,7 +96,26 @@ void APiSimModelImporter::BeginPlay()
     bIsSocketBound = UDPManager->StartControlListener(7400);
     UDPManager->ReserveVideoSocket(5000);
 
+    // Initialize Video Render Target for FPV Camera Streaming (320x240, PF_B8G8R8A8)
+    if (!VideoRenderTarget)
+    {
+        VideoRenderTarget = NewObject<UTextureRenderTarget2D>(this);
+        VideoRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+        VideoRenderTarget->ClearColor = FLinearColor::Black;
+        VideoRenderTarget->TargetGamma = 1.2f;
+        VideoRenderTarget->bAutoGenerateMips = false;
+        VideoRenderTarget->InitCustomFormat(320, 240, PF_B8G8R8A8, false);
+        VideoRenderTarget->UpdateResourceImmediate(true);
+    }
+
+    if (FpvCameraCapture)
+    {
+        FpvCameraCapture->TextureTarget = VideoRenderTarget;
+    }
+    AddConnectionDebugLog(TEXT("📷 [FPV Kamera] 320x240 RenderTarget ve UDP Port 5000 soketi hazır"));
+
     if (bIsSocketBound)
+
     {
         ConnectionStage = 3;
         ConnectionStageText = TEXT("Aşama 3: Pi 5 Handshake Bekleniyor (Port 7400)");
@@ -316,6 +349,12 @@ void APiSimModelImporter::PublishImuTelemetry(float DeltaTime)
             UDPManager->SendControlData(ImuBytes, ConnectedPiIP, FPiSimUDPManager::DEFAULT_TELEMETRY_PORT);
         }
 
+        // 3) Local loopback for developer testing
+        if (PrimaryIP != TEXT("127.0.0.1") && ConnectedPiIP != TEXT("127.0.0.1"))
+        {
+            UDPManager->SendControlData(ImuBytes, TEXT("127.0.0.1"), FPiSimUDPManager::DEFAULT_TELEMETRY_PORT);
+        }
+
         TotalPacketsSent++;
         TxCountInWindow++;
 
@@ -325,6 +364,110 @@ void APiSimModelImporter::PublishImuTelemetry(float DeltaTime)
                 TotalPacketsSent, *PrimaryIP, CurrentForwardSpeedKmh));
         }
     }
+}
+
+void APiSimModelImporter::CaptureAndSendVideoFrame()
+{
+    if (!VideoRenderTarget || !UDPManager)
+    {
+        return;
+    }
+
+    FTextureRenderTargetResource* Resource = VideoRenderTarget->GameThread_GetRenderTargetResource();
+    if (!Resource)
+    {
+        return;
+    }
+
+    int32 Width = VideoRenderTarget->SizeX;
+    int32 Height = VideoRenderTarget->SizeY;
+    if (Width <= 0 || Height <= 0)
+    {
+        return;
+    }
+
+    TArray<FColor> RawPixels;
+    // SetLinearToGamma(false) prevents double-gamma over-exposure
+    FReadSurfaceDataFlags ReadPixelFlags(RCM_UNorm);
+    ReadPixelFlags.SetLinearToGamma(false);
+
+    if (!Resource->ReadPixels(RawPixels, ReadPixelFlags) || RawPixels.Num() == 0)
+    {
+        return;
+    }
+
+    for (FColor& Pixel : RawPixels)
+    {
+        Pixel.A = 255;
+    }
+
+    IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(FName("ImageWrapper"));
+    TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::JPEG);
+    if (!ImageWrapper.IsValid())
+    {
+        return;
+    }
+
+    if (!ImageWrapper->SetRaw(RawPixels.GetData(), RawPixels.Num() * sizeof(FColor), Width, Height, ERGBFormat::BGRA, 8))
+    {
+        return;
+    }
+
+    TArray64<uint8> CompressedJpeg64 = ImageWrapper->GetCompressed(VideoJpegQuality);
+    if (CompressedJpeg64.Num() == 0)
+    {
+        return;
+    }
+
+    TArray<uint8> CompressedJpeg;
+    CompressedJpeg.Append(CompressedJpeg64.GetData(), CompressedJpeg64.Num());
+
+    // Save last sent frame to disk for verification
+    FString SavedFramePath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/last_sent_frame.jpg");
+    FFileHelper::SaveArrayToFile(CompressedJpeg, *SavedFramePath);
+
+    static uint16 FrameSequence = 0;
+    FrameSequence++;
+
+    // Split JPEG into MTU-safe chunks of 1000 bytes with 4-byte header:
+    // [FrameSeq (uint16 MSB, LSB), ChunkIdx (uint8), TotalChunks (uint8)]
+    const int32 MAX_CHUNK_SIZE = 1000;
+    int32 TotalBytes = CompressedJpeg.Num();
+    uint8 TotalChunks = static_cast<uint8>((TotalBytes + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE);
+
+    FString PrimaryIP = (!BridgeTargetIP.IsEmpty()) ? BridgeTargetIP : TEXT("192.168.1.20");
+
+    for (uint8 ChunkIdx = 0; ChunkIdx < TotalChunks; ++ChunkIdx)
+    {
+        int32 StartOffset = ChunkIdx * MAX_CHUNK_SIZE;
+        int32 ChunkLength = FMath::Min(MAX_CHUNK_SIZE, TotalBytes - StartOffset);
+
+        TArray<uint8> Packet;
+        Packet.Reserve(4 + ChunkLength);
+
+        Packet.Add(static_cast<uint8>((FrameSequence >> 8) & 0xFF));
+        Packet.Add(static_cast<uint8>(FrameSequence & 0xFF));
+        Packet.Add(ChunkIdx);
+        Packet.Add(TotalChunks);
+        Packet.Append(CompressedJpeg.GetData() + StartOffset, ChunkLength);
+
+        // 1) Primary Target: Raspberry Pi 5 IP (192.168.1.20:5000)
+        UDPManager->SendVideoData(Packet, PrimaryIP, VideoPort);
+
+        // 2) Secondary Target: ConnectedPiIP (if dynamically discovered)
+        if (!ConnectedPiIP.IsEmpty() && ConnectedPiIP != PrimaryIP && ConnectedPiIP != TEXT("None"))
+        {
+            UDPManager->SendVideoData(Packet, ConnectedPiIP, VideoPort);
+        }
+
+        // 3) Local loopback for developer testing
+        if (PrimaryIP != TEXT("127.0.0.1") && ConnectedPiIP != TEXT("127.0.0.1"))
+        {
+            UDPManager->SendVideoData(Packet, TEXT("127.0.0.1"), VideoPort);
+        }
+    }
+
+    TotalVideoFramesSent++;
 }
 
 void APiSimModelImporter::Tick(float DeltaTime)
@@ -396,7 +539,30 @@ void APiSimModelImporter::Tick(float DeltaTime)
         OrbitSpringArm->SetWorldLocation(ChassisLoc + FVector(0.0f, 0.0f, 60.0f));
     }
 
+    // 5) FPV Canlı Kamera Yayını (UDP Port 5000)
+    if (bEnableVideoStream && VideoRenderTarget && FpvCameraCapture && UDPManager)
+    {
+        VideoStreamTimer += DeltaTime;
+        float Interval = 1.0f / FMath::Max(1.0f, VideoFrameRate);
+        if (VideoStreamTimer >= Interval)
+        {
+            VideoStreamTimer = 0.0f;
+            FpvCameraCapture->CaptureScene();
+            CaptureAndSendVideoFrame();
+            VideoFramesInWindow++;
+        }
+
+        VideoFpsTimer += DeltaTime;
+        if (VideoFpsTimer >= 1.0f)
+        {
+            VideoFpsActual = (float)VideoFramesInWindow / VideoFpsTimer;
+            VideoFramesInWindow = 0;
+            VideoFpsTimer = 0.0f;
+        }
+    }
+
     // Mouse Orbit & Pan Camera Dragging
+
     if (GetWorld())
     {
         APlayerController* PC = GetWorld()->GetFirstPlayerController();
@@ -1132,7 +1298,17 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         OrbitSpringArm->bInheritRoll = false;
         OrbitSpringArm->bInheritYaw = true;
     }
+
+    // 5) FPV Canlı Kamera Sensörünü araç gövdesine (Chassis) bağla!
+    if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0] && FpvCameraCapture)
+    {
+        FpvCameraCapture->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+        // Ön tarafa ve hafif yukarıya yerleştir (+X: İleri, +Z: Yukarı)
+        FpvCameraCapture->SetRelativeLocation(FVector(40.0f, 0.0f, 25.0f));
+        FpvCameraCapture->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f));
+    }
 }
+
 
 // =========================================================================================
 // [AŞAMA 4] FİZİK VE YERÇEKİMİNİ AKTİFLEŞTİRME / KAPATMA (Simulate Physics)

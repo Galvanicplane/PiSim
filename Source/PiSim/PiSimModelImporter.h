@@ -12,6 +12,9 @@
 #include "PiSimModelImporter.generated.h"
 
 class UPiSimModelImporterWidget;
+class USceneCaptureComponent2D;
+class UTextureRenderTarget2D;
+
 
 USTRUCT(BlueprintType)
 struct FImporterMeshSection
@@ -78,6 +81,35 @@ public:
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Components")
     UCameraComponent* OrbitCamera;
+
+    // =========================================================================
+    // FPV CAMERA SENSOR & VIDEO STREAMING (UDP 5000)
+    // =========================================================================
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Camera")
+    USceneCaptureComponent2D* FpvCameraCapture = nullptr;
+
+    UPROPERTY(Transient)
+    UTextureRenderTarget2D* VideoRenderTarget = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
+    bool bEnableVideoStream = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
+    float VideoFrameRate = 25.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
+    int32 VideoJpegQuality = 70;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
+    int32 VideoPort = 5000;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Camera")
+    int32 TotalVideoFramesSent = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Camera")
+    float VideoFpsActual = 0.0f;
+
+    void CaptureAndSendVideoFrame();
 
     // =========================================================================
     // SPAWNED SCENE MESH COMPONENTS
@@ -267,4 +299,10 @@ private:
     int32 RxCountInWindow = 0;
     int32 TxCountInWindow = 0;
     float LastPacketReceivedTime = -100.0f;
+
+    // FPV Video Stream Timers
+    float VideoStreamTimer = 0.0f;
+    float VideoFpsTimer = 0.0f;
+    int32 VideoFramesInWindow = 0;
 };
+

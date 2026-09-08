@@ -461,20 +461,28 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         OutgoingTelemetryText->SetText(FText::FromString(OutStr));
     }
 
-    // 6) SAĞ PANEL - Card 2: CAD Geometry & Chaos Physics
+    // 6) SAĞ PANEL - Card 2: CAD Geometry & Chaos Physics & FPV Camera
     if (ModelCadStatusText.IsValid())
     {
+        FString VideoStatus = TargetImporter->bEnableVideoStream ?
+            FString::Printf(TEXT("🟢 YAYINDA (320x240 @ %3.1f FPS, Toplam: %d Kare)"), TargetImporter->VideoFpsActual, TargetImporter->TotalVideoFramesSent) :
+            TEXT("⏸️ KAPALI");
+
         FString CadStr = FString::Printf(
             TEXT("  • Görsel Parçalar  : %d Adet (Procedural Mesh Render)\n"
                  "  • UCX Çarpışma     : %d Adet (Chaos Convex Zırh)\n"
                  "  • Simülasyon Durumu: %s\n"
-                 "  • Kamera Durumu    : Gövdeye Kilitli (World Location Snap)"),
+                 "  • FPV Kamera Yayını: %s\n"
+                 "  • Video Hedefi     : %s:5000 (JPEG MTU)"),
             TargetImporter->VisualMeshComponents.Num(),
             TargetImporter->UCXSections.Num(),
-            TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ AKTİF (Chaos Simülasyonu)") : TEXT("⏸️ DURAKLATILDI (Statik)")
+            TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ AKTİF (Chaos Simülasyonu)") : TEXT("⏸️ DURAKLATILDI (Statik)"),
+            *VideoStatus,
+            *TargetImporter->BridgeTargetIP
         );
         ModelCadStatusText->SetText(FText::FromString(CadStr));
     }
+
 
     // 7) Physics Button Text
     if (PhysicsButtonText.IsValid())
