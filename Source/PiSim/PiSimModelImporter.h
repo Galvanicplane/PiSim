@@ -55,10 +55,26 @@ struct FImporterMeshSection
     float MaxAngle = 90.0f;
 };
 
+USTRUCT(BlueprintType)
+struct FImporterSensorSection
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    FString SensorName = TEXT("");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    FVector PivotPoint = FVector::ZeroVector;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    FRotator Rotation = FRotator::ZeroRotator;
+};
+
 UCLASS()
 class PISIM_API APiSimModelImporter : public APawn
 {
     GENERATED_BODY()
+
 
 public:
     APiSimModelImporter();
@@ -88,11 +104,14 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Camera")
     USceneCaptureComponent2D* FpvCameraCapture = nullptr;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Camera")
+    TArray<USceneCaptureComponent2D*> SpawnedCameraComponents;
+
     UPROPERTY(Transient)
     UTextureRenderTarget2D* VideoRenderTarget = nullptr;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
-    bool bEnableVideoStream = true;
+    bool bEnableVideoStream = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
     float VideoFrameRate = 25.0f;
@@ -129,11 +148,10 @@ public:
     // =========================================================================
     // SEPARATED PARSED FBX DATA LISTS (Transient to prevent lag)
     // =========================================================================
-    // =========================================================================
-    // SEPARATED PARSED FBX DATA LISTS (Transient to prevent lag)
-    // =========================================================================
     TArray<FImporterMeshSection> VisualSections;
     TArray<FImporterMeshSection> UCXSections;
+    TArray<FImporterSensorSection> SensorSections;
+
 
     // Active On-Screen Slate UI Widget
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|UI")
@@ -257,8 +275,9 @@ public:
     // =========================================================================
     // CORE PIPELINE FUNCTIONS
     // =========================================================================
-    /** Parses Saved/Robots/Cache/robot_import_test.fbx into distinct VisualSections and UCXSections */
-    static bool ParseBinaryFbxFile(const FString& FilePath, TArray<FImporterMeshSection>& OutVisual, TArray<FImporterMeshSection>& OutUCX, float Scale);
+    /** Parses Saved/Robots/Cache/robot_import_test.fbx into distinct VisualSections, UCXSections, and SensorSections */
+    static bool ParseBinaryFbxFile(const FString& FilePath, TArray<FImporterMeshSection>& OutVisual, TArray<FImporterMeshSection>& OutUCX, TArray<FImporterSensorSection>& OutSensors, float Scale);
+
 
     /** Spawns and links both Visual and UCX meshes hierarchically with bone attachments and collisions */
     void BuildAndSpawnRobotHierarchy(float Scale);

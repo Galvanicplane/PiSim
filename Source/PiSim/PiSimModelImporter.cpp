@@ -40,17 +40,12 @@ APiSimModelImporter::APiSimModelImporter()
     OrbitCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("OrbitCamera"));
     OrbitCamera->SetupAttachment(OrbitSpringArm, USpringArmComponent::SocketName);
 
-    // FPV Video Stream Camera Sensor
-    FpvCameraCapture = CreateDefaultSubobject<USceneCaptureComponent2D>(TEXT("FpvCameraCapture"));
-    FpvCameraCapture->SetupAttachment(SceneRootComponent);
-    FpvCameraCapture->FOVAngle = 90.0f;
-    FpvCameraCapture->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
-    FpvCameraCapture->bCaptureEveryFrame = false;
-    FpvCameraCapture->bCaptureOnMovement = false;
-
+    FpvCameraCapture = nullptr;
+    bEnableVideoStream = false;
     ImportScaleMultiplier = 1.0f; // Pure 1:1 scale by default
     bIsPhysicsSimulating = false;
 }
+
 
 
 void APiSimModelImporter::BeginPlay()
@@ -612,9 +607,18 @@ void APiSimModelImporter::ClearSpawnedComponents()
     }
     JointConstraints.Empty();
 
+    for (USceneCaptureComponent2D* CamComp : SpawnedCameraComponents)
+    {
+        if (CamComp) CamComp->DestroyComponent();
+    }
+    SpawnedCameraComponents.Empty();
+    FpvCameraCapture = nullptr;
+
     VisualSections.Empty();
     UCXSections.Empty();
+    SensorSections.Empty();
     bIsPhysicsSimulating = false;
+    bEnableVideoStream = false;
 }
 
 void APiSimModelImporter::ImportAndSpawnRobot()
@@ -647,12 +651,14 @@ void APiSimModelImporter::TogglePhysicsSimulation()
 }
 
 // =========================================================================================
-// [AŞAMA 1 & 2] FBX AYRIŞTIRMA VE LİSTELERE AYIRMA (VisualSections vs UCXSections)
+// [AŞAMA 1 & 2] FBX AYRIŞTIRMA VE LİSTELERE AYIRMA (VisualSections, UCXSections, SensorSections)
 // =========================================================================================
-bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FImporterMeshSection>& OutVisual, TArray<FImporterMeshSection>& OutUCX, float Scale)
+bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FImporterMeshSection>& OutVisual, TArray<FImporterMeshSection>& OutUCX, TArray<FImporterSensorSection>& OutSensors, float Scale)
 {
     OutVisual.Empty();
     OutUCX.Empty();
+    OutSensors.Empty();
+
 
     TArray<uint8> FileBytes;
     if (!FFileHelper::LoadFileToArray(FileBytes, *FilePath) || FileBytes.Num() < 64)
@@ -985,11 +991,14 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
             }
         }
 
-        bool bIsUCXModel = ModelName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
+        bool bIsSensorMesh = ModelName.StartsWith(TEXT("S_"), ESearchCase::IgnoreCase) ||
+                             ModelName.StartsWith(TEXT("Sensor_"), ESearchCase::IgnoreCase);
+
+        bool bIsUCXModel = !bIsSensorMesh && (ModelName.StartsWith(TEXT("UCX_"), ESearchCase::IgnoreCase) ||
                            ModelName.StartsWith(TEXT("UBX_"), ESearchCase::IgnoreCase) ||
                            ModelName.StartsWith(TEXT("USP_"), ESearchCase::IgnoreCase) ||
                            ModelName.StartsWith(TEXT("UCX"), ESearchCase::IgnoreCase) ||
-                           ModelName.Contains(TEXT("UCX"), ESearchCase::IgnoreCase);
+                           ModelName.Contains(TEXT("UCX"), ESearchCase::IgnoreCase));
 
         // Find Skin Deformers connected to this Geometry
         TArray<uint64> GeomSkinDeformers;
@@ -1034,48 +1043,66 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                                 }
                             }
 
-                            if (SubVerts.Num() > 0 && SubTris.Num() > 0)
+                            if (SubVerts.Num() > 0)
                             {
-                                FImporterMeshSection Sec;
-                                Sec.MeshName = bIsUCXModel ? FString::Printf(TEXT("%s_%s"), *ModelName, *SubDef->BoneLabel) : SubDef->BoneLabel;
+                                FString MeshLabel = SubDef->BoneLabel.IsEmpty() ? ModelName : SubDef->BoneLabel;
+                                bool bBoneIsSensor = MeshLabel.StartsWith(TEXT("S_"), ESearchCase::IgnoreCase) ||
+                                                     MeshLabel.StartsWith(TEXT("Sensor_"), ESearchCase::IgnoreCase) ||
+                                                     bIsSensorMesh;
 
                                 // 1) Calculate Exact Pivot Point (Centroid in World Space)
                                 FVector Center = FVector::ZeroVector;
                                 for (const FVector& V : SubVerts) Center += V;
-                                Sec.PivotPoint = Center / (float)SubVerts.Num();
+                                FVector Pivot = Center / (float)SubVerts.Num();
 
-                                // 2) Center Vertices around local origin (0,0,0) for component
-                                for (FVector& V : SubVerts)
+                                if (bBoneIsSensor)
                                 {
-                                    V = V - Sec.PivotPoint;
+                                    // SENSÖR YUVASI: Görsel ve fizik collision OLUŞTURMAZ! Sadece konumu listeye kaydedilir.
+                                    FImporterSensorSection SensorSec;
+                                    SensorSec.SensorName = MeshLabel;
+                                    SensorSec.PivotPoint = Pivot;
+                                    SensorSec.Rotation = FRotator::ZeroRotator;
+                                    OutSensors.Add(SensorSec);
                                 }
+                                else if (SubTris.Num() > 0)
+                                {
+                                    FImporterMeshSection Sec;
+                                    Sec.MeshName = bIsUCXModel ? FString::Printf(TEXT("%s_%s"), *ModelName, *MeshLabel) : MeshLabel;
+                                    Sec.PivotPoint = Pivot;
 
-                                Sec.Vertices = SubVerts;
-                                Sec.Triangles = SubTris;
+                                    // 2) Center Vertices around local origin (0,0,0) for component
+                                    for (FVector& V : SubVerts)
+                                    {
+                                        V = V - Sec.PivotPoint;
+                                    }
 
-                                // 3) Compute Outward-Facing Smoothed Vertex Normals (Inverted cross product for correct exterior facing)
-                                Sec.Normals.Init(FVector::ZeroVector, SubVerts.Num());
-                                for (int32 t = 0; t + 2 < SubTris.Num(); t += 3)
-                                {
-                                    int32 i0 = SubTris[t], i1 = SubTris[t + 1], i2 = SubTris[t + 2];
-                                    FVector TriNormal = ((SubVerts[i2] - SubVerts[i0]) ^ (SubVerts[i1] - SubVerts[i0])).GetSafeNormal();
-                                    Sec.Normals[i0] += TriNormal;
-                                    Sec.Normals[i1] += TriNormal;
-                                    Sec.Normals[i2] += TriNormal;
-                                }
-                                for (FVector& Norm : Sec.Normals)
-                                {
-                                    Norm = Norm.GetSafeNormal();
-                                    if (Norm.IsNearlyZero()) Norm = FVector::UpVector;
-                                }
+                                    Sec.Vertices = SubVerts;
+                                    Sec.Triangles = SubTris;
 
-                                if (bIsUCXModel)
-                                {
-                                    OutUCX.Add(Sec);
-                                }
-                                else
-                                {
-                                    OutVisual.Add(Sec);
+                                    // 3) Compute Outward-Facing Smoothed Vertex Normals
+                                    Sec.Normals.Init(FVector::ZeroVector, SubVerts.Num());
+                                    for (int32 t = 0; t + 2 < SubTris.Num(); t += 3)
+                                    {
+                                        int32 i0 = SubTris[t], i1 = SubTris[t + 1], i2 = SubTris[t + 2];
+                                        FVector TriNormal = ((SubVerts[i2] - SubVerts[i0]) ^ (SubVerts[i1] - SubVerts[i0])).GetSafeNormal();
+                                        Sec.Normals[i0] += TriNormal;
+                                        Sec.Normals[i1] += TriNormal;
+                                        Sec.Normals[i2] += TriNormal;
+                                    }
+                                    for (FVector& Norm : Sec.Normals)
+                                    {
+                                        Norm = Norm.GetSafeNormal();
+                                        if (Norm.IsNearlyZero()) Norm = FVector::UpVector;
+                                    }
+
+                                    if (bIsUCXModel)
+                                    {
+                                        OutUCX.Add(Sec);
+                                    }
+                                    else
+                                    {
+                                        OutVisual.Add(Sec);
+                                    }
                                 }
                             }
                         }
@@ -1083,44 +1110,57 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                 }
             }
         }
-        else if (Geom.Vertices.Num() > 0 && Geom.Polygons.Num() > 0)
+        else if (Geom.Vertices.Num() > 0)
         {
             // Static unskinned geometry
-            FImporterMeshSection Sec;
-            Sec.MeshName = ModelName;
-
             FVector Center = FVector::ZeroVector;
             for (const FVector& V : Geom.Vertices) Center += V;
-            Sec.PivotPoint = Center / (float)Geom.Vertices.Num();
+            FVector Pivot = Center / (float)Geom.Vertices.Num();
 
-            TArray<FVector> CenteredVerts = Geom.Vertices;
-            for (FVector& V : CenteredVerts) V = V - Sec.PivotPoint;
-
-            Sec.Vertices = CenteredVerts;
-            Sec.Triangles = Geom.Polygons;
-
-            Sec.Normals.Init(FVector::ZeroVector, CenteredVerts.Num());
-            for (int32 t = 0; t + 2 < Geom.Polygons.Num(); t += 3)
+            if (bIsSensorMesh)
             {
-                int32 i0 = Geom.Polygons[t], i1 = Geom.Polygons[t + 1], i2 = Geom.Polygons[t + 2];
-                FVector TriNormal = ((CenteredVerts[i2] - CenteredVerts[i0]) ^ (CenteredVerts[i1] - CenteredVerts[i0])).GetSafeNormal();
-                Sec.Normals[i0] += TriNormal;
-                Sec.Normals[i1] += TriNormal;
-                Sec.Normals[i2] += TriNormal;
+                // SENSÖR YUVASI: Görsel ve fizik collision OLUŞTURMAZ! Sadece konumu listeye kaydedilir.
+                FImporterSensorSection SensorSec;
+                SensorSec.SensorName = ModelName;
+                SensorSec.PivotPoint = Pivot;
+                SensorSec.Rotation = FRotator::ZeroRotator;
+                OutSensors.Add(SensorSec);
             }
-            for (FVector& Norm : Sec.Normals)
+            else if (Geom.Polygons.Num() > 0)
             {
-                Norm = Norm.GetSafeNormal();
-                if (Norm.IsNearlyZero()) Norm = FVector::UpVector;
-            }
+                FImporterMeshSection Sec;
+                Sec.MeshName = ModelName;
+                Sec.PivotPoint = Pivot;
 
-            if (bIsUCXModel) OutUCX.Add(Sec);
-            else OutVisual.Add(Sec);
+                TArray<FVector> CenteredVerts = Geom.Vertices;
+                for (FVector& V : CenteredVerts) V = V - Sec.PivotPoint;
+
+                Sec.Vertices = CenteredVerts;
+                Sec.Triangles = Geom.Polygons;
+
+                Sec.Normals.Init(FVector::ZeroVector, CenteredVerts.Num());
+                for (int32 t = 0; t + 2 < Geom.Polygons.Num(); t += 3)
+                {
+                    int32 i0 = Geom.Polygons[t], i1 = Geom.Polygons[t + 1], i2 = Geom.Polygons[t + 2];
+                    FVector TriNormal = ((CenteredVerts[i2] - CenteredVerts[i0]) ^ (CenteredVerts[i1] - CenteredVerts[i0])).GetSafeNormal();
+                    Sec.Normals[i0] += TriNormal;
+                    Sec.Normals[i1] += TriNormal;
+                    Sec.Normals[i2] += TriNormal;
+                }
+                for (FVector& Norm : Sec.Normals)
+                {
+                    Norm = Norm.GetSafeNormal();
+                    if (Norm.IsNearlyZero()) Norm = FVector::UpVector;
+                }
+
+                if (bIsUCXModel) OutUCX.Add(Sec);
+                else OutVisual.Add(Sec);
+            }
         }
     }
 
     // =========================================================================================
-    // HEM LOGA HEM DE EKRANA HER İKİ LİSTEYİ DE DETAYLICA YAZDIR!
+    // HEM LOGA HEM DE EKRANA HER ÜÇ LİSTEYİ DE DETAYLICA YAZDIR!
     // =========================================================================================
     UE_LOG(LogTemp, Warning, TEXT("===================================================================="));
     UE_LOG(LogTemp, Warning, TEXT(">>> [PiSimModelImporter] FBX AYRIŞTIRMA RAPORU (%s) <<<"), *FilePath);
@@ -1137,6 +1177,13 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         UE_LOG(LogTemp, Warning, TEXT("   [%d] UCXMesh: '%s' | Vertices: %d | Triangles: %d | Pivot: %s"),
             u, *OutUCX[u].MeshName, OutUCX[u].Vertices.Num(), OutUCX[u].Triangles.Num() / 3, *OutUCX[u].PivotPoint.ToString());
     }
+
+    UE_LOG(LogTemp, Warning, TEXT("📡 SENSÖR YUVASI LİSTESİ (Toplam: %d Adet):"), OutSensors.Num());
+    for (int32 s = 0; s < OutSensors.Num(); ++s)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("   [%d] SensorSlot: '%s' | Pivot: %s"),
+            s, *OutSensors[s].SensorName, *OutSensors[s].PivotPoint.ToString());
+    }
     UE_LOG(LogTemp, Warning, TEXT("===================================================================="));
 
     // Canlı Ekrana Renkli Bildirimler Bas
@@ -1144,7 +1191,7 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
     {
         GEngine->AddOnScreenDebugMessage(501, 15.0f, FColor::Cyan,
             FString::Printf(TEXT("🎨 [GÖRSEL LİSTE: %d PARÇA]"), OutVisual.Num()));
-        for (int32 v = 0; v < FMath::Min(OutVisual.Num(), 5); ++v)
+        for (int32 v = 0; v < FMath::Min(OutVisual.Num(), 4); ++v)
         {
             GEngine->AddOnScreenDebugMessage(510 + v, 15.0f, FColor::White,
                 FString::Printf(TEXT("   • Visual [%d]: %s (%d Verts, %d Tris)"), v, *OutVisual[v].MeshName, OutVisual[v].Vertices.Num(), OutVisual[v].Triangles.Num() / 3));
@@ -1152,14 +1199,22 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
 
         GEngine->AddOnScreenDebugMessage(530, 15.0f, FColor::Yellow,
             FString::Printf(TEXT("🛡️ [UCX COLLISION LİSTE: %d PARÇA]"), OutUCX.Num()));
-        for (int32 u = 0; u < FMath::Min(OutUCX.Num(), 5); ++u)
+        for (int32 u = 0; u < FMath::Min(OutUCX.Num(), 4); ++u)
         {
             GEngine->AddOnScreenDebugMessage(540 + u, 15.0f, FColor::Orange,
                 FString::Printf(TEXT("   • UCX [%d]: %s (%d Verts)"), u, *OutUCX[u].MeshName, OutUCX[u].Vertices.Num()));
         }
+
+        GEngine->AddOnScreenDebugMessage(550, 15.0f, FColor::Green,
+            FString::Printf(TEXT("📡 [SENSÖR YUVALARI: %d ADET]"), OutSensors.Num()));
+        for (int32 s = 0; s < FMath::Min(OutSensors.Num(), 4); ++s)
+        {
+            GEngine->AddOnScreenDebugMessage(560 + s, 15.0f, FColor::Emerald,
+                FString::Printf(TEXT("   • Sensor [%d]: %s (Konum: %s)"), s, *OutSensors[s].SensorName, *OutSensors[s].PivotPoint.ToString()));
+        }
     }
 
-    return (OutVisual.Num() > 0 || OutUCX.Num() > 0);
+    return (OutVisual.Num() > 0 || OutUCX.Num() > 0 || OutSensors.Num() > 0);
 }
 
 // =========================================================================================
@@ -1170,7 +1225,8 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
     ClearSpawnedComponents();
 
     FString FbxPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_import_test.fbx");
-    if (!ParseBinaryFbxFile(FbxPath, VisualSections, UCXSections, Scale))
+    if (!ParseBinaryFbxFile(FbxPath, VisualSections, UCXSections, SensorSections, Scale))
+
     {
         if (GEngine)
         {
@@ -1299,15 +1355,77 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         OrbitSpringArm->bInheritYaw = true;
     }
 
-    // 5) FPV Canlı Kamera Sensörünü araç gövdesine (Chassis) bağla!
-    if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0] && FpvCameraCapture)
+    // 5) DİNAMİK SENSÖR YERLEŞTİRME (S_Cam_..., S_Camera_..., vb.)
+    int32 DiscoveredCameras = 0;
+    for (const FImporterSensorSection& Sensor : SensorSections)
     {
-        FpvCameraCapture->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-        // Ön tarafa ve hafif yukarıya yerleştir (+X: İleri, +Z: Yukarı)
-        FpvCameraCapture->SetRelativeLocation(FVector(40.0f, 0.0f, 25.0f));
-        FpvCameraCapture->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f));
+        if (Sensor.SensorName.StartsWith(TEXT("S_Cam"), ESearchCase::IgnoreCase) ||
+            Sensor.SensorName.StartsWith(TEXT("S_Camera"), ESearchCase::IgnoreCase) ||
+            Sensor.SensorName.Contains(TEXT("Cam"), ESearchCase::IgnoreCase))
+        {
+            FName CamCompName = *FString::Printf(TEXT("FpvCamComp_%d_%s"), DiscoveredCameras, *Sensor.SensorName);
+            USceneCaptureComponent2D* NewCam = NewObject<USceneCaptureComponent2D>(this, CamCompName);
+            NewCam->SetMobility(EComponentMobility::Movable);
+            NewCam->FOVAngle = 90.0f;
+            NewCam->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+            NewCam->bCaptureEveryFrame = false;
+            NewCam->bCaptureOnMovement = false;
+            NewCam->TextureTarget = VideoRenderTarget;
+
+            // Sensör küpünün tam koordinatlarına monte et!
+            if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+            {
+                NewCam->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+                // Gövdeye göre bağıl konum: (SensörPivot - GövdePivot)
+                FVector RelativeLoc = Sensor.PivotPoint - VisualSections[0].PivotPoint;
+                NewCam->SetRelativeLocation(RelativeLoc);
+                NewCam->SetRelativeRotation(Sensor.Rotation);
+                AddConnectionDebugLog(FString::Printf(TEXT("📷 [Sensör Eklendi] '%s' gövdeye bağlandı -> Bağıl Konum: (X=%.1f, Y=%.1f, Z=%.1f)"),
+                    *Sensor.SensorName, RelativeLoc.X, RelativeLoc.Y, RelativeLoc.Z));
+            }
+            else
+            {
+                NewCam->AttachToComponent(SceneRootComponent, FAttachmentTransformRules::KeepRelativeTransform);
+                NewCam->SetRelativeLocation(Sensor.PivotPoint);
+                NewCam->SetRelativeRotation(Sensor.Rotation);
+                AddConnectionDebugLog(FString::Printf(TEXT("📷 [Sensör Eklendi] '%s' kök bileşene bağlandı -> Konum: %s"),
+                    *Sensor.SensorName, *Sensor.PivotPoint.ToString()));
+            }
+
+            NewCam->RegisterComponent();
+            SpawnedCameraComponents.Add(NewCam);
+
+            if (!FpvCameraCapture)
+            {
+                FpvCameraCapture = NewCam;
+                bEnableVideoStream = true;
+            }
+
+            DiscoveredCameras++;
+        }
+    }
+
+    if (DiscoveredCameras == 0)
+    {
+        bEnableVideoStream = false;
+        FpvCameraCapture = nullptr;
+        AddConnectionDebugLog(TEXT("ℹ️ Modelde 'S_Cam_...' sensör küpü bulunamadı. Kamera eklenmedi."));
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(555, 8.0f, FColor::Yellow,
+                TEXT("ℹ️ [PiSim Sensör] Modelde 'S_Cam_...' sensörü bulunamadı (Kamera yok)"));
+        }
+    }
+    else
+    {
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(555, 8.0f, FColor::Green,
+                FString::Printf(TEXT("📷 [PiSim Sensör] %d adet S_Cam kamerası model koordinatlarına yerleştirildi!"), DiscoveredCameras));
+        }
     }
 }
+
 
 
 // =========================================================================================

@@ -461,27 +461,37 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         OutgoingTelemetryText->SetText(FText::FromString(OutStr));
     }
 
-    // 6) SAĞ PANEL - Card 2: CAD Geometry & Chaos Physics & FPV Camera
+    // 6) SAĞ PANEL - Card 2: CAD Geometry & Chaos Physics & Sensors
     if (ModelCadStatusText.IsValid())
     {
-        FString VideoStatus = TargetImporter->bEnableVideoStream ?
-            FString::Printf(TEXT("🟢 YAYINDA (320x240 @ %3.1f FPS, Toplam: %d Kare)"), TargetImporter->VideoFpsActual, TargetImporter->TotalVideoFramesSent) :
-            TEXT("⏸️ KAPALI");
+        FString VideoStatus;
+        if (TargetImporter->bEnableVideoStream && TargetImporter->FpvCameraCapture)
+        {
+            VideoStatus = FString::Printf(TEXT("🟢 YAYINDA (320x240 @ %3.1f FPS, Toplam: %d Kare)"),
+                TargetImporter->VideoFpsActual, TargetImporter->TotalVideoFramesSent);
+        }
+        else
+        {
+            VideoStatus = TEXT("⏸️ SENSÖR YOK (Modelde 'S_Cam_...' yok)");
+        }
 
         FString CadStr = FString::Printf(
             TEXT("  • Görsel Parçalar  : %d Adet (Procedural Mesh Render)\n"
                  "  • UCX Çarpışma     : %d Adet (Chaos Convex Zırh)\n"
+                 "  • Sensör Yuvaları  : %d Adet (S_Cam / S_Imu / S_Gps)\n"
                  "  • Simülasyon Durumu: %s\n"
                  "  • FPV Kamera Yayını: %s\n"
                  "  • Video Hedefi     : %s:5000 (JPEG MTU)"),
             TargetImporter->VisualMeshComponents.Num(),
             TargetImporter->UCXSections.Num(),
+            TargetImporter->SensorSections.Num(),
             TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ AKTİF (Chaos Simülasyonu)") : TEXT("⏸️ DURAKLATILDI (Statik)"),
             *VideoStatus,
             *TargetImporter->BridgeTargetIP
         );
         ModelCadStatusText->SetText(FText::FromString(CadStr));
     }
+
 
 
     // 7) Physics Button Text
