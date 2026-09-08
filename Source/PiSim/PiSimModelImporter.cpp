@@ -4,6 +4,9 @@
 #include "PiSimModelImporter.h"
 #include "PiSimModelImporterWidget.h"
 #include "PiSimGarageRobot.h"
+#include "PiSimUDPManager.h"
+#include "ROS2MessageTypes.h"
+#include "ROS2UE5Converter.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 #include "Materials/MaterialInterface.h"
@@ -67,8 +70,26 @@ void APiSimModelImporter::BeginPlay()
         }
     }
 
+    // Initialize UDP Network Manager for Raspberry Pi 5 Bridge
+    UDPManager = MakeUnique<FPiSimUDPManager>();
+    UDPManager->OnControlPacketReceived.AddUObject(this, &APiSimModelImporter::OnControlPacketReceived);
+    UDPManager->StartControlListener(7400);
+    UDPManager->ReserveVideoSocket(5000);
+    UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] UDP Control Listener bound on Port 7400. Video Port 5000 ready."));
+
     // Auto-spawn model from Saved/Robots/Cache/robot_import_test.fbx at startup
     BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
+}
+
+void APiSimModelImporter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if (UDPManager)
+    {
+        UDPManager->OnControlPacketReceived.RemoveAll(this);
+        UDPManager->Shutdown();
+        UDPManager.Reset();
+    }
+    Super::EndPlay(EndPlayReason);
 }
 
 void APiSimModelImporter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -150,23 +171,118 @@ void APiSimModelImporter::ZoomOut()
     }
 }
 
+void APiSimModelImporter::OnControlPacketReceived(const TArray<uint8>& PacketData, const FString& SenderIP)
+{
+    if (!SenderIP.IsEmpty())
+    {
+        ConnectedPiIP = SenderIP;
+        bIsPiConnected = true;
+        LastPacketReceivedTime = (GetWorld()) ? GetWorld()->GetTimeSeconds() : 0.0f;
+    }
+
+    FROSTwistMessage TwistMsg;
+    if (FROSTwistMessage::FromBinary(PacketData, TwistMsg))
+    {
+        TargetLinearX = TwistMsg.Linear.X;
+        TargetAngularZ = TwistMsg.Angular.Z;
+
+        // Differential drive kinematics model:
+        // Track width L (~0.35m), Wheel radius R (~0.08m)
+        float TrackWidth = 0.35f;
+        float WheelRadius = 0.08f;
+
+        float V_Left = TargetLinearX - (TargetAngularZ * TrackWidth * 0.5f);
+        float V_Right = TargetLinearX + (TargetAngularZ * TrackWidth * 0.5f);
+
+        // Convert linear speed (m/s) to RPM: RPM = (V / (2 * PI * R)) * 60
+        LeftWheelsRpm = (V_Left / (2.0f * PI * WheelRadius)) * 60.0f;
+        RightWheelsRpm = (V_Right / (2.0f * PI * WheelRadius)) * 60.0f;
+
+        TotalPacketsReceived++;
+        RxCountInWindow++;
+    }
+}
+
+void APiSimModelImporter::PublishImuTelemetry(float DeltaTime)
+{
+    if (!UDPManager || DeltaTime <= 0.0f || VisualMeshComponents.Num() == 0 || !VisualMeshComponents[0])
+    {
+        return;
+    }
+
+    UProceduralMeshComponent* Chassis = VisualMeshComponents[0];
+    FVector CurrentLinearVelUE5 = Chassis->GetPhysicsLinearVelocity();
+    CurrentForwardSpeedKmh = CurrentLinearVelUE5.Size() * 0.036f;
+
+    CurrentLinearAccel = (CurrentLinearVelUE5 - PreviousLinearVelocityUE5) / DeltaTime;
+    PreviousLinearVelocityUE5 = CurrentLinearVelUE5;
+
+    FVector AngularVelUE5 = Chassis->GetPhysicsAngularVelocityInDegrees();
+    FQuat OrientationUE5 = Chassis->GetComponentQuat();
+
+    FROSImuMessage ImuMsg;
+    ImuMsg.LinearAcceleration = FROS2UE5Converter::UE5ToROS2LinearAcceleration(CurrentLinearAccel);
+    ImuMsg.AngularVelocity = FROS2UE5Converter::UE5ToROS2AngularVelocity(AngularVelUE5);
+    FROS2UE5Converter::UE5ToROS2Quaternion(OrientationUE5, ImuMsg.Orientation.X, ImuMsg.Orientation.Y, ImuMsg.Orientation.Z, ImuMsg.Orientation.W);
+
+    TArray<uint8> ImuBytes;
+    if (ImuMsg.ToBinary(ImuBytes))
+    {
+        FString TargetIP = (!ConnectedPiIP.IsEmpty() && ConnectedPiIP != TEXT("None")) ? ConnectedPiIP : TEXT("127.0.0.1");
+        UDPManager->SendControlData(ImuBytes, TargetIP, FPiSimUDPManager::DEFAULT_TELEMETRY_PORT);
+
+        TotalPacketsSent++;
+        TxCountInWindow++;
+    }
+}
+
 void APiSimModelImporter::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
-    // Canlı Tekerlek Fiziksel Dönüşü (Roll X ekseninde 1 RPM = 6 deg/sec)
-    if (bIsPhysicsSimulating && FMath::Abs(AppliedWheelRpm) > 0.001f)
+    // 1) Telemetry rate window calculation (every 0.5 sec)
+    RateCalcTimer += DeltaTime;
+    if (RateCalcTimer >= 0.5f)
     {
-        float AngularSpeedDegPerSec = AppliedWheelRpm * 6.0f; // 1 RPM = 6 deg/sec
+        RxPacketRateHz = (float)RxCountInWindow / RateCalcTimer;
+        TxPacketRateHz = (float)TxCountInWindow / RateCalcTimer;
+        RxCountInWindow = 0;
+        TxCountInWindow = 0;
+        RateCalcTimer = 0.0f;
 
+        // Auto timeout if no packets received for 3 seconds
+        if (GetWorld() && (GetWorld()->GetTimeSeconds() - LastPacketReceivedTime > 3.0f))
+        {
+            bIsPiConnected = false;
+        }
+    }
+
+    // 2) Publish IMU Telemetry to Pi 5 at ~50 Hz
+    TelemetryTimer += DeltaTime;
+    if (TelemetryTimer >= 0.02f)
+    {
+        PublishImuTelemetry(TelemetryTimer);
+        TelemetryTimer = 0.0f;
+    }
+
+    // 3) Canlı Tekerlek Fiziksel Diferansiyel Dönüşü (Gövdeye göre Y < 0: Sol, Y > 0: Sağ)
+    if (bIsPhysicsSimulating)
+    {
         for (int32 i = 1; i < VisualMeshComponents.Num(); ++i)
         {
             if (VisualMeshComponents[i])
             {
-                // Tekerleğin kendi lokal X ekseni (yuvarlanma ekseni)
-                FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f);
-                FVector WorldAxle = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalAxle);
-                VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(WorldAxle * AngularSpeedDegPerSec, false);
+                FVector RelLoc = VisualMeshComponents[i]->GetRelativeLocation();
+                float BaseRpm = (RelLoc.Y < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
+                float TotalRpm = BaseRpm + AppliedWheelRpm;
+
+                if (FMath::Abs(TotalRpm) > 0.001f)
+                {
+                    float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
+                    FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f); // Roll X axle
+                    FVector WorldAxle = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalAxle);
+                    VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(WorldAxle * AngularSpeedDegPerSec, false);
+                }
             }
         }
     }

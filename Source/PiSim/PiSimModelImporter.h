@@ -97,12 +97,54 @@ public:
     // =========================================================================
     // SEPARATED PARSED FBX DATA LISTS (Transient to prevent lag)
     // =========================================================================
+    // =========================================================================
+    // SEPARATED PARSED FBX DATA LISTS (Transient to prevent lag)
+    // =========================================================================
     TArray<FImporterMeshSection> VisualSections;
     TArray<FImporterMeshSection> UCXSections;
 
     // Active On-Screen Slate UI Widget
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|UI")
     UPiSimModelImporterWidget* ImporterWidget = nullptr;
+
+    // =========================================================================
+    // UDP COMMUNICATION & NETWORK TELEMETRY (Raspberry Pi 5 / Edge Bridge)
+    // =========================================================================
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
+    bool bIsPiConnected = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
+    FString ConnectedPiIP = TEXT("127.0.0.1");
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
+    int32 TotalPacketsReceived = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
+    int32 TotalPacketsSent = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
+    float RxPacketRateHz = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
+    float TxPacketRateHz = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    float TargetLinearX = 0.0f; // m/s (from Pi 5 cmd_vel)
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    float TargetAngularZ = 0.0f; // rad/s (from Pi 5 cmd_vel)
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    float CurrentForwardSpeedKmh = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    FVector CurrentLinearAccel = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    float LeftWheelsRpm = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    float RightWheelsRpm = 0.0f;
 
     // =========================================================================
     // CONTROLS & SETTINGS (Clean 1.0f 1:1 Scale by default)
@@ -147,6 +189,14 @@ public:
     /** Activates or disables live Chaos physics simulation and gravity */
     void SetPhysicsSimulationActive(bool bActive);
 
+    /** Callback for incoming UDP control packets from Raspberry Pi 5 */
+    void OnControlPacketReceived(const TArray<uint8>& PacketData, const FString& SenderIP);
+
+    /** Publishes live IMU & kinematics telemetry to Raspberry Pi 5 over UDP 7401 */
+    void PublishImuTelemetry(float DeltaTime);
+
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
     // =========================================================================
     // MOUSE ORBIT & ZOOM & RPM CONTROLS
     // =========================================================================
@@ -164,4 +214,12 @@ private:
 
     bool bIsLeftMouseDown = false;
     bool bIsRightMouseDown = false;
+
+    TUniquePtr<class FPiSimUDPManager> UDPManager;
+    FVector PreviousLinearVelocityUE5 = FVector::ZeroVector;
+    float TelemetryTimer = 0.0f;
+    float RateCalcTimer = 0.0f;
+    int32 RxCountInWindow = 0;
+    int32 TxCountInWindow = 0;
+    float LastPacketReceivedTime = -100.0f;
 };

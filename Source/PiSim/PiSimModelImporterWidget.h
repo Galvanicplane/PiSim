@@ -28,7 +28,12 @@ private:
     FReply OnReimportClicked();
     FReply OnTogglePhysicsClicked();
 
+    TSharedPtr<class STextBlock> ConnectionBadgeText;
+    TSharedPtr<class SBorder> ConnectionBadgeBorder;
     TSharedPtr<class STextBlock> StatusTextBlock;
+    TSharedPtr<class STextBlock> TelemetryStatsText;
+    TSharedPtr<class STextBlock> ControlInputsText;
+    TSharedPtr<class STextBlock> KinematicsText;
     TSharedPtr<class STextBlock> PhysicsButtonText;
     TSharedPtr<class SBorder> PhysicsButtonBorder;
 };
