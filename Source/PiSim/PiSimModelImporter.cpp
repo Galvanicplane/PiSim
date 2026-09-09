@@ -514,11 +514,11 @@ void APiSimModelImporter::Tick(float DeltaTime)
             if (VisualMeshComponents[i] && ConfiguredMotors.IsValidIndex(i))
             {
                 const FPiSimMotorItem& Motor = ConfiguredMotors[i];
-                if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::TrackPad || Motor.Role == EPiSimMotorRole::Thruster)
+                if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::SteeredWheel || Motor.Role == EPiSimMotorRole::TrackPad || Motor.Role == EPiSimMotorRole::Thruster)
                 {
                     FVector RelLoc = VisualMeshComponents[i]->GetRelativeLocation();
                     float BaseRpm = (RelLoc.Y < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
-                    float IndividualTestRpm = Motor.CurrentTestValue * Motor.MaxVelocityRPM;
+                    float IndividualTestRpm = (Motor.Role == EPiSimMotorRole::DriveWheel) ? (Motor.CurrentTestValue * Motor.MaxVelocityRPM) : 0.0f;
                     float TotalRpm = BaseRpm + IndividualTestRpm;
 
                     if (FMath::Abs(TotalRpm) > 0.001f)
@@ -1905,6 +1905,10 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
         {
             float TargetAngle = FMath::Lerp(ConfiguredMotors[BoneIndex].MinLimitDeg, ConfiguredMotors[BoneIndex].MaxLimitDeg, (Value + 1.0f) * 0.5f);
             VisualMeshComponents[BoneIndex]->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
+            if (bIsPhysicsSimulating && JointConstraints.IsValidIndex(BoneIndex - 1) && JointConstraints[BoneIndex - 1])
+            {
+                JointConstraints[BoneIndex - 1]->SetAngularOrientationTarget(FRotator(0.0f, TargetAngle, 0.0f));
+            }
         }
         else if (MotorRole == EPiSimMotorRole::LinearActuator)
         {
