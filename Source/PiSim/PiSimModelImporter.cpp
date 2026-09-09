@@ -506,15 +506,17 @@ void APiSimModelImporter::Tick(float DeltaTime)
         TelemetryTimer = 0.0f;
     }
 
-    // 3) Canlı Tekerlek ve Sürüş Simülasyonu (Tüm Tekerleklerin Dönüşü ve Direksiyon)
+    // 3) Canlı Tekerlek ve Sürüş Simülasyonu
     for (int32 i = 1; i < VisualMeshComponents.Num(); ++i)
     {
         if (VisualMeshComponents[i] && ConfiguredMotors.IsValidIndex(i) && VisualSections.IsValidIndex(i))
         {
             const FPiSimMotorItem& Motor = ConfiguredMotors[i];
-            if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::TrackPad || Motor.Role == EPiSimMotorRole::Thruster || Motor.Role == EPiSimMotorRole::FreeCaster)
+            FString BoneLower = Motor.BoneName.ToLower();
+
+            // 1. M_WHEEL: SADECE ARKA TEKERLEKLER GÜÇ ALIR VE SADECE ROLL YAPAR
+            if (BoneLower.StartsWith(TEXT("m_wheel")))
             {
-                // FBX koordinatlarında X < 0: Sol Tekerlekler (FL, RL), X > 0: Sağ Tekerlekler (FR, RR)
                 float PivotX = VisualSections[i].PivotPoint.X;
                 float BaseRpm = (PivotX < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
                 BaseRpm += AppliedWheelRpm;
@@ -524,7 +526,7 @@ void APiSimModelImporter::Tick(float DeltaTime)
                 if (FMath::Abs(TotalRpm) > 0.001f)
                 {
                     float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
-                    
+
                     if (bIsPhysicsSimulating)
                     {
                         FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f); // Roll X axle
@@ -533,22 +535,32 @@ void APiSimModelImporter::Tick(float DeltaTime)
                     }
                     else
                     {
-                        // Statik/Garaj modunda sürekli canlı dönüş!
+                        // Statik modda SADECE Roll artar, Pitch ve Yaw daima 0!
                         FRotator CurrentRot = VisualMeshComponents[i]->GetRelativeRotation();
                         CurrentRot.Roll += AngularSpeedDegPerSec * DeltaTime;
+                        CurrentRot.Pitch = 0.0f;
+                        CurrentRot.Yaw = 0.0f;
                         VisualMeshComponents[i]->SetRelativeRotation(CurrentRot);
                     }
                 }
             }
-            else if (Motor.Role == EPiSimMotorRole::SteeredWheel || Motor.Role == EPiSimMotorRole::ServoJoint)
+            // 2. M_STEER: SADECE BİR EKSENDE (YAW) DÖNEN SERVO (+45 İLA -45 DERECE)
+            else if (BoneLower.StartsWith(TEXT("m_steer")) || BoneLower.StartsWith(TEXT("steer")))
             {
-                // Direksiyon servosu yönlenmesi (Yaw ekseni)
-                float TargetAngle = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
+                float SteerAngle = Motor.CurrentTestValue * 45.0f; // -45 ila +45 derece
+                FRotator SteerRot = FRotator(0.0f, SteerAngle, 0.0f); // Sadece Yaw! Pitch=0, Roll=0
+                VisualMeshComponents[i]->SetRelativeRotation(SteerRot);
+            }
+            // 3. WHEEL_..: SADECE ROLL EKSENİNDE SERBEST, GÜÇ İLETMEYECEK
+            else if (BoneLower.StartsWith(TEXT("wheel_")) || Motor.bIsChildOfSteer)
+            {
+                // Güç iletmez! Serbest tekerlek. Pitch ve Yaw daima 0, sadece Roll serbest
                 if (!bIsPhysicsSimulating)
                 {
-                    FRotator CurrentRot = VisualMeshComponents[i]->GetRelativeRotation();
-                    CurrentRot.Yaw = TargetAngle;
-                    VisualMeshComponents[i]->SetRelativeRotation(CurrentRot);
+                    FRotator CurRot = VisualMeshComponents[i]->GetRelativeRotation();
+                    CurRot.Pitch = 0.0f;
+                    CurRot.Yaw = 0.0f;
+                    VisualMeshComponents[i]->SetRelativeRotation(CurRot);
                 }
             }
         }
@@ -1485,11 +1497,11 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         }
         else if (ChildWheelIndices.Contains(i))
         {
-            // CHILD WHEEL KEMİĞİ: Master'ın altında sadece kendi yuvarlanma ekseninde döner
-            MotorItem.Role = EPiSimMotorRole::DriveWheel;
+            // CHILD WHEEL KEMİĞİ: Master'ın altında sadece kendi yuvarlanma ekseninde serbest döner (Güç iletmez)
+            MotorItem.Role = EPiSimMotorRole::FreeCaster;
             MotorItem.bIsChildOfSteer = true;
-            MotorItem.MaxVelocityRPM = 500.0f;
-            MotorItem.MaxTorqueNm = 15.0f;
+            MotorItem.MaxVelocityRPM = 0.0f;
+            MotorItem.MaxTorqueNm = 0.0f;
         }
         else if (LowerName.StartsWith(TEXT("m_wheel")) || LowerName.StartsWith(TEXT("w_")) || LowerName.Contains(TEXT("wheel")))
         {
@@ -1868,25 +1880,40 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
 
         if (i > 0)
         {
-            // Tekerlekler için Şasi ile Fizik Kısıtlaması (Physics Constraint) oluştur
+            // Tekerlekler için Kesin Fizik Kısıtlaması (Constraint)
+            // wheel_.. için ebeveyn M_Steer knuckle mafsalıdır
+            // M_Wheel için ebeveyn Chassis gövdesidir
+            int32 ParentIdx = VisualSections[i].ParentSectionIndex;
+            UPrimitiveComponent* ParentBody = (ParentIdx >= 0 && VisualMeshComponents.IsValidIndex(ParentIdx) && VisualMeshComponents[ParentIdx])
+                ? Cast<UPrimitiveComponent>(VisualMeshComponents[ParentIdx])
+                : Cast<UPrimitiveComponent>(VisualMeshComponents[0]);
+
+            if (!ParentBody && VisualMeshComponents.IsValidIndex(0))
+            {
+                ParentBody = VisualMeshComponents[0];
+            }
+
             FName ConstraintName = *FString::Printf(TEXT("PhysicsJoint_%d_%s"), i, *VisualSections[i].MeshName);
             UPhysicsConstraintComponent* JointConstraint = NewObject<UPhysicsConstraintComponent>(this, ConstraintName);
-            if (JointConstraint && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+            if (JointConstraint && ParentBody)
             {
-                JointConstraint->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::KeepWorldTransform);
+                JointConstraint->AttachToComponent(ParentBody, FAttachmentTransformRules::KeepWorldTransform);
                 JointConstraint->SetWorldLocation(VisComp->GetComponentLocation());
+                JointConstraint->SetWorldRotation(VisComp->GetComponentRotation()); // Tekerleğin rotasyonuna tam hizala!
 
-                JointConstraint->SetConstrainedComponents(VisualMeshComponents[0], NAME_None, VisComp, NAME_None);
-                JointConstraint->SetDisableCollision(true); // Gövde ile tekerlek birbirini itmesin
+                JointConstraint->SetConstrainedComponents(ParentBody, NAME_None, VisComp, NAME_None);
+                JointConstraint->SetDisableCollision(true); // Parçaların birbirini itmesini engelle
 
-                // Doğrusal eksenleri kilitle (Tekerlek şasideki yuvasında sabit kalsın)
+                // 1) TÜM DOĞRUSAL EKSENLERİ KİLİTLE (X, Y, Z yerinden oynamaz!)
                 JointConstraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
                 JointConstraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
                 JointConstraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
 
-                // Yuvarlanma eksenini serbest bırak
-                JointConstraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Free, 0.0f);
-                JointConstraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
+                // 2) AÇISAL EKSENLER: SADECE ROLL (TWIST) SERBEST, DİĞERLERİ KESİNLİKLE KİLİTLİ!
+                // Sallanmayı, yalpalamayı, sağa sola kaykılmayı %100 engeller!
+                JointConstraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f); // Roll (X) Serbest!
+                JointConstraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f); // Yaw (Z) Kilitli!
+                JointConstraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f); // Pitch (Y) Kilitli!
 
                 JointConstraint->RegisterComponent();
                 JointConstraints.Add(JointConstraint);
@@ -1948,8 +1975,10 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
 
     if (VisualMeshComponents.IsValidIndex(BoneIndex) && VisualMeshComponents[BoneIndex])
     {
-        EPiSimMotorRole MotorRole = ConfiguredMotors[BoneIndex].Role;
-        if (MotorRole == EPiSimMotorRole::DriveWheel || MotorRole == EPiSimMotorRole::Thruster || MotorRole == EPiSimMotorRole::TrackPad || MotorRole == EPiSimMotorRole::FreeCaster)
+        FString BoneLower = ConfiguredMotors[BoneIndex].BoneName.ToLower();
+
+        // 1. M_WHEEL: SADECE ARKA TEKERLEKLER GÜÇ ALIR VE SADECE ROLL YAPAR
+        if (BoneLower.StartsWith(TEXT("m_wheel")))
         {
             if (bIsPhysicsSimulating)
             {
@@ -1963,25 +1992,22 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
             {
                 FRotator CurrentRot = VisualMeshComponents[BoneIndex]->GetRelativeRotation();
                 CurrentRot.Roll += Value * 15.0f;
+                CurrentRot.Pitch = 0.0f;
+                CurrentRot.Yaw = 0.0f;
                 VisualMeshComponents[BoneIndex]->SetRelativeRotation(CurrentRot);
             }
         }
-        else if (MotorRole == EPiSimMotorRole::SteeredWheel || MotorRole == EPiSimMotorRole::ServoJoint)
+        // 2. M_STEER: SADECE BİR EKSENDE DÖNEN SERVO (+45 İLA -45 DERECE)
+        else if (BoneLower.StartsWith(TEXT("m_steer")) || BoneLower.StartsWith(TEXT("steer")))
         {
-            float TargetAngle = FMath::Lerp(ConfiguredMotors[BoneIndex].MinLimitDeg, ConfiguredMotors[BoneIndex].MaxLimitDeg, (Value + 1.0f) * 0.5f);
-            FRotator CurrentRot = VisualMeshComponents[BoneIndex]->GetRelativeRotation();
-            CurrentRot.Yaw = TargetAngle;
-            VisualMeshComponents[BoneIndex]->SetRelativeRotation(CurrentRot);
+            float SteerAngle = Value * 45.0f; // -45 ila +45 derece
+            FRotator SteerRot = FRotator(0.0f, SteerAngle, 0.0f); // Sadece Yaw! Pitch=0, Roll=0
+            VisualMeshComponents[BoneIndex]->SetRelativeRotation(SteerRot);
         }
-        else if (MotorRole == EPiSimMotorRole::LinearActuator)
+        // 3. WHEEL_..: GÜÇ İLETMEYECEK (Avara tekerlek)
+        else if (BoneLower.StartsWith(TEXT("wheel_")) || ConfiguredMotors[BoneIndex].bIsChildOfSteer)
         {
-            // Global/Gövde referans çerçevesinde doğrusal strok
-            float Stroke = Value * ConfiguredMotors[BoneIndex].MaxLimitDeg; // cm
-            if (BoneIndex > 0 && VisualSections.IsValidIndex(BoneIndex) && VisualSections.IsValidIndex(0))
-            {
-                FVector BaseLoc = VisualSections[BoneIndex].PivotPoint - VisualSections[0].PivotPoint;
-                VisualMeshComponents[BoneIndex]->SetRelativeLocation(BaseLoc + FVector(Stroke, 0.0f, 0.0f));
-            }
+            // Güç iletmez, test çubuğu döndürmez
         }
     }
 }
