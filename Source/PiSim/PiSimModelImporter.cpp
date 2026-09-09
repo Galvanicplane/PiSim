@@ -1324,7 +1324,154 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
     }
 
     // -----------------------------------------------------------------------------------------
-    // 3) EĞER HİÇ UCX YOKSA: GÖRSEL PARÇALARIN KENDİSİNE COLLISION VER (Güvenlik Sigortası)
+    // 3) UCX COLLISION MESH COMPONENTLARI OLUŞTUR (Görsel Zırh İnceleme Toggle'ı İçin)
+    // -----------------------------------------------------------------------------------------
+    for (int32 j = 0; j < UCXSections.Num(); ++j)
+    {
+        FName CollCompName = *FString::Printf(TEXT("UcxCollisionMesh_%d_%s"), j, *UCXSections[j].MeshName);
+        UProceduralMeshComponent* CollMesh = NewObject<UProceduralMeshComponent>(this, CollCompName);
+        CollMesh->SetMobility(EComponentMobility::Movable);
+
+        if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+        {
+            CollMesh->SetupAttachment(VisualMeshComponents[0]);
+            CollMesh->SetRelativeLocation(UCXSections[j].PivotPoint - VisualSections[0].PivotPoint);
+        }
+        else
+        {
+            CollMesh->SetupAttachment(SceneRootComponent);
+            CollMesh->SetRelativeLocation(UCXSections[j].PivotPoint);
+        }
+
+        CollMesh->RegisterComponent();
+
+        TArray<FVector2D> UV0;
+        TArray<FLinearColor> VertexColors;
+        TArray<FProcMeshTangent> Tangents;
+        CollMesh->CreateMeshSection_LinearColor(0, UCXSections[j].Vertices, UCXSections[j].Triangles, UCXSections[j].Normals, UV0, VertexColors, Tangents, false);
+        if (DefaultMat) CollMesh->SetMaterial(0, DefaultMat);
+
+        CollMesh->SetVisibility(bShowCollisionView);
+        CollMesh->SetHiddenInGame(!bShowCollisionView);
+        CollMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision); // Purely for visual inspector toggle
+
+        CollisionMeshComponents.Add(CollMesh);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // 4) MOTORLARI VE KEMİKLERİ OTOMATİK SINIFLANDIR & LİSTEYE EKLE
+    // -----------------------------------------------------------------------------------------
+    ConfiguredMotors.Empty();
+    for (int32 i = 0; i < VisualSections.Num(); ++i)
+    {
+        FPiSimMotorItem MotorItem;
+        MotorItem.BoneIndex = i;
+        MotorItem.BoneName = VisualSections[i].MeshName;
+
+        FString LowerName = VisualSections[i].MeshName.ToLower();
+        if (LowerName.StartsWith(TEXT("m_wheel")) || LowerName.StartsWith(TEXT("w_")) || LowerName.Contains(TEXT("wheel")))
+        {
+            MotorItem.Role = EPiSimMotorRole::DriveWheel;
+            MotorItem.MaxVelocityRPM = 500.0f;
+            MotorItem.MaxTorqueNm = 15.0f;
+        }
+        else if (LowerName.StartsWith(TEXT("m_steer")) || LowerName.StartsWith(TEXT("steer")))
+        {
+            MotorItem.Role = EPiSimMotorRole::SteeredWheel;
+            MotorItem.MinLimitDeg = -45.0f;
+            MotorItem.MaxLimitDeg = +45.0f;
+            MotorItem.MaxTorqueNm = 20.0f;
+        }
+        else if (LowerName.StartsWith(TEXT("m_caster")) || LowerName.StartsWith(TEXT("caster")))
+        {
+            MotorItem.Role = EPiSimMotorRole::FreeCaster;
+        }
+        else if (LowerName.StartsWith(TEXT("m_servo")) || LowerName.StartsWith(TEXT("joint")) || LowerName.StartsWith(TEXT("bone")) || LowerName.Contains(TEXT("arm")))
+        {
+            MotorItem.Role = EPiSimMotorRole::ServoJoint;
+            MotorItem.MinLimitDeg = -90.0f;
+            MotorItem.MaxLimitDeg = +90.0f;
+            MotorItem.MaxTorqueNm = 25.0f;
+        }
+        else if (LowerName.StartsWith(TEXT("m_piston")) || LowerName.StartsWith(TEXT("piston")) || LowerName.StartsWith(TEXT("linear")))
+        {
+            MotorItem.Role = EPiSimMotorRole::LinearActuator;
+            MotorItem.MinLimitDeg = 0.0f;
+            MotorItem.MaxLimitDeg = 100.0f;
+            MotorItem.MaxTorqueNm = 5000.0f;
+        }
+        else if (LowerName.StartsWith(TEXT("m_thrust")) || LowerName.StartsWith(TEXT("prop")) || LowerName.StartsWith(TEXT("thruster")))
+        {
+            MotorItem.Role = EPiSimMotorRole::Thruster;
+            MotorItem.MaxVelocityRPM = 6000.0f;
+            MotorItem.MaxTorqueNm = 30.0f;
+        }
+        else if (LowerName.StartsWith(TEXT("m_track")) || LowerName.StartsWith(TEXT("track")))
+        {
+            MotorItem.Role = EPiSimMotorRole::TrackPad;
+            MotorItem.MaxVelocityRPM = 300.0f;
+            MotorItem.MaxTorqueNm = 40.0f;
+        }
+        else if (i > 0)
+        {
+            MotorItem.Role = EPiSimMotorRole::DriveWheel;
+            MotorItem.MaxVelocityRPM = 500.0f;
+            MotorItem.MaxTorqueNm = 15.0f;
+        }
+        else
+        {
+            MotorItem.Role = EPiSimMotorRole::None; // Root chassis
+        }
+
+        ConfiguredMotors.Add(MotorItem);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // 5) SENSÖRLERİ SINIFLANDIR & LİSTEYE EKLE
+    // -----------------------------------------------------------------------------------------
+    ConfiguredSensors.Empty();
+    for (int32 s = 0; s < SensorSections.Num(); ++s)
+    {
+        FPiSimSensorItem SensorItem;
+        SensorItem.SensorIndex = s;
+        SensorItem.SensorName = SensorSections[s].SensorName;
+        SensorItem.PivotPoint = SensorSections[s].PivotPoint;
+        SensorItem.Rotation = SensorSections[s].Rotation;
+
+        FString LowerSensor = SensorSections[s].SensorName.ToLower();
+        if (LowerSensor.Contains(TEXT("cam")))
+        {
+            SensorItem.Type = EPiSimSensorType::Camera;
+            SensorItem.FovAngle = 90.0f;
+            SensorItem.Fps = 25;
+            SensorItem.Port = 5000;
+        }
+        else if (LowerSensor.Contains(TEXT("imu")))
+        {
+            SensorItem.Type = EPiSimSensorType::IMU;
+            SensorItem.Fps = 100;
+            SensorItem.Port = 7401;
+        }
+        else if (LowerSensor.Contains(TEXT("gps")))
+        {
+            SensorItem.Type = EPiSimSensorType::GPS;
+            SensorItem.Fps = 10;
+        }
+        else if (LowerSensor.Contains(TEXT("lidar")))
+        {
+            SensorItem.Type = EPiSimSensorType::LiDAR;
+            SensorItem.Fps = 20;
+        }
+        else
+        {
+            SensorItem.Type = EPiSimSensorType::Unknown;
+        }
+
+        ConfiguredSensors.Add(SensorItem);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // 6) EĞER HİÇ UCX YOKSA: GÖRSEL PARÇALARIN KENDİSİNE COLLISION VER (Güvenlik Sigortası)
     // -----------------------------------------------------------------------------------------
     if (UCXSections.Num() == 0)
     {
@@ -1355,7 +1502,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         }
     }
 
-    // 4) Kamerayı direkt olarak araç gövdesine (Chassis) kilitle!
+    // 7) Kamerayı direkt olarak araç gövdesine (Chassis) kilitle!
     if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0] && OrbitSpringArm)
     {
         OrbitSpringArm->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::SnapToTargetNotIncludingScale);
@@ -1366,7 +1513,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         OrbitSpringArm->bInheritYaw = true;
     }
 
-    // 5) DİNAMİK SENSÖR YERLEŞTİRME (S_Cam_..., S_Camera_..., vb.)
+    // 8) DİNAMİK SENSÖR YERLEŞTİRME (S_Cam_..., S_Camera_..., vb.)
     int32 DiscoveredCameras = 0;
     for (const FImporterSensorSection& Sensor : SensorSections)
     {
@@ -1594,5 +1741,117 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
 
         GEngine->AddOnScreenDebugMessage(803, 10.0f, FColor::Yellow,
             FString::Printf(TEXT("⚙️ >>> [%d ADET EKLEM KISITLAMASI BAĞLANDI] Tekerlekler Serbest Dönüyor! <<<"), JointConstraints.Num()));
+    }
+}
+
+// =========================================================================================
+// [AŞAMA 5] 3-SEKMELİ PiSim ROBOT STUDIO METOTLARI
+// =========================================================================================
+void APiSimModelImporter::SetActiveTab(EPiSimActiveTab NewTab)
+{
+    CurrentActiveTab = NewTab;
+}
+
+void APiSimModelImporter::ToggleDisplayMode()
+{
+    SetDisplayMode(!bShowCollisionView);
+}
+
+void APiSimModelImporter::SetDisplayMode(bool bCollision)
+{
+    bShowCollisionView = bCollision;
+    UpdateVisualMaterials();
+}
+
+void APiSimModelImporter::SelectBone(int32 Index)
+{
+    SelectedBoneIndex = Index;
+    UpdateVisualMaterials();
+}
+
+void APiSimModelImporter::SelectSensor(int32 Index)
+{
+    SelectedSensorIndex = Index;
+}
+
+void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
+{
+    if (!ConfiguredMotors.IsValidIndex(BoneIndex)) return;
+    ConfiguredMotors[BoneIndex].CurrentTestValue = Value;
+
+    if (VisualMeshComponents.IsValidIndex(BoneIndex) && VisualMeshComponents[BoneIndex])
+    {
+        EPiSimMotorRole MotorRole = ConfiguredMotors[BoneIndex].Role;
+        if (MotorRole == EPiSimMotorRole::DriveWheel || MotorRole == EPiSimMotorRole::Thruster || MotorRole == EPiSimMotorRole::TrackPad)
+        {
+            AppliedWheelRpm = Value * ConfiguredMotors[BoneIndex].MaxVelocityRPM;
+        }
+        else if (MotorRole == EPiSimMotorRole::SteeredWheel || MotorRole == EPiSimMotorRole::ServoJoint)
+        {
+            float TargetAngle = FMath::Lerp(ConfiguredMotors[BoneIndex].MinLimitDeg, ConfiguredMotors[BoneIndex].MaxLimitDeg, (Value + 1.0f) * 0.5f);
+            VisualMeshComponents[BoneIndex]->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
+        }
+        else if (MotorRole == EPiSimMotorRole::LinearActuator)
+        {
+            float Stroke = Value * ConfiguredMotors[BoneIndex].MaxLimitDeg; // cm
+            if (BoneIndex > 0 && VisualSections.IsValidIndex(BoneIndex) && VisualSections.IsValidIndex(0))
+            {
+                FVector BaseLoc = VisualSections[BoneIndex].PivotPoint - VisualSections[0].PivotPoint;
+                VisualMeshComponents[BoneIndex]->SetRelativeLocation(BaseLoc + FVector(Stroke, 0.0f, 0.0f));
+            }
+        }
+    }
+}
+
+void APiSimModelImporter::RemoveMotorFromBone(int32 BoneIndex)
+{
+    if (!ConfiguredMotors.IsValidIndex(BoneIndex)) return;
+    ConfiguredMotors[BoneIndex].Role = EPiSimMotorRole::None;
+    ConfiguredMotors[BoneIndex].CurrentTestValue = 0.0f;
+    UpdateVisualMaterials();
+}
+
+void APiSimModelImporter::AssignMotorToBone(int32 BoneIndex, EPiSimMotorRole NewRole)
+{
+    if (!ConfiguredMotors.IsValidIndex(BoneIndex)) return;
+    ConfiguredMotors[BoneIndex].Role = NewRole;
+    UpdateVisualMaterials();
+}
+
+void APiSimModelImporter::RemoveSensor(int32 SensorIndex)
+{
+    if (!ConfiguredSensors.IsValidIndex(SensorIndex)) return;
+    ConfiguredSensors[SensorIndex].bIsActive = false;
+
+    if (ConfiguredSensors[SensorIndex].Type == EPiSimSensorType::Camera)
+    {
+        bEnableVideoStream = false;
+        FpvCameraCapture = nullptr;
+    }
+}
+
+void APiSimModelImporter::ToggleSensorMarkers(bool bShow)
+{
+    bShowSensorMarkers = bShow;
+}
+
+void APiSimModelImporter::UpdateVisualMaterials()
+{
+    for (int32 i = 0; i < VisualMeshComponents.Num(); ++i)
+    {
+        if (VisualMeshComponents[i])
+        {
+            VisualMeshComponents[i]->SetVisibility(!bShowCollisionView);
+            VisualMeshComponents[i]->SetHiddenInGame(bShowCollisionView);
+        }
+    }
+
+    for (int32 j = 0; j < CollisionMeshComponents.Num(); ++j)
+    {
+        if (CollisionMeshComponents[j])
+        {
+            CollisionMeshComponents[j]->SetVisibility(bShowCollisionView);
+            CollisionMeshComponents[j]->SetHiddenInGame(!bShowCollisionView);
+        }
     }
 }

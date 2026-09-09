@@ -15,6 +15,115 @@ class UPiSimModelImporterWidget;
 class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
 
+UENUM(BlueprintType)
+enum class EPiSimActiveTab : uint8
+{
+    MotorsTab      UMETA(DisplayName = "1. Motorlar & Kontrol"),
+    TelemetryTab   UMETA(DisplayName = "2. Telemetri & Pi 5"),
+    SensorsTab     UMETA(DisplayName = "3. Sensörler")
+};
+
+UENUM(BlueprintType)
+enum class EPiSimMotorRole : uint8
+{
+    DriveWheel     UMETA(DisplayName = "Sürüş Tekerleği (Drive Wheel)"),
+    SteeredWheel   UMETA(DisplayName = "Direksiyonlu Tekerlek (Steered)"),
+    FreeCaster     UMETA(DisplayName = "Serbest Sarhoş Tekerlek (Caster)"),
+    ServoJoint     UMETA(DisplayName = "Robot Kolu Servosu (Servo Joint)"),
+    LinearActuator UMETA(DisplayName = "Hidrolik / Lineer Piston"),
+    Thruster       UMETA(DisplayName = "İtki Pervanesi (Thruster)"),
+    TrackPad       UMETA(DisplayName = "Palet Sürtünme Plakası (Track)"),
+    None           UMETA(DisplayName = "Motor Yok / Pasif Gövde")
+};
+
+UENUM(BlueprintType)
+enum class EPiSimSensorType : uint8
+{
+    Camera         UMETA(DisplayName = "FPV Kamera"),
+    IMU            UMETA(DisplayName = "IMU Sensörü"),
+    GPS            UMETA(DisplayName = "GPS Alıcısı"),
+    LiDAR          UMETA(DisplayName = "LiDAR"),
+    Ultrasonic     UMETA(DisplayName = "Ultrasonik Mesafe"),
+    Unknown        UMETA(DisplayName = "Bilinmeyen Sensör")
+};
+
+USTRUCT(BlueprintType)
+struct FPiSimMotorItem
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    int32 BoneIndex = -1;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    FString BoneName = TEXT("");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    EPiSimMotorRole Role = EPiSimMotorRole::None;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    float MaxVelocityRPM = 300.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    float MaxTorqueNm = 15.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    float MinLimitDeg = -90.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    float MaxLimitDeg = +90.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    float CurrentTestValue = 0.0f; // Live slider test value (-1.0 to +1.0 or target angle/RPM)
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    float Kp = 1000.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    float Kd = 100.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    float GearRatio = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    float TorqueConstantKt = 0.05f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    FString Ros2Topic = TEXT("/cmd_vel");
+};
+
+USTRUCT(BlueprintType)
+struct FPiSimSensorItem
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    int32 SensorIndex = -1;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    FString SensorName = TEXT("");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    EPiSimSensorType Type = EPiSimSensorType::Camera;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    FVector PivotPoint = FVector::ZeroVector;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    FRotator Rotation = FRotator::ZeroRotator;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    float FovAngle = 90.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    int32 Fps = 25;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
+    int32 Port = 5000;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensor")
+    bool bIsActive = true;
+};
 
 USTRUCT(BlueprintType)
 struct FImporterMeshSection
@@ -240,6 +349,46 @@ public:
     TArray<FString> ConnectionDebugLogs;
 
     void AddConnectionDebugLog(const FString& LogMsg);
+
+    // =========================================================================
+    // 3-SEKMELİ PiSim ROBOT STUDIO & KONFİGÜRASYON SİSTEMİ
+    // =========================================================================
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Studio")
+    EPiSimActiveTab CurrentActiveTab = EPiSimActiveTab::MotorsTab;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Studio")
+    bool bShowCollisionView = false; // False: Visual Mesh, True: UCX Collision
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Studio")
+    bool bShowSensorMarkers = true;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Studio")
+    int32 SelectedBoneIndex = -1;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Studio")
+    int32 SelectedSensorIndex = -1;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Studio")
+    bool bIsAdvancedMode = false; // False: Basic Mod, True: Advanced Mod
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Studio")
+    TArray<FPiSimMotorItem> ConfiguredMotors;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Studio")
+    TArray<FPiSimSensorItem> ConfiguredSensors;
+
+    // Studio Action Methods
+    void SetActiveTab(EPiSimActiveTab NewTab);
+    void ToggleDisplayMode();
+    void SetDisplayMode(bool bCollision);
+    void SelectBone(int32 Index);
+    void SelectSensor(int32 Index);
+    void SetMotorTestValue(int32 BoneIndex, float Value);
+    void RemoveMotorFromBone(int32 BoneIndex);
+    void AssignMotorToBone(int32 BoneIndex, EPiSimMotorRole NewRole);
+    void RemoveSensor(int32 SensorIndex);
+    void ToggleSensorMarkers(bool bShow);
+    void UpdateVisualMaterials();
 
     // =========================================================================
     // CONTROLS & SETTINGS (Clean 1.0f 1:1 Scale by default)

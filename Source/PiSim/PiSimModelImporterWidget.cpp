@@ -1,5 +1,5 @@
 // PiSimModelImporterWidget.cpp
-// Clean, Dedicated Slate-Powered HUD Widget for PiSimModelImporter.
+// Clean, Dedicated Slate-Powered 3-Tab Studio Widget for PiSimModelImporter.
 
 #include "PiSimModelImporterWidget.h"
 #include "PiSimModelImporter.h"
@@ -7,8 +7,11 @@
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SScrollBox.h"
+#include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SSlider.h"
 #include "Widgets/Images/SImage.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Kismet/GameplayStatics.h"
@@ -22,23 +25,24 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
         TargetImporter = Cast<APiSimModelImporter>(Found);
     }
 
-    FSlateFontInfo HeaderTitleFont = FCoreStyle::GetDefaultFontStyle("Bold", 13);
+    FSlateFontInfo HeaderTitleFont = FCoreStyle::GetDefaultFontStyle("Bold", 12);
+    FSlateFontInfo TabFont = FCoreStyle::GetDefaultFontStyle("Bold", 10);
     FSlateFontInfo CardHeaderFont = FCoreStyle::GetDefaultFontStyle("Bold", 10);
     FSlateFontInfo DataFont = FCoreStyle::GetDefaultFontStyle("Regular", 9);
-    FSlateFontInfo BadgeFont = FCoreStyle::GetDefaultFontStyle("Bold", 10);
+    FSlateFontInfo BadgeFont = FCoreStyle::GetDefaultFontStyle("Bold", 9);
     FSlateFontInfo ButtonFont = FCoreStyle::GetDefaultFontStyle("Bold", 9);
 
     return SNew(SOverlay)
         // ---------------------------------------------------------------------
-        // 1) TOP HEADER BAR & CONNECTION BADGE & QUICK CONTROLS
+        // 1) TOP HEADER BAR: TITLE, STATUS & GLOBAL CONTROLS
         // ---------------------------------------------------------------------
         + SOverlay::Slot()
         .HAlign(HAlign_Fill)
         .VAlign(VAlign_Top)
         [
             SNew(SBorder)
-            .BorderBackgroundColor(FLinearColor(0.015f, 0.03f, 0.07f, 0.96f))
-            .Padding(FMargin(18.0f, 10.0f))
+            .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.98f))
+            .Padding(FMargin(16.0f, 8.0f))
             [
                 SNew(SHorizontalBox)
 
@@ -48,7 +52,7 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                 .VAlign(VAlign_Center)
                 [
                     SNew(STextBlock)
-                    .Text(FText::FromString(TEXT("⚡ PiSim // HARDWARE-IN-THE-LOOP TELEMETRY")))
+                    .Text(FText::FromString(TEXT("⚡ PiSim // ROBOT STUDIO")))
                     .Font(HeaderTitleFont)
                     .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
                 ]
@@ -57,11 +61,11 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                 + SHorizontalBox::Slot()
                 .AutoWidth()
                 .VAlign(VAlign_Center)
-                .Padding(FMargin(18.0f, 0.0f, 0.0f, 0.0f))
+                .Padding(FMargin(14.0f, 0.0f, 0.0f, 0.0f))
                 [
                     SAssignNew(ConnectionBadgeBorder, SBorder)
-                    .BorderBackgroundColor(FLinearColor(0.25f, 0.18f, 0.02f, 0.95f)) // Amber initial
-                    .Padding(FMargin(10.0f, 4.0f))
+                    .BorderBackgroundColor(FLinearColor(0.25f, 0.18f, 0.02f, 0.95f))
+                    .Padding(FMargin(8.0f, 3.0f))
                     [
                         SAssignNew(ConnectionBadgeText, STextBlock)
                         .Text(FText::FromString(TEXT("🟡 PI 5 BEKLENİYOR (Port 7400)")))
@@ -72,74 +76,62 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
 
                 + SHorizontalBox::Slot().FillWidth(1.0f) // Spacer
 
-                // Scale 0.1X Button
+                // Scale 0.1X
                 + SHorizontalBox::Slot()
                 .AutoWidth()
-                .Padding(FMargin(3.0f, 0.0f))
+                .Padding(FMargin(2.0f, 0.0f))
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.08f, 0.16f, 0.28f, 1.0f))
                     .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnScale01Clicked))
                     [
-                        SNew(STextBlock)
-                        .Text(FText::FromString(TEXT(" 0.1X ")))
-                        .Font(ButtonFont)
-                        .ColorAndOpacity(FLinearColor::White)
+                        SNew(STextBlock).Text(FText::FromString(TEXT(" 0.1X "))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
                     ]
                 ]
 
-                // Scale 1.0X Button
+                // Scale 1.0X
                 + SHorizontalBox::Slot()
                 .AutoWidth()
-                .Padding(FMargin(3.0f, 0.0f))
+                .Padding(FMargin(2.0f, 0.0f))
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.0f, 0.45f, 0.75f, 1.0f))
                     .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnScale10Clicked))
                     [
-                        SNew(STextBlock)
-                        .Text(FText::FromString(TEXT(" 1.0X (1:1) ")))
-                        .Font(ButtonFont)
-                        .ColorAndOpacity(FLinearColor::White)
+                        SNew(STextBlock).Text(FText::FromString(TEXT(" 1.0X "))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
                     ]
                 ]
 
-                // Scale 10.0X Button
+                // Scale 10.0X
                 + SHorizontalBox::Slot()
                 .AutoWidth()
-                .Padding(FMargin(3.0f, 0.0f))
+                .Padding(FMargin(2.0f, 0.0f))
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.08f, 0.16f, 0.28f, 1.0f))
                     .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnScale100Clicked))
                     [
-                        SNew(STextBlock)
-                        .Text(FText::FromString(TEXT(" 10.0X ")))
-                        .Font(ButtonFont)
-                        .ColorAndOpacity(FLinearColor::White)
+                        SNew(STextBlock).Text(FText::FromString(TEXT(" 10.0X "))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
                     ]
                 ]
 
-                // Reimport Button
+                // Reimport
                 + SHorizontalBox::Slot()
                 .AutoWidth()
-                .Padding(FMargin(8.0f, 0.0f, 3.0f, 0.0f))
+                .Padding(FMargin(6.0f, 0.0f, 2.0f, 0.0f))
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.08f, 0.45f, 0.25f, 1.0f))
                     .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnReimportClicked))
                     [
-                        SNew(STextBlock)
-                        .Text(FText::FromString(TEXT(" 🔄 REIMPORT ")))
-                        .Font(ButtonFont)
-                        .ColorAndOpacity(FLinearColor::White)
+                        SNew(STextBlock).Text(FText::FromString(TEXT(" 🔄 REIMPORT "))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
                     ]
                 ]
 
-                // Toggle Physics Button
+                // Toggle Physics
                 + SHorizontalBox::Slot()
                 .AutoWidth()
-                .Padding(FMargin(5.0f, 0.0f, 0.0f, 0.0f))
+                .Padding(FMargin(4.0f, 0.0f, 0.0f, 0.0f))
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.85f, 0.4f, 0.0f, 1.0f))
@@ -155,235 +147,663 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
         ]
 
         // ---------------------------------------------------------------------
-        // 2) LEFT PANEL: GELEN VERİLER & BAĞLANTI AŞAMALARI (Pi 5 ➔ UE5)
+        // 2) 3-SEKMELİ NAVİGASYON ÇUBUĞU (TAB SWITCHER BAR)
         // ---------------------------------------------------------------------
         + SOverlay::Slot()
         .HAlign(HAlign_Left)
         .VAlign(VAlign_Top)
-        .Padding(FMargin(18.0f, 64.0f, 0.0f, 0.0f))
+        .Padding(FMargin(18.0f, 48.0f, 0.0f, 0.0f))
         [
-            SNew(SBox)
-            .WidthOverride(440.0f)
-            [
-                SNew(SBorder)
-                .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
-                .Padding(FMargin(14.0f, 12.0f))
-                [
-                    SNew(SVerticalBox)
+            SNew(SHorizontalBox)
 
-                    // Card 1: Connection Stages (Bağlantı Aşamaları)
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 3.0f)
+            // Tab 1: Motorlar & Kontrol
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            .Padding(FMargin(0.0f, 0.0f, 4.0f, 0.0f))
+            [
+                SAssignNew(TabMotorsBtnBorder, SBorder)
+                .BorderBackgroundColor(FLinearColor(0.0f, 0.45f, 0.75f, 1.0f))
+                .Padding(FMargin(1.0f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(FLinearColor(0.02f, 0.08f, 0.18f, 0.95f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnTabMotorsClicked))
+                    .ContentPadding(FMargin(14.0f, 5.0f))
                     [
                         SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("🔗 Pİ 5 BAĞLANTI AŞAMALARI (1 - 4)")))
-                        .Font(CardHeaderFont)
+                        .Text(FText::FromString(TEXT("⚙️ 1. MOTORLAR & KONTROL")))
+                        .Font(TabFont)
                         .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
                     ]
+                ]
+            ]
 
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 10.0f)
-                    [
-                        SAssignNew(ConnectionStagesText, STextBlock)
-                        .Text(FText::FromString(TEXT("Aşama bilgileri hazırlanıyor...")))
-                        .Font(DataFont)
-                        .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
-                    ]
-
-                    // Separator
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-                    [
-                        SNew(SBorder)
-                        .BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f))
-                        .Padding(FMargin(0.0f, 0.5f))
-                    ]
-
-                    // Card 2: Incoming Data (GELEN VERİLER - Pi 5 -> UE5)
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 3.0f, 0.0f, 3.0f)
+            // Tab 2: Telemetri & Pi 5
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            .Padding(FMargin(0.0f, 0.0f, 4.0f, 0.0f))
+            [
+                SAssignNew(TabTelemetryBtnBorder, SBorder)
+                .BorderBackgroundColor(FLinearColor(0.05f, 0.12f, 0.22f, 0.8f))
+                .Padding(FMargin(1.0f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(FLinearColor(0.02f, 0.05f, 0.12f, 0.95f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnTabTelemetryClicked))
+                    .ContentPadding(FMargin(14.0f, 5.0f))
                     [
                         SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("🎮 GELEN VERİLER (Pi 5 ➔ UE5 - Twist Komutları)")))
-                        .Font(CardHeaderFont)
-                        .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
+                        .Text(FText::FromString(TEXT("📡 2. TELEMETRİ & BAĞLANTI")))
+                        .Font(TabFont)
+                        .ColorAndOpacity(FLinearColor(0.8f, 0.9f, 1.0f, 1.0f))
                     ]
+                ]
+            ]
 
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 10.0f)
-                    [
-                        SAssignNew(IncomingDataText, STextBlock)
-                        .Text(FText::FromString(TEXT("Gelen kontrol komutu bekleniyor...")))
-                        .Font(DataFont)
-                        .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
-                    ]
-
-                    // Separator
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 6.0f)
-                    [
-                        SNew(SBorder)
-                        .BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f))
-                        .Padding(FMargin(0.0f, 0.5f))
-                    ]
-
-                    // Card 3: Live Connection & Event Log (Canlı Bağlantı Günlüğü)
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 3.0f, 0.0f, 3.0f)
+            // Tab 3: Sensörler
+            + SHorizontalBox::Slot()
+            .AutoWidth()
+            [
+                SAssignNew(TabSensorsBtnBorder, SBorder)
+                .BorderBackgroundColor(FLinearColor(0.05f, 0.12f, 0.22f, 0.8f))
+                .Padding(FMargin(1.0f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(FLinearColor(0.02f, 0.05f, 0.12f, 0.95f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnTabSensorsClicked))
+                    .ContentPadding(FMargin(14.0f, 5.0f))
                     [
                         SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("📋 CANLI BAĞLANTI & HATA GÜNLÜĞÜ (DEBUG LOG)")))
-                        .Font(CardHeaderFont)
-                        .ColorAndOpacity(FLinearColor(1.0f, 0.55f, 0.25f, 1.0f))
-                    ]
-
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    [
-                        SAssignNew(ConnectionDebugLogText, STextBlock)
-                        .Text(FText::FromString(TEXT("Log bekleniyor...")))
-                        .Font(DataFont)
-                        .ColorAndOpacity(FLinearColor(1.0f, 0.92f, 0.75f, 1.0f))
+                        .Text(FText::FromString(TEXT("📷 3. SENSÖRLER")))
+                        .Font(TabFont)
+                        .ColorAndOpacity(FLinearColor(0.8f, 0.9f, 1.0f, 1.0f))
                     ]
                 ]
             ]
         ]
 
         // ---------------------------------------------------------------------
-        // 3) RIGHT PANEL: GİDEN VERİLER & TELEMETRİ (UE5 ➔ Pi 5) & CAD
+        // 3) ANA İÇERİK DEĞİŞTİRİCİ (WIDGET SWITCHER: TABS 0, 1, 2)
         // ---------------------------------------------------------------------
         + SOverlay::Slot()
-        .HAlign(HAlign_Right)
-        .VAlign(VAlign_Top)
-        .Padding(FMargin(0.0f, 64.0f, 18.0f, 0.0f))
+        .HAlign(HAlign_Fill)
+        .VAlign(VAlign_Fill)
+        .Padding(FMargin(18.0f, 86.0f, 18.0f, 18.0f))
         [
-            SNew(SBox)
-            .WidthOverride(420.0f)
+            SAssignNew(MainTabSwitcher, SWidgetSwitcher)
+            .WidgetIndex(0) // Default: Motors Tab
+
+            // =================================================================
+            // [SEKME 1] MOTORLAR & KONTROL (MOTORS TAB)
+            // =================================================================
+            + SWidgetSwitcher::Slot()
             [
-                SNew(SBorder)
-                .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
-                .Padding(FMargin(14.0f, 12.0f))
+                SNew(SHorizontalBox)
+
+                // SOL PANEL: KEMİK AĞACI & GÖRSEL/UCX TOGGLE
+                + SHorizontalBox::Slot()
+                .AutoWidth()
                 [
-                    SNew(SVerticalBox)
-
-                    // Card 1: Outgoing Telemetry (GİDEN VERİLER - UE5 -> Pi 5)
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 3.0f)
-                    [
-                        SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("📡 GİDEN VERİLER (UE5 ➔ Pi 5 - IMU TELEMETRİSİ)")))
-                        .Font(CardHeaderFont)
-                        .ColorAndOpacity(FLinearColor(1.0f, 0.75f, 0.1f, 1.0f))
-                    ]
-
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 10.0f)
-                    [
-                        SAssignNew(OutgoingTelemetryText, STextBlock)
-                        .Text(FText::FromString(TEXT("Telemetri verisi hazırlanıyor...")))
-                        .Font(DataFont)
-                        .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
-                    ]
-
-                    // Separator
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                    SNew(SBox)
+                    .WidthOverride(420.0f)
                     [
                         SNew(SBorder)
-                        .BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f))
-                        .Padding(FMargin(0.0f, 0.5f))
-                    ]
+                        .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
+                        .Padding(FMargin(14.0f, 12.0f))
+                        [
+                            SNew(SVerticalBox)
 
-                    // Card 2: CAD Geometry & Chaos Physics
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 3.0f, 0.0f, 3.0f)
-                    [
-                        SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("📦 CAD GEOMETRİ & CHAOS FİZİK ZIRHI")))
-                        .Font(CardHeaderFont)
-                        .ColorAndOpacity(FLinearColor(0.7f, 0.85f, 1.0f, 0.95f))
-                    ]
+                            // Header & Toggle Switcher
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SNew(SHorizontalBox)
+                                + SHorizontalBox::Slot()
+                                .AutoWidth()
+                                .VAlign(VAlign_Center)
+                                [
+                                    SNew(STextBlock)
+                                    .Text(FText::FromString(TEXT("🦴 KEMİK / PARÇA LİSTESİ")))
+                                    .Font(CardHeaderFont)
+                                    .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
+                                ]
+                                + SHorizontalBox::Slot().FillWidth(1.0f)
+                                + SHorizontalBox::Slot()
+                                .AutoWidth()
+                                [
+                                    SNew(SButton)
+                                    .ButtonColorAndOpacity(FLinearColor(0.1f, 0.25f, 0.45f, 1.0f))
+                                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnToggleDisplayModeClicked))
+                                    .ContentPadding(FMargin(8.0f, 3.0f))
+                                    [
+                                        SAssignNew(DisplayModeButtonText, STextBlock)
+                                        .Text(FText::FromString(TEXT("🎨 GÖRSEL MOD")))
+                                        .Font(BadgeFont)
+                                        .ColorAndOpacity(FLinearColor::White)
+                                    ]
+                                ]
+                            ]
 
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    [
-                        SAssignNew(ModelCadStatusText, STextBlock)
-                        .Text(FText::FromString(TEXT("Yükleniyor...")))
-                        .Font(DataFont)
-                        .ColorAndOpacity(FLinearColor(0.85f, 0.92f, 1.0f, 1.0f))
+                            // Separator
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SNew(SBorder).BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f)).Padding(FMargin(0.0f, 0.5f))
+                            ]
+
+                            // Scrollable Bone List
+                            + SVerticalBox::Slot()
+                            .FillHeight(1.0f)
+                            [
+                                SAssignNew(BoneListScrollBox, SScrollBox)
+                            ]
+                        ]
                     ]
                 ]
-            ]
-        ]
 
-        // ---------------------------------------------------------------------
-        // 4) BOTTOM RIGHT: CANLI FPV KAMERA MONİTÖRÜ (PiP PREVIEW)
-        // ---------------------------------------------------------------------
-        + SOverlay::Slot()
-        .HAlign(HAlign_Right)
-        .VAlign(VAlign_Bottom)
-        .Padding(FMargin(0.0f, 0.0f, 18.0f, 18.0f))
-        [
-            SNew(SBox)
-            .WidthOverride(260.0f)
-            [
-                SNew(SBorder)
-                .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
-                .Padding(FMargin(10.0f, 8.0f))
+                + SHorizontalBox::Slot().FillWidth(1.0f) // Spacer
+
+                // SAĞ PANEL: SEÇİLİ KEMİK VE MOTOR MÜFETTİŞİ (INSPECTOR)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
                 [
-                    SNew(SVerticalBox)
-
-                    // Header Bar
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .Padding(0.0f, 0.0f, 0.0f, 4.0f)
-                    [
-                        SNew(SHorizontalBox)
-                        + SHorizontalBox::Slot()
-                        .AutoWidth()
-                        .VAlign(VAlign_Center)
-                        [
-                            SNew(STextBlock)
-                            .Text(FText::FromString(TEXT("📷 CANLI FPV MONİTÖR (PiP)")))
-                            .Font(CardHeaderFont)
-                            .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
-                        ]
-                        + SHorizontalBox::Slot()
-                        .FillWidth(1.0f)
-                        + SHorizontalBox::Slot()
-                        .AutoWidth()
-                        .VAlign(VAlign_Center)
-                        [
-                            SAssignNew(CameraPipInfoText, STextBlock)
-                            .Text(FText::FromString(TEXT("320x240")))
-                            .Font(BadgeFont)
-                            .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
-                        ]
-                    ]
-
-                    // Video Preview Image Box
-                    + SVerticalBox::Slot()
-                    .AutoHeight()
-                    .HAlign(HAlign_Center)
-                    .Padding(0.0f, 2.0f, 0.0f, 2.0f)
+                    SAssignNew(BoneInspectorBorder, SBorder)
+                    .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
+                    .Padding(FMargin(14.0f, 12.0f))
+                    .Visibility(EVisibility::Collapsed)
                     [
                         SNew(SBox)
-                        .WidthOverride(240.0f)
-                        .HeightOverride(180.0f)
+                        .WidthOverride(440.0f)
                         [
-                            SNew(SImage)
-                            .Image(&CameraPreviewBrush)
+                            SNew(SVerticalBox)
+
+                            // Header & Basic/Advanced Toggle
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                            [
+                                SNew(SHorizontalBox)
+                                + SHorizontalBox::Slot()
+                                .AutoWidth()
+                                .VAlign(VAlign_Center)
+                                [
+                                    SAssignNew(SelectedBoneTitleText, STextBlock)
+                                    .Text(FText::FromString(TEXT("SEÇİLİ PARÇA")))
+                                    .Font(CardHeaderFont)
+                                    .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
+                                ]
+                                + SHorizontalBox::Slot().FillWidth(1.0f)
+                                + SHorizontalBox::Slot()
+                                .AutoWidth()
+                                [
+                                    SNew(SButton)
+                                    .ButtonColorAndOpacity(FLinearColor(0.2f, 0.4f, 0.1f, 1.0f))
+                                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnToggleAdvancedModeClicked))
+                                    .ContentPadding(FMargin(8.0f, 3.0f))
+                                    [
+                                        SAssignNew(AdvancedModeButtonText, STextBlock)
+                                        .Text(FText::FromString(TEXT("🚗 BASIC MOD")))
+                                        .Font(BadgeFont)
+                                        .ColorAndOpacity(FLinearColor::White)
+                                    ]
+                                ]
+                            ]
+
+                            // Role Badge
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SAssignNew(SelectedBoneRoleBadgeText, STextBlock)
+                                .Text(FText::FromString(TEXT("Rol: Sürüş Tekerleği")))
+                                .Font(BadgeFont)
+                                .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
+                            ]
+
+                            // Separator
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SNew(SBorder).BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f)).Padding(FMargin(0.0f, 0.5f))
+                            ]
+
+                            // Existing Motor Container
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            [
+                                SAssignNew(ExistingMotorBox, SBox)
+                                [
+                                    SNew(SVerticalBox)
+
+                                    // Details Text
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+                                    [
+                                        SAssignNew(MotorDetailsText, STextBlock)
+                                        .Text(FText::FromString(TEXT("Motor parametreleri yükleniyor...")))
+                                        .Font(DataFont)
+                                        .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
+                                    ]
+
+                                    // Live Motor Test Slider Header
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 6.0f, 0.0f, 4.0f)
+                                    [
+                                        SNew(SHorizontalBox)
+                                        + SHorizontalBox::Slot().AutoWidth()
+                                        [
+                                            SNew(STextBlock)
+                                            .Text(FText::FromString(TEXT("🎮 CANLI TEST ÇUBUĞU (SLIDER):")))
+                                            .Font(BadgeFont)
+                                            .ColorAndOpacity(FLinearColor(1.0f, 0.75f, 0.1f, 1.0f))
+                                        ]
+                                        + SHorizontalBox::Slot().FillWidth(1.0f)
+                                        + SHorizontalBox::Slot().AutoWidth()
+                                        [
+                                            SAssignNew(MotorTestSliderValueText, STextBlock)
+                                            .Text(FText::FromString(TEXT("0.0% (DURUYOR)")))
+                                            .Font(BadgeFont)
+                                            .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
+                                        ]
+                                    ]
+
+                                    // Live Test Slider
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 0.0f, 0.0f, 14.0f)
+                                    [
+                                        SAssignNew(MotorTestSlider, SSlider)
+                                        .Value(0.0f)
+                                        .MinValue(-1.0f)
+                                        .MaxValue(1.0f)
+                                        .OnValueChanged(FOnFloatValueChanged::CreateUObject(this, &UPiSimModelImporterWidget::OnMotorTestSliderChanged))
+                                    ]
+
+                                    // Remove Motor Button
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 4.0f, 0.0f, 0.0f)
+                                    [
+                                        SNew(SButton)
+                                        .ButtonColorAndOpacity(FLinearColor(0.45f, 0.08f, 0.08f, 1.0f))
+                                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnRemoveMotorClicked))
+                                        .ContentPadding(FMargin(10.0f, 6.0f))
+                                        [
+                                            SNew(STextBlock)
+                                            .Text(FText::FromString(TEXT("🗑️ MOTORU BU KEMİKTEN KALDIR")))
+                                            .Font(ButtonFont)
+                                            .ColorAndOpacity(FLinearColor::White)
+                                        ]
+                                    ]
+                                ]
+                            ]
+
+                            // Assign Motor Container (Shown if Role == None)
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            [
+                                SAssignNew(AssignMotorBox, SBox)
+                                .Visibility(EVisibility::Collapsed)
+                                [
+                                    SNew(SVerticalBox)
+
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                                    [
+                                        SNew(STextBlock)
+                                        .Text(FText::FromString(TEXT("Bu kemiğe atanmış motor yok. Bir motor tipi seçin:")))
+                                        .Font(DataFont)
+                                        .ColorAndOpacity(FLinearColor(0.85f, 0.85f, 0.85f, 1.0f))
+                                    ]
+
+                                    // Role 1: Drive Wheel
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f)
+                                    [
+                                        SNew(SButton).ButtonColorAndOpacity(FLinearColor(0.05f, 0.2f, 0.4f, 1.0f))
+                                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAssignRoleClicked, (uint8)EPiSimMotorRole::DriveWheel))
+                                        [
+                                            SNew(STextBlock).Text(FText::FromString(TEXT("🚗 Sürüş Tekerleği (Drive Wheel)"))).Font(ButtonFont)
+                                        ]
+                                    ]
+
+                                    // Role 2: Steered Wheel
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f)
+                                    [
+                                        SNew(SButton).ButtonColorAndOpacity(FLinearColor(0.05f, 0.35f, 0.35f, 1.0f))
+                                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAssignRoleClicked, (uint8)EPiSimMotorRole::SteeredWheel))
+                                        [
+                                            SNew(STextBlock).Text(FText::FromString(TEXT("🧭 Direksiyonlu Tekerlek (Steered Wheel)"))).Font(ButtonFont)
+                                        ]
+                                    ]
+
+                                    // Role 3: Free Caster
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f)
+                                    [
+                                        SNew(SButton).ButtonColorAndOpacity(FLinearColor(0.2f, 0.2f, 0.25f, 1.0f))
+                                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAssignRoleClicked, (uint8)EPiSimMotorRole::FreeCaster))
+                                        [
+                                            SNew(STextBlock).Text(FText::FromString(TEXT("⚪ Serbest Sarhoş Tekerlek (Caster)"))).Font(ButtonFont)
+                                        ]
+                                    ]
+
+                                    // Role 4: Servo Joint
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f)
+                                    [
+                                        SNew(SButton).ButtonColorAndOpacity(FLinearColor(0.4f, 0.25f, 0.05f, 1.0f))
+                                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAssignRoleClicked, (uint8)EPiSimMotorRole::ServoJoint))
+                                        [
+                                            SNew(STextBlock).Text(FText::FromString(TEXT("🦾 Robot Kolu Servosu (Servo Joint)"))).Font(ButtonFont)
+                                        ]
+                                    ]
+
+                                    // Role 5: Linear Actuator
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f)
+                                    [
+                                        SNew(SButton).ButtonColorAndOpacity(FLinearColor(0.35f, 0.1f, 0.35f, 1.0f))
+                                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAssignRoleClicked, (uint8)EPiSimMotorRole::LinearActuator))
+                                        [
+                                            SNew(STextBlock).Text(FText::FromString(TEXT("📏 Hidrolik / Lineer Piston"))).Font(ButtonFont)
+                                        ]
+                                    ]
+
+                                    // Role 6: Thruster
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f)
+                                    [
+                                        SNew(SButton).ButtonColorAndOpacity(FLinearColor(0.4f, 0.08f, 0.08f, 1.0f))
+                                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAssignRoleClicked, (uint8)EPiSimMotorRole::Thruster))
+                                        [
+                                            SNew(STextBlock).Text(FText::FromString(TEXT("🛸 İtki Pervanesi (Thruster)"))).Font(ButtonFont)
+                                        ]
+                                    ]
+
+                                    // Role 7: Track Pad
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f)
+                                    [
+                                        SNew(SButton).ButtonColorAndOpacity(FLinearColor(0.25f, 0.25f, 0.1f, 1.0f))
+                                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAssignRoleClicked, (uint8)EPiSimMotorRole::TrackPad))
+                                        [
+                                            SNew(STextBlock).Text(FText::FromString(TEXT("🚜 Palet Sürtünme Plakası (Track)"))).Font(ButtonFont)
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+
+            // =================================================================
+            // [SEKME 2] TELEMETRİ & BAĞLANTI (TELEMETRY TAB)
+            // =================================================================
+            + SWidgetSwitcher::Slot()
+            [
+                SNew(SHorizontalBox)
+
+                // SOL PANEL: BAĞLANTI AŞAMALARI & GELEN VERİLER
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SNew(SBox)
+                    .WidthOverride(430.0f)
+                    [
+                        SNew(SBorder)
+                        .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
+                        .Padding(FMargin(14.0f, 12.0f))
+                        [
+                            SNew(SVerticalBox)
+
+                            // Card 1: Connection Stages
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 3.0f)
+                            [
+                                SNew(STextBlock).Text(FText::FromString(TEXT("🔗 Pİ 5 BAĞLANTI AŞAMALARI (1 - 4)"))).Font(CardHeaderFont).ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SAssignNew(ConnectionStagesText, STextBlock).Text(FText::FromString(TEXT("Aşama bilgileri hazırlanıyor..."))).Font(DataFont).ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
+                            ]
+
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)[ SNew(SBorder).BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f)).Padding(FMargin(0.0f, 0.5f)) ]
+
+                            // Card 2: Incoming Data
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 3.0f, 0.0f, 3.0f)
+                            [
+                                SNew(STextBlock).Text(FText::FromString(TEXT("🎮 GELEN VERİLER (Pi 5 ➔ UE5 - Twist Komutları)"))).Font(CardHeaderFont).ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SAssignNew(IncomingDataText, STextBlock).Text(FText::FromString(TEXT("Gelen kontrol komutu bekleniyor..."))).Font(DataFont).ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
+                            ]
+
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)[ SNew(SBorder).BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f)).Padding(FMargin(0.0f, 0.5f)) ]
+
+                            // Card 3: Live Debug Event Log
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 3.0f, 0.0f, 3.0f)
+                            [
+                                SNew(STextBlock).Text(FText::FromString(TEXT("📋 CANLI BAĞLANTI & HATA GÜNLÜĞÜ (DEBUG LOG)"))).Font(CardHeaderFont).ColorAndOpacity(FLinearColor(1.0f, 0.55f, 0.25f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            [
+                                SAssignNew(ConnectionDebugLogText, STextBlock).Text(FText::FromString(TEXT("Log bekleniyor..."))).Font(DataFont).ColorAndOpacity(FLinearColor(1.0f, 0.92f, 0.75f, 1.0f))
+                            ]
+                        ]
+                    ]
+                ]
+
+                + SHorizontalBox::Slot().FillWidth(1.0f) // Spacer
+
+                // SAĞ PANEL: GİDEN TELEMETRİ VE CAD
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SNew(SBox)
+                    .WidthOverride(420.0f)
+                    [
+                        SNew(SBorder)
+                        .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
+                        .Padding(FMargin(14.0f, 12.0f))
+                        [
+                            SNew(SVerticalBox)
+
+                            // Card 1: Outgoing Telemetry
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 3.0f)
+                            [
+                                SNew(STextBlock).Text(FText::FromString(TEXT("📡 GİDEN VERİLER (UE5 ➔ Pi 5 - IMU TELEMETRİSİ)"))).Font(CardHeaderFont).ColorAndOpacity(FLinearColor(1.0f, 0.75f, 0.1f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SAssignNew(OutgoingTelemetryText, STextBlock).Text(FText::FromString(TEXT("Telemetri verisi hazırlanıyor..."))).Font(DataFont).ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
+                            ]
+
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)[ SNew(SBorder).BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f)).Padding(FMargin(0.0f, 0.5f)) ]
+
+                            // Card 2: CAD Geometry & Chaos Physics
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 3.0f, 0.0f, 3.0f)
+                            [
+                                SNew(STextBlock).Text(FText::FromString(TEXT("📦 CAD GEOMETRİ & CHAOS FİZİK ZIRHI"))).Font(CardHeaderFont).ColorAndOpacity(FLinearColor(0.7f, 0.85f, 1.0f, 0.95f))
+                            ]
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            [
+                                SAssignNew(ModelCadStatusText, STextBlock).Text(FText::FromString(TEXT("Yükleniyor..."))).Font(DataFont).ColorAndOpacity(FLinearColor(0.85f, 0.92f, 1.0f, 1.0f))
+                            ]
+                        ]
+                    ]
+                ]
+            ]
+
+            // =================================================================
+            // [SEKME 3] SENSÖRLER (SENSORS TAB)
+            // =================================================================
+            + SWidgetSwitcher::Slot()
+            [
+                SNew(SHorizontalBox)
+
+                // SOL PANEL: SENSÖR LİSTESİ & TOGGLE
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SNew(SBox)
+                    .WidthOverride(420.0f)
+                    [
+                        SNew(SBorder)
+                        .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
+                        .Padding(FMargin(14.0f, 12.0f))
+                        [
+                            SNew(SVerticalBox)
+
+                            // Header & Toggle Switcher
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SNew(SHorizontalBox)
+                                + SHorizontalBox::Slot()
+                                .AutoWidth()
+                                .VAlign(VAlign_Center)
+                                [
+                                    SNew(STextBlock)
+                                    .Text(FText::FromString(TEXT("📡 SENSÖR YUVALARI (S_...)")))
+                                    .Font(CardHeaderFont)
+                                    .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
+                                ]
+                                + SHorizontalBox::Slot().FillWidth(1.0f)
+                                + SHorizontalBox::Slot()
+                                .AutoWidth()
+                                [
+                                    SNew(SButton)
+                                    .ButtonColorAndOpacity(FLinearColor(0.1f, 0.25f, 0.45f, 1.0f))
+                                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnToggleSensorMarkersClicked))
+                                    .ContentPadding(FMargin(8.0f, 3.0f))
+                                    [
+                                        SAssignNew(SensorMarkerToggleText, STextBlock)
+                                        .Text(FText::FromString(TEXT("👁️ S_ GÖSTER")))
+                                        .Font(BadgeFont)
+                                        .ColorAndOpacity(FLinearColor::White)
+                                    ]
+                                ]
+                            ]
+
+                            // Separator
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SNew(SBorder).BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f)).Padding(FMargin(0.0f, 0.5f))
+                            ]
+
+                            // Scrollable Sensor List
+                            + SVerticalBox::Slot()
+                            .FillHeight(1.0f)
+                            [
+                                SAssignNew(SensorListScrollBox, SScrollBox)
+                            ]
+                        ]
+                    ]
+                ]
+
+                + SHorizontalBox::Slot().FillWidth(1.0f) // Spacer
+
+                // SAĞ PANEL: SEÇİLİ SENSÖR MÜFETTİŞİ & CANLI PREVIEW
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                [
+                    SAssignNew(SensorInspectorBorder, SBorder)
+                    .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
+                    .Padding(FMargin(14.0f, 12.0f))
+                    .Visibility(EVisibility::Collapsed)
+                    [
+                        SNew(SBox)
+                        .WidthOverride(440.0f)
+                        [
+                            SNew(SVerticalBox)
+
+                            // Header
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                            [
+                                SAssignNew(SelectedSensorTitleText, STextBlock)
+                                .Text(FText::FromString(TEXT("SEÇİLİ SENSÖR")))
+                                .Font(CardHeaderFont)
+                                .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
+                            ]
+
+                            // Badge
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SAssignNew(SelectedSensorBadgeText, STextBlock)
+                                .Text(FText::FromString(TEXT("Tip: FPV Kamera")))
+                                .Font(BadgeFont)
+                                .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
+                            ]
+
+                            // Live Camera Mini Preview Image
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .HAlign(HAlign_Center)
+                            .Padding(0.0f, 4.0f, 0.0f, 10.0f)
+                            [
+                                SNew(SBox)
+                                .WidthOverride(240.0f)
+                                .HeightOverride(180.0f)
+                                [
+                                    SNew(SImage)
+                                    .Image(&CameraPreviewBrush)
+                                ]
+                            ]
+
+                            // Details Text
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+                            [
+                                SAssignNew(SensorDetailsText, STextBlock)
+                                .Text(FText::FromString(TEXT("Sensör özellikleri...")))
+                                .Font(DataFont)
+                                .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
+                            ]
+
+                            // Remove Sensor Button
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 6.0f, 0.0f, 0.0f)
+                            [
+                                SNew(SButton)
+                                .ButtonColorAndOpacity(FLinearColor(0.45f, 0.08f, 0.08f, 1.0f))
+                                .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnRemoveSensorClicked))
+                                .ContentPadding(FMargin(10.0f, 6.0f))
+                                [
+                                    SNew(STextBlock)
+                                    .Text(FText::FromString(TEXT("🗑️ BU SENSÖRÜ SİSTEMDEN KALDIR")))
+                                    .Font(ButtonFont)
+                                    .ColorAndOpacity(FLinearColor::White)
+                                ]
+                            ]
                         ]
                     ]
                 ]
@@ -402,6 +822,9 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
     }
 
     if (!TargetImporter) return;
+
+    FSlateFontInfo ButtonFont = FCoreStyle::GetDefaultFontStyle("Bold", 9);
+    FSlateFontInfo BadgeFont = FCoreStyle::GetDefaultFontStyle("Bold", 9);
 
     // 1) Top Connection Badge & Colors
     if (ConnectionBadgeText.IsValid() && ConnectionBadgeBorder.IsValid())
@@ -426,7 +849,172 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         }
     }
 
-    // 2) SOL PANEL - Card 1: Connection Stages (Bağlantı Aşamaları)
+    // 2) Active Tab Navigation Visuals
+    if (MainTabSwitcher.IsValid())
+    {
+        int32 ActiveIdx = (int32)TargetImporter->CurrentActiveTab;
+        MainTabSwitcher->SetActiveWidgetIndex(ActiveIdx);
+
+        if (TabMotorsBtnBorder.IsValid())
+            TabMotorsBtnBorder->SetBorderBackgroundColor(ActiveIdx == 0 ? FLinearColor(0.0f, 0.45f, 0.75f, 1.0f) : FLinearColor(0.05f, 0.12f, 0.22f, 0.8f));
+        if (TabTelemetryBtnBorder.IsValid())
+            TabTelemetryBtnBorder->SetBorderBackgroundColor(ActiveIdx == 1 ? FLinearColor(0.0f, 0.45f, 0.75f, 1.0f) : FLinearColor(0.05f, 0.12f, 0.22f, 0.8f));
+        if (TabSensorsBtnBorder.IsValid())
+            TabSensorsBtnBorder->SetBorderBackgroundColor(ActiveIdx == 2 ? FLinearColor(0.0f, 0.45f, 0.75f, 1.0f) : FLinearColor(0.05f, 0.12f, 0.22f, 0.8f));
+    }
+
+    // 3) TAB 1: BONE & MOTOR LIST POPULATION
+    if (BoneListScrollBox.IsValid() && (LastRenderedBoneCount != TargetImporter->ConfiguredMotors.Num() || CachedSelectedBone != TargetImporter->SelectedBoneIndex))
+    {
+        LastRenderedBoneCount = TargetImporter->ConfiguredMotors.Num();
+        CachedSelectedBone = TargetImporter->SelectedBoneIndex;
+        BoneListScrollBox->ClearChildren();
+
+        for (int32 i = 0; i < TargetImporter->ConfiguredMotors.Num(); ++i)
+        {
+            const FPiSimMotorItem& Motor = TargetImporter->ConfiguredMotors[i];
+            bool bIsSelected = (TargetImporter->SelectedBoneIndex == i);
+
+            FString RoleIcon = TEXT("📦");
+            FLinearColor RoleColor = FLinearColor(0.5f, 0.5f, 0.5f, 1.0f);
+
+            switch (Motor.Role)
+            {
+                case EPiSimMotorRole::DriveWheel: RoleIcon = TEXT("🚗"); RoleColor = FLinearColor(0.0f, 0.88f, 1.0f, 1.0f); break;
+                case EPiSimMotorRole::SteeredWheel: RoleIcon = TEXT("🧭"); RoleColor = FLinearColor(0.2f, 1.0f, 0.8f, 1.0f); break;
+                case EPiSimMotorRole::FreeCaster: RoleIcon = TEXT("⚪"); RoleColor = FLinearColor(0.7f, 0.7f, 0.7f, 1.0f); break;
+                case EPiSimMotorRole::ServoJoint: RoleIcon = TEXT("🦾"); RoleColor = FLinearColor(1.0f, 0.75f, 0.1f, 1.0f); break;
+                case EPiSimMotorRole::LinearActuator: RoleIcon = TEXT("📏"); RoleColor = FLinearColor(0.85f, 0.4f, 1.0f, 1.0f); break;
+                case EPiSimMotorRole::Thruster: RoleIcon = TEXT("🛸"); RoleColor = FLinearColor(1.0f, 0.3f, 0.3f, 1.0f); break;
+                case EPiSimMotorRole::TrackPad: RoleIcon = TEXT("🚜"); RoleColor = FLinearColor(0.85f, 0.65f, 0.2f, 1.0f); break;
+                default: RoleIcon = TEXT("📦"); RoleColor = FLinearColor(0.5f, 0.55f, 0.6f, 1.0f); break;
+            }
+
+            FString BtnLabel = FString::Printf(TEXT("%s  [%d] %s"), *RoleIcon, i, *Motor.BoneName);
+
+            TSharedRef<SWidget> BoneRowWidget = SNew(SBorder)
+                .BorderBackgroundColor(bIsSelected ? FLinearColor(0.0f, 0.88f, 1.0f, 1.0f) : FLinearColor(0.05f, 0.1f, 0.2f, 0.6f))
+                .Padding(FMargin(bIsSelected ? 2.0f : 1.0f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(bIsSelected ? FLinearColor(0.05f, 0.22f, 0.45f, 1.0f) : FLinearColor(0.02f, 0.05f, 0.12f, 0.9f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnSelectBoneClicked, i))
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().AutoWidth()
+                        [
+                            SNew(STextBlock).Text(FText::FromString(BtnLabel)).Font(ButtonFont).ColorAndOpacity(RoleColor)
+                        ]
+                    ]
+                ];
+
+            BoneListScrollBox->AddSlot()
+            .Padding(FMargin(0.0f, 2.0f))
+            [
+                BoneRowWidget
+            ];
+        }
+    }
+
+    // 4) TAB 1: BONE INSPECTOR PANEL UPDATES
+    if (BoneInspectorBorder.IsValid())
+    {
+        if (TargetImporter->SelectedBoneIndex >= 0 && TargetImporter->ConfiguredMotors.IsValidIndex(TargetImporter->SelectedBoneIndex))
+        {
+            BoneInspectorBorder->SetVisibility(EVisibility::Visible);
+            const FPiSimMotorItem& SelMotor = TargetImporter->ConfiguredMotors[TargetImporter->SelectedBoneIndex];
+
+            if (SelectedBoneTitleText.IsValid())
+                SelectedBoneTitleText->SetText(FText::FromString(FString::Printf(TEXT("🦴 [%d] %s"), SelMotor.BoneIndex, *SelMotor.BoneName)));
+
+            if (DisplayModeButtonText.IsValid())
+                DisplayModeButtonText->SetText(FText::FromString(TargetImporter->bShowCollisionView ? TEXT("🛡️ UCX ZIRH MODU") : TEXT("🎨 GÖRSEL MOD")));
+
+            if (AdvancedModeButtonText.IsValid())
+                AdvancedModeButtonText->SetText(FText::FromString(TargetImporter->bIsAdvancedMode ? TEXT("⚙️ ADVANCED MOD") : TEXT("🚗 BASIC MOD")));
+
+            if (SelMotor.Role != EPiSimMotorRole::None)
+            {
+                if (ExistingMotorBox.IsValid()) ExistingMotorBox->SetVisibility(EVisibility::Visible);
+                if (AssignMotorBox.IsValid()) AssignMotorBox->SetVisibility(EVisibility::Collapsed);
+
+                if (SelectedBoneRoleBadgeText.IsValid())
+                {
+                    FString RoleName = TEXT("Bilinmiyor");
+                    switch (SelMotor.Role)
+                    {
+                        case EPiSimMotorRole::DriveWheel: RoleName = TEXT("🚗 Sürüş Tekerleği (Drive Wheel)"); break;
+                        case EPiSimMotorRole::SteeredWheel: RoleName = TEXT("🧭 Direksiyonlu Tekerlek (Steered Wheel)"); break;
+                        case EPiSimMotorRole::FreeCaster: RoleName = TEXT("⚪ Serbest Sarhoş Tekerlek (Caster)"); break;
+                        case EPiSimMotorRole::ServoJoint: RoleName = TEXT("🦾 Robot Kolu Servosu (Servo Joint)"); break;
+                        case EPiSimMotorRole::LinearActuator: RoleName = TEXT("📏 Hidrolik / Lineer Piston"); break;
+                        case EPiSimMotorRole::Thruster: RoleName = TEXT("🛸 İtki Pervanesi (Thruster)"); break;
+                        case EPiSimMotorRole::TrackPad: RoleName = TEXT("🚜 Palet Sürtünme Plakası (Track)"); break;
+                        default: break;
+                    }
+                    SelectedBoneRoleBadgeText->SetText(FText::FromString(FString::Printf(TEXT("Aktif Motor: %s"), *RoleName)));
+                }
+
+                if (MotorDetailsText.IsValid())
+                {
+                    FString Details;
+                    if (TargetImporter->bIsAdvancedMode)
+                    {
+                        Details = FString::Printf(
+                            TEXT("  • Hız Limiti (Maks)  : %5.1f RPM\n"
+                                 "  • Tork Limiti (Stall): %5.1f Nm\n"
+                                 "  • Açı / Strok Sınırı : %+.1f° ile %+.1f°\n"
+                                 "  • PID Katsayıları    : Kp=%.0f, Kd=%.0f\n"
+                                 "  • Dişli Oranı        : 1:%.2f\n"
+                                 "  • Motor Tork Sabiti  : %.3f Nm/A\n"
+                                 "  • ROS 2 Topic Adı    : %s"),
+                            SelMotor.MaxVelocityRPM, SelMotor.MaxTorqueNm, SelMotor.MinLimitDeg, SelMotor.MaxLimitDeg,
+                            SelMotor.Kp, SelMotor.Kd, SelMotor.GearRatio, SelMotor.TorqueConstantKt, *SelMotor.Ros2Topic
+                        );
+                    }
+                    else
+                    {
+                        Details = FString::Printf(
+                            TEXT("  • Motor Tipi   : Standart Donanım\n"
+                                 "  • Maksimum Hız : %5.1f RPM\n"
+                                 "  • Maksimum Güç : %5.1f Nm Tork\n"
+                                 "  • Hareket Alanı: %+.1f° ile %+.1f°"),
+                            SelMotor.MaxVelocityRPM, SelMotor.MaxTorqueNm, SelMotor.MinLimitDeg, SelMotor.MaxLimitDeg
+                        );
+                    }
+                    MotorDetailsText->SetText(FText::FromString(Details));
+                }
+
+                if (MotorTestSliderValueText.IsValid())
+                {
+                    FString StatusText;
+                    if (FMath::Abs(SelMotor.CurrentTestValue) < 0.02f)
+                    {
+                        StatusText = TEXT("0.0% (DURUYOR)");
+                    }
+                    else
+                    {
+                        StatusText = FString::Printf(TEXT("%+5.1f%% (GÜÇ VERİLDİ)"), SelMotor.CurrentTestValue * 100.0f);
+                    }
+                    MotorTestSliderValueText->SetText(FText::FromString(StatusText));
+                }
+            }
+            else
+            {
+                if (ExistingMotorBox.IsValid()) ExistingMotorBox->SetVisibility(EVisibility::Collapsed);
+                if (AssignMotorBox.IsValid()) AssignMotorBox->SetVisibility(EVisibility::Visible);
+
+                if (SelectedBoneRoleBadgeText.IsValid())
+                    SelectedBoneRoleBadgeText->SetText(FText::FromString(TEXT("📦 Durum: Pasif Gövde (Motor Yok)")));
+            }
+        }
+        else
+        {
+            BoneInspectorBorder->SetVisibility(EVisibility::Collapsed);
+        }
+    }
+
+    // 5) TAB 2: TELEMETRY & CONNECTION TEXTS
     if (ConnectionStagesText.IsValid())
     {
         FString SocketStatus = TargetImporter->bIsSocketBound ? TEXT("🟢 AÇIK (Dinliyor)") : TEXT("🔴 KAPALI / HATA");
@@ -434,139 +1022,149 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
             FString::Printf(TEXT("🟢 BAĞLANDI (IP: %s)"), *TargetImporter->ConnectedPiIP) :
             (TargetImporter->ConnectionStage == 5 ? TEXT("🔴 KOPTU (Zaman Aşımı)") : TEXT("🟡 BEKLENİYOR..."));
 
-        FString LastPacketTimeStr;
-        if (TargetImporter->LastRxTimestampSec > 0.0f && GetWorld())
-        {
-            float TimeSinceLastSec = GetWorld()->GetTimeSeconds() - TargetImporter->LastRxTimestampSec;
-            LastPacketTimeStr = FString::Printf(TEXT("%.2f sn önce"), TimeSinceLastSec);
-        }
-        else
-        {
-            LastPacketTimeStr = TEXT("Henüz paket alınmadı");
-        }
-
         FString StagesStr = FString::Printf(
             TEXT("  • Aşama 1: UE5 Dinleme Soketi : 0.0.0.0:7400 [%s]\n"
                  "  • Aşama 2: Telemetri Hedefleri: %s:7401 [🟢 HAZIR]\n"
                  "  • Aşama 3: Pi 5 Handshake     : %s\n"
-                 "  • Aşama 4: Canlı Veri Akışı   : %5.1f Hz  (Toplam: %d Paket)\n"
-                 "  • Son Paket Geliş Zamanı      : %s"),
-            *SocketStatus,
-            *TargetImporter->BridgeTargetIP,
-            *Pi5Status,
-            TargetImporter->RxPacketRateHz,
-            TargetImporter->TotalPacketsReceived,
-            *LastPacketTimeStr
+                 "  • Aşama 4: Canlı Veri Akışı   : %5.1f Hz  (Toplam: %d Paket)"),
+            *SocketStatus, *TargetImporter->BridgeTargetIP, *Pi5Status, TargetImporter->RxPacketRateHz, TargetImporter->TotalPacketsReceived
         );
         ConnectionStagesText->SetText(FText::FromString(StagesStr));
     }
 
-    // 3) SOL PANEL - Card 2: Incoming Data (GELEN VERİLER - Pi 5 ➔ UE5)
     if (IncomingDataText.IsValid())
     {
         FString InDataStr = FString::Printf(
-            TEXT("  • Son Paket Boyutu : %d Bayt (geometry_msgs/Twist)\n"
-                 "  • Doğrusal Hız (X) : %+.2f m/s  (Y: %+.2f, Z: %+.2f)\n"
+            TEXT("  • Doğrusal Hız (X) : %+.2f m/s  (Y: %+.2f, Z: %+.2f)\n"
                  "  • Açısal Hız (Yaw) : %+.2f rad/s\n"
-                 "  • Sol Motor Hızı   : %+6.1f RPM\n"
-                 "  • Sağ Motor Hızı   : %+6.1f RPM\n"
-                 "  • Manuel RPM Ofset : %+.1f RPM (G / F Tuşları)"),
-            TargetImporter->LastRxPacketBytes,
-            TargetImporter->TargetLinearX,
-            TargetImporter->LastRxLinearVel.Y,
-            TargetImporter->LastRxLinearVel.Z,
-            TargetImporter->TargetAngularZ,
-            TargetImporter->LeftWheelsRpm,
-            TargetImporter->RightWheelsRpm,
-            TargetImporter->AppliedWheelRpm
+                 "  • Sol / Sağ RPM    : %+6.1f / %+6.1f RPM\n"
+                 "  • Uygulanan RPM    : %+.1f RPM (G / F Tuşları)"),
+            TargetImporter->TargetLinearX, TargetImporter->LastRxLinearVel.Y, TargetImporter->LastRxLinearVel.Z,
+            TargetImporter->TargetAngularZ, TargetImporter->LeftWheelsRpm, TargetImporter->RightWheelsRpm, TargetImporter->AppliedWheelRpm
         );
         IncomingDataText->SetText(FText::FromString(InDataStr));
     }
 
-    // 4) SOL PANEL - Card 3: Live Connection & Event Log (Canlı Bağlantı Günlüğü)
     if (ConnectionDebugLogText.IsValid())
     {
         if (TargetImporter->ConnectionDebugLogs.Num() > 0)
-        {
-            FString Combined = FString::Join(TargetImporter->ConnectionDebugLogs, TEXT("\n"));
-            ConnectionDebugLogText->SetText(FText::FromString(Combined));
-        }
+            ConnectionDebugLogText->SetText(FText::FromString(FString::Join(TargetImporter->ConnectionDebugLogs, TEXT("\n"))));
         else
-        {
             ConnectionDebugLogText->SetText(FText::FromString(TEXT("  Henüz bir bağlantı olayı kaydedilmedi.")));
-        }
     }
 
-    // 5) SAĞ PANEL - Card 1: Outgoing Telemetry (GİDEN VERİLER - UE5 ➔ Pi 5)
     if (OutgoingTelemetryText.IsValid())
     {
         FString OutStr = FString::Printf(
-            TEXT("  • Telemetri Paketi : #%d (%d Bayt, %5.1f Hz)\n"
-                 "  • Gönderim Hedefi  : %s:7401 (Pi 5 Ethernet)\n"
+            TEXT("  • Telemetri Paketi : #%d (%5.1f Hz, %s:7401)\n"
                  "  • Gövde Hızı       : %5.1f km/h\n"
                  "  • İvmeölçer (Accel): X=%+5.2f, Y=%+5.2f, Z=%+5.2f m/s²\n"
                  "  • Jiroskop (Gyro)  : X=%+5.2f, Y=%+5.2f, Z=%+5.2f deg/s\n"
                  "  • Oryantasyon Quat : (X=%.3f, Y=%.3f, Z=%.3f, W=%.3f)"),
-            TargetImporter->TotalPacketsSent,
-            TargetImporter->LastTxPacketBytes > 0 ? TargetImporter->LastTxPacketBytes : 80,
-            TargetImporter->TxPacketRateHz,
-            *TargetImporter->BridgeTargetIP,
-            TargetImporter->CurrentForwardSpeedKmh,
-            TargetImporter->CurrentLinearAccel.X,
-            TargetImporter->CurrentLinearAccel.Y,
-            TargetImporter->CurrentLinearAccel.Z,
-            TargetImporter->LastTxGyro.X,
-            TargetImporter->LastTxGyro.Y,
-            TargetImporter->LastTxGyro.Z,
-            TargetImporter->LastTxQuat.X,
-            TargetImporter->LastTxQuat.Y,
-            TargetImporter->LastTxQuat.Z,
-            TargetImporter->LastTxQuat.W
+            TargetImporter->TotalPacketsSent, TargetImporter->TxPacketRateHz, *TargetImporter->BridgeTargetIP,
+            TargetImporter->CurrentForwardSpeedKmh, TargetImporter->CurrentLinearAccel.X, TargetImporter->CurrentLinearAccel.Y,
+            TargetImporter->CurrentLinearAccel.Z, TargetImporter->LastTxGyro.X, TargetImporter->LastTxGyro.Y, TargetImporter->LastTxGyro.Z,
+            TargetImporter->LastTxQuat.X, TargetImporter->LastTxQuat.Y, TargetImporter->LastTxQuat.Z, TargetImporter->LastTxQuat.W
         );
         OutgoingTelemetryText->SetText(FText::FromString(OutStr));
     }
 
-    // 6) SAĞ PANEL - Card 2: CAD Geometry & Chaos Physics & Sensors
     if (ModelCadStatusText.IsValid())
     {
-        FString VideoStatus;
-        if (TargetImporter->bEnableVideoStream && TargetImporter->FpvCameraCapture)
-        {
-            VideoStatus = FString::Printf(TEXT("🟢 YAYINDA (320x240 @ %3.1f FPS, Toplam: %d Kare)"),
-                TargetImporter->VideoFpsActual, TargetImporter->TotalVideoFramesSent);
-        }
-        else
-        {
-            VideoStatus = TEXT("⏸️ SENSÖR YOK (Modelde 'S_Cam_...' yok)");
-        }
+        FString VideoStatus = (TargetImporter->bEnableVideoStream && TargetImporter->FpvCameraCapture) ?
+            FString::Printf(TEXT("🟢 YAYINDA (320x240 @ %3.1f FPS)"), TargetImporter->VideoFpsActual) : TEXT("⏸️ SENSÖR YOK");
 
         FString CadStr = FString::Printf(
-            TEXT("  • Görsel Parçalar  : %d Adet (Procedural Mesh Render)\n"
-                 "  • UCX Çarpışma     : %d Adet (Chaos Convex Zırh)\n"
-                 "  • Sensör Yuvaları  : %d Adet (S_Cam / S_Imu / S_Gps)\n"
+            TEXT("  • Görsel Parçalar  : %d Adet (Procedural Render)\n"
+                 "  • UCX Çarpışma     : %d Adet (Convex Zırh)\n"
+                 "  • Sensör Yuvaları  : %d Adet (S_...)\n"
                  "  • Simülasyon Durumu: %s\n"
-                 "  • FPV Kamera Yayını: %s\n"
-                 "  • Video Hedefi     : %s:5000 (JPEG MTU)"),
-            TargetImporter->VisualMeshComponents.Num(),
-            TargetImporter->UCXSections.Num(),
-            TargetImporter->SensorSections.Num(),
-            TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ AKTİF (Chaos Simülasyonu)") : TEXT("⏸️ DURAKLATILDI (Statik)"),
-            *VideoStatus,
-            *TargetImporter->BridgeTargetIP
+                 "  • FPV Kamera Yayını: %s"),
+            TargetImporter->VisualMeshComponents.Num(), TargetImporter->UCXSections.Num(), TargetImporter->ConfiguredSensors.Num(),
+            TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ AKTİF (Chaos Simülasyonu)") : TEXT("⏸️ STATİK (Garaj)"), *VideoStatus
         );
         ModelCadStatusText->SetText(FText::FromString(CadStr));
     }
 
-
-
-    // 7) Physics Button Text
-    if (PhysicsButtonText.IsValid())
+    // 6) TAB 3: SENSORS LIST & INSPECTOR
+    if (SensorListScrollBox.IsValid() && (LastRenderedSensorCount != TargetImporter->ConfiguredSensors.Num() || CachedSelectedSensor != TargetImporter->SelectedSensorIndex))
     {
-        FString PhysText = TargetImporter->bIsPhysicsSimulating ? TEXT(" ⚡ FİZİK: AÇIK ") : TEXT(" ⚡ FİZİK SİMÜLE ET ");
-        PhysicsButtonText->SetText(FText::FromString(PhysText));
+        LastRenderedSensorCount = TargetImporter->ConfiguredSensors.Num();
+        CachedSelectedSensor = TargetImporter->SelectedSensorIndex;
+        SensorListScrollBox->ClearChildren();
+
+        for (int32 SensorIdx = 0; SensorIdx < TargetImporter->ConfiguredSensors.Num(); ++SensorIdx)
+        {
+            const FPiSimSensorItem& Sensor = TargetImporter->ConfiguredSensors[SensorIdx];
+            if (!Sensor.bIsActive) continue;
+            bool bIsSelected = (TargetImporter->SelectedSensorIndex == SensorIdx);
+
+            FString SensorIcon = TEXT("📷");
+            switch (Sensor.Type)
+            {
+                case EPiSimSensorType::Camera: SensorIcon = TEXT("📷 FPV Kamera"); break;
+                case EPiSimSensorType::IMU: SensorIcon = TEXT("📡 IMU Sensörü"); break;
+                case EPiSimSensorType::GPS: SensorIcon = TEXT("🛰️ GPS Alıcısı"); break;
+                case EPiSimSensorType::LiDAR: SensorIcon = TEXT("🎯 LiDAR"); break;
+                default: SensorIcon = TEXT("🔌 Sensör"); break;
+            }
+
+            FString BtnLabel = FString::Printf(TEXT("%s: %s"), *SensorIcon, *Sensor.SensorName);
+
+            TSharedRef<SWidget> SensorRowWidget = SNew(SBorder)
+                .BorderBackgroundColor(bIsSelected ? FLinearColor(0.0f, 0.88f, 1.0f, 1.0f) : FLinearColor(0.05f, 0.1f, 0.2f, 0.6f))
+                .Padding(FMargin(bIsSelected ? 2.0f : 1.0f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(bIsSelected ? FLinearColor(0.05f, 0.22f, 0.45f, 1.0f) : FLinearColor(0.02f, 0.05f, 0.12f, 0.9f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnSelectSensorClicked, SensorIdx))
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().AutoWidth()
+                        [
+                            SNew(STextBlock).Text(FText::FromString(BtnLabel)).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
+                        ]
+                    ]
+                ];
+
+            SensorListScrollBox->AddSlot()
+            .Padding(FMargin(0.0f, 2.0f))
+            [
+                SensorRowWidget
+            ];
+        }
     }
 
-    // 8) CANLI FPV MONİTÖR (PiP Preview) Güncelleme
+    if (SensorInspectorBorder.IsValid())
+    {
+        if (TargetImporter->SelectedSensorIndex >= 0 && TargetImporter->ConfiguredSensors.IsValidIndex(TargetImporter->SelectedSensorIndex))
+        {
+            SensorInspectorBorder->SetVisibility(EVisibility::Visible);
+            const FPiSimSensorItem& SelSensor = TargetImporter->ConfiguredSensors[TargetImporter->SelectedSensorIndex];
+
+            if (SelectedSensorTitleText.IsValid())
+                SelectedSensorTitleText->SetText(FText::FromString(FString::Printf(TEXT("📡 [%d] %s"), SelSensor.SensorIndex, *SelSensor.SensorName)));
+
+            if (SensorDetailsText.IsValid())
+            {
+                FString SDetails = FString::Printf(
+                    TEXT("  • Sensör Tipi  : %s\n"
+                         "  • Yayın Portu  : UDP %d\n"
+                         "  • Örnekleme    : %d Hz / FPS\n"
+                         "  • Konum (Bağıl): %s"),
+                    SelSensor.Type == EPiSimSensorType::Camera ? TEXT("FPV Canlı Kamera (320x240)") : TEXT("IMU / Kinematik"),
+                    SelSensor.Port, SelSensor.Fps, *SelSensor.PivotPoint.ToString()
+                );
+                SensorDetailsText->SetText(FText::FromString(SDetails));
+            }
+        }
+        else
+        {
+            SensorInspectorBorder->SetVisibility(EVisibility::Collapsed);
+        }
+    }
+
+    // Live Camera Preview Image Texture Update
     if (TargetImporter->VideoRenderTarget)
     {
         CameraPreviewBrush.SetResourceObject(TargetImporter->VideoRenderTarget);
@@ -574,19 +1172,102 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         CameraPreviewBrush.DrawAs = ESlateBrushDrawType::Image;
     }
 
-    if (CameraPipInfoText.IsValid())
+    // Physics Button Text Update
+    if (PhysicsButtonText.IsValid())
     {
-        if (TargetImporter->bEnableVideoStream && TargetImporter->FpvCameraCapture)
-        {
-            CameraPipInfoText->SetText(FText::FromString(FString::Printf(TEXT("🟢 %3.1f FPS | 5000"), TargetImporter->VideoFpsActual)));
-            CameraPipInfoText->SetColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.4f, 1.0f));
-        }
-        else
-        {
-            CameraPipInfoText->SetText(FText::FromString(TEXT("⏸️ S_Cam Yok")));
-            CameraPipInfoText->SetColorAndOpacity(FLinearColor(0.6f, 0.6f, 0.6f, 1.0f));
-        }
+        PhysicsButtonText->SetText(FText::FromString(TargetImporter->bIsPhysicsSimulating ? TEXT(" ⚡ FİZİK: AÇIK ") : TEXT(" ⚡ FİZİK SİMÜLE ET ")));
     }
+}
+
+// -----------------------------------------------------------------------------
+// TAB SWITCHING & ACTION CALLBACKS
+// -----------------------------------------------------------------------------
+FReply UPiSimModelImporterWidget::OnTabMotorsClicked()
+{
+    if (TargetImporter) TargetImporter->SetActiveTab(EPiSimActiveTab::MotorsTab);
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnTabTelemetryClicked()
+{
+    if (TargetImporter) TargetImporter->SetActiveTab(EPiSimActiveTab::TelemetryTab);
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnTabSensorsClicked()
+{
+    if (TargetImporter) TargetImporter->SetActiveTab(EPiSimActiveTab::SensorsTab);
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnToggleDisplayModeClicked()
+{
+    if (TargetImporter) TargetImporter->ToggleDisplayMode();
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnToggleAdvancedModeClicked()
+{
+    if (TargetImporter) TargetImporter->bIsAdvancedMode = !TargetImporter->bIsAdvancedMode;
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnSelectBoneClicked(int32 BoneIdx)
+{
+    if (TargetImporter) TargetImporter->SelectBone(BoneIdx);
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnRemoveMotorClicked()
+{
+    if (TargetImporter && TargetImporter->SelectedBoneIndex >= 0)
+    {
+        TargetImporter->RemoveMotorFromBone(TargetImporter->SelectedBoneIndex);
+    }
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnAssignRoleClicked(uint8 RoleEnumVal)
+{
+    if (TargetImporter && TargetImporter->SelectedBoneIndex >= 0)
+    {
+        TargetImporter->AssignMotorToBone(TargetImporter->SelectedBoneIndex, (EPiSimMotorRole)RoleEnumVal);
+    }
+    return FReply::Handled();
+}
+
+void UPiSimModelImporterWidget::OnMotorTestSliderChanged(float NewValue)
+{
+    if (TargetImporter && TargetImporter->SelectedBoneIndex >= 0)
+    {
+        TargetImporter->SetMotorTestValue(TargetImporter->SelectedBoneIndex, NewValue);
+    }
+}
+
+FReply UPiSimModelImporterWidget::OnToggleSensorMarkersClicked()
+{
+    if (TargetImporter)
+    {
+        TargetImporter->ToggleSensorMarkers(!TargetImporter->bShowSensorMarkers);
+        if (SensorMarkerToggleText.IsValid())
+            SensorMarkerToggleText->SetText(FText::FromString(TargetImporter->bShowSensorMarkers ? TEXT("👁️ S_ GÖSTER") : TEXT("🕶️ S_ GİZLE")));
+    }
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnSelectSensorClicked(int32 SensorIdx)
+{
+    if (TargetImporter) TargetImporter->SelectSensor(SensorIdx);
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnRemoveSensorClicked()
+{
+    if (TargetImporter && TargetImporter->SelectedSensorIndex >= 0)
+    {
+        TargetImporter->RemoveSensor(TargetImporter->SelectedSensorIndex);
+    }
+    return FReply::Handled();
 }
 
 FReply UPiSimModelImporterWidget::OnScale01Clicked()
@@ -618,3 +1299,4 @@ FReply UPiSimModelImporterWidget::OnTogglePhysicsClicked()
     if (TargetImporter) TargetImporter->TogglePhysicsSimulation();
     return FReply::Handled();
 }
+
