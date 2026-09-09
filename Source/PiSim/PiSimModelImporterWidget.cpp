@@ -14,6 +14,7 @@
 #include "Widgets/Input/SSlider.h"
 #include "Widgets/Images/SImage.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "Components/SceneCaptureComponent2D.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/Engine.h"
 
@@ -1331,13 +1332,14 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
                     }
                     else if (SelSensor.Type == EPiSimSensorType::IMU)
                     {
+                        FRotator LastRot = TargetImporter->LastTxQuat.Rotator();
                         CustomTel = FString::Printf(
                             TEXT("  📡 [CANLI 9-EKSEN IMU VERİLERİ]\n"
                                  "  • Euler Açısı    : R=%+5.1f°, P=%+5.1f°, Y=%+5.1f°\n"
                                  "  • İvme (Accel)   : X=%+5.2f, Y=%+5.2f, Z=%+5.2f m/s²\n"
                                  "  • Jiroskop (Gyro): X=%+5.2f, Y=%+5.2f, Z=%+5.2f °/s\n"
                                  "  • Kuaterniyon    : (X=%.2f, Y=%.2f, Z=%.2f, W=%.2f)"),
-                            TargetImporter->LastTxEuler.Roll, TargetImporter->LastTxEuler.Pitch, TargetImporter->LastTxEuler.Yaw,
+                            LastRot.Roll, LastRot.Pitch, LastRot.Yaw,
                             TargetImporter->CurrentLinearAccel.X, TargetImporter->CurrentLinearAccel.Y, TargetImporter->CurrentLinearAccel.Z,
                             TargetImporter->LastTxGyro.X, TargetImporter->LastTxGyro.Y, TargetImporter->LastTxGyro.Z,
                             TargetImporter->LastTxQuat.X, TargetImporter->LastTxQuat.Y, TargetImporter->LastTxQuat.Z, TargetImporter->LastTxQuat.W
