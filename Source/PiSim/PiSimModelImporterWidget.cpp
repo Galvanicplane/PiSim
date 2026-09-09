@@ -973,9 +973,6 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         for (int32 i = 0; i < TargetImporter->ConfiguredMotors.Num(); ++i)
         {
             const FPiSimMotorItem& Motor = TargetImporter->ConfiguredMotors[i];
-            // 2-kemikli direksiyonda child tekerleği ayrı liste öğesi olarak gösterme (tek liste öğesi olarak birleştir)
-            if (Motor.bIsChildOfSteer) continue;
-
             bool bIsSelected = (TargetImporter->SelectedBoneIndex == i);
 
             FString RoleIcon = TEXT("📦");
@@ -994,10 +991,6 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
             }
 
             FString BtnLabel = FString::Printf(TEXT("%s  [%d] %s"), *RoleIcon, i, *Motor.BoneName);
-            if (Motor.Role == EPiSimMotorRole::SteeredWheel && Motor.ChildWheelBoneIndex >= 0 && TargetImporter->ConfiguredMotors.IsValidIndex(Motor.ChildWheelBoneIndex))
-            {
-                BtnLabel = FString::Printf(TEXT("%s  [%d] %s (+ %s)"), *RoleIcon, i, *Motor.BoneName, *TargetImporter->ConfiguredMotors[Motor.ChildWheelBoneIndex].BoneName);
-            }
 
             TSharedRef<SWidget> BoneRowWidget = SNew(SBorder)
                 .BorderBackgroundColor(bIsSelected ? FLinearColor(0.0f, 0.88f, 1.0f, 1.0f) : FLinearColor(0.05f, 0.1f, 0.2f, 0.6f))
@@ -1032,16 +1025,7 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
             const FPiSimMotorItem& SelMotor = TargetImporter->ConfiguredMotors[TargetImporter->SelectedBoneIndex];
 
             if (SelectedBoneTitleText.IsValid())
-            {
-                FString TitleStr = FString::Printf(TEXT("🦴 [%d] %s"), SelMotor.BoneIndex, *SelMotor.BoneName);
-                if (SelMotor.Role == EPiSimMotorRole::SteeredWheel && SelMotor.ChildWheelBoneIndex >= 0 && TargetImporter->ConfiguredMotors.IsValidIndex(SelMotor.ChildWheelBoneIndex))
-                {
-                    TitleStr = FString::Printf(TEXT("🧭 [%d] %s + [%d] %s (Direksiyon Düzeneği)"),
-                        SelMotor.BoneIndex, *SelMotor.BoneName,
-                        SelMotor.ChildWheelBoneIndex, *TargetImporter->ConfiguredMotors[SelMotor.ChildWheelBoneIndex].BoneName);
-                }
-                SelectedBoneTitleText->SetText(FText::FromString(TitleStr));
-            }
+                SelectedBoneTitleText->SetText(FText::FromString(FString::Printf(TEXT("🦴 [%d] %s"), SelMotor.BoneIndex, *SelMotor.BoneName)));
 
             if (DisplayModeButtonText.IsValid())
                 DisplayModeButtonText->SetText(FText::FromString(TargetImporter->bShowCollisionView ? TEXT("🛡️ UCX ZIRH MODU") : TEXT("🎨 GÖRSEL MOD")));

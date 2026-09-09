@@ -90,12 +90,6 @@ struct FPiSimMotorItem
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
     FString Ros2Topic = TEXT("/cmd_vel");
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
-    int32 ChildWheelBoneIndex = -1; // Master-Child Steer: Index of the attached spinning wheel bone
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
-    bool bIsChildOfSteer = false; // Hidden from main motor list to present a clean single-entry steer mechanism
 };
 
 USTRUCT(BlueprintType)
