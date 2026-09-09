@@ -1776,12 +1776,62 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             Constraint->RegisterComponent();
 
             Constraint->SetConstrainedComponents(VisualMeshComponents[0], NAME_None, VisComp, NAME_None);
-            Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f); // Serbest tekerlek dönüşü
-            Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
-            Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
-            Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
-            Constraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
-            Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+
+            EPiSimMotorRole MotorRole = ConfiguredMotors.IsValidIndex(i) ? ConfiguredMotors[i].Role : EPiSimMotorRole::None;
+
+            if (MotorRole == EPiSimMotorRole::SteeredWheel)
+            {
+                // Yönlendirilebilir Tekerlek (Steering Knuckle):
+                // Twist (Roll / X ekseni): Serbest tekerlek yuvarlanması
+                Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
+                // Swing1 (Yaw / Z ekseni): Direksiyon dönüşü (+-45 derece sınır)
+                Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Limited, 45.0f);
+                // Swing2 (Pitch / Y ekseni): Kilitli (dik kamber)
+                Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+                Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                Constraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+            }
+            else if (MotorRole == EPiSimMotorRole::FreeCaster)
+            {
+                // Sarhoş Tekerlek: Hem Z (dönüş) hem X (yuvarlanma) serbest
+                Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
+                Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Free, 0.0f);
+                Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+                Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                Constraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+            }
+            else if (MotorRole == EPiSimMotorRole::ServoJoint)
+            {
+                // Robot Kolu / Servo Mafsalı: Açısal sınırları Min/Maks limitlerine göre sınırla
+                float MaxLimit = ConfiguredMotors.IsValidIndex(i) ? ConfiguredMotors[i].MaxLimitDeg : 90.0f;
+                Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Limited, MaxLimit);
+                Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+                Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+                Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                Constraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+            }
+            else if (MotorRole == EPiSimMotorRole::LinearActuator)
+            {
+                // Piston / Lineer Aktüatör: Açı kilitli, X ekseni doğrusal serbest
+                Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+                Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+                Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+                Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Limited, 30.0f);
+                Constraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+            }
+            else // DriveWheel, TrackPad, Thruster, None
+            {
+                Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
+                Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+                Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+                Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                Constraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+            }
 
             JointConstraints.Add(Constraint);
         }
