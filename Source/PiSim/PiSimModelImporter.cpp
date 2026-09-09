@@ -1262,7 +1262,55 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
     UMaterialInterface* DefaultMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 
     // -----------------------------------------------------------------------------------------
-    // 1) HER PARÇA İÇİN GÖRSEL RENDER VE UCX COLLISION'I TEK BİR DİNAMİK GÖVDEDE BİRLEŞTİR
+    // 1) 2-KEMİKLİ DİREKSİYON DÜZENEĞİ TESPİTİ (Master Knuckle / Steer -> Child Wheel Eşleştirmesi)
+    // -----------------------------------------------------------------------------------------
+    TMap<int32, int32> SteerToWheelMap; // SteerIndex -> WheelIndex
+    TSet<int32> ChildWheelIndices;
+
+    for (int32 i = 0; i < VisualSections.Num(); ++i)
+    {
+        FString LName = VisualSections[i].MeshName.ToLower();
+        if (LName.StartsWith(TEXT("m_steer")) || LName.StartsWith(TEXT("steer")))
+        {
+            FString Suffix = LName;
+            Suffix.RemoveFromStart(TEXT("m_steer"));
+            Suffix.RemoveFromStart(TEXT("steer"));
+            Suffix.RemoveFromStart(TEXT("_"));
+
+            int32 BestWheelIdx = -1;
+            float MinDist = 100000.0f;
+
+            for (int32 j = 0; j < VisualSections.Num(); ++j)
+            {
+                if (i == j) continue;
+                FString WheelName = VisualSections[j].MeshName.ToLower();
+                if (WheelName.Contains(TEXT("wheel")) || WheelName.StartsWith(TEXT("w_")) || WheelName.StartsWith(TEXT("m_wheel")))
+                {
+                    if (!Suffix.IsEmpty() && WheelName.Contains(Suffix))
+                    {
+                        BestWheelIdx = j;
+                        break;
+                    }
+                    float Dist = FVector::Dist(VisualSections[i].PivotPoint, VisualSections[j].PivotPoint);
+                    if (Dist < MinDist)
+                    {
+                        MinDist = Dist;
+                        BestWheelIdx = j;
+                    }
+                }
+            }
+
+            if (BestWheelIdx >= 0)
+            {
+                SteerToWheelMap.Add(i, BestWheelIdx);
+                ChildWheelIndices.Add(BestWheelIdx);
+                VisualSections[BestWheelIdx].ParentSectionIndex = i; // Wheel, Steer Knuckle'ın alt parçasıdır!
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // 2) HER PARÇA İÇİN GÖRSEL RENDER VE UCX COLLISION OLUŞTUR (Hiyerarşik Bağlantı)
     // -----------------------------------------------------------------------------------------
     for (int32 i = 0; i < VisualSections.Num(); ++i)
     {
@@ -1270,8 +1318,14 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         UProceduralMeshComponent* VisComp = NewObject<UProceduralMeshComponent>(this, CompName);
         VisComp->SetMobility(EComponentMobility::Movable);
 
-        // Hiyerarşik Kemik Bağlantısı: Gövde dışındaki parçalar gövdeye bağlanır
-        if (i == 0)
+        int32 ParentIdx = VisualSections[i].ParentSectionIndex;
+        if (ParentIdx >= 0 && VisualMeshComponents.IsValidIndex(ParentIdx) && VisualMeshComponents[ParentIdx])
+        {
+            // Knuckle -> Wheel Hiyerarşisi: Tekerlek Knuckle'a bağlanır
+            VisComp->SetupAttachment(VisualMeshComponents[ParentIdx]);
+            VisComp->SetRelativeLocation(VisualSections[i].PivotPoint - VisualSections[ParentIdx].PivotPoint);
+        }
+        else if (i == 0)
         {
             VisComp->SetupAttachment(SceneRootComponent);
             VisComp->SetRelativeLocation(VisualSections[i].PivotPoint);
@@ -1281,7 +1335,6 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
             if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
             {
                 VisComp->SetupAttachment(VisualMeshComponents[0]);
-                // Gövdeye göre bağıl konum: (TekerlekPivot - GövdePivot)
                 VisComp->SetRelativeLocation(VisualSections[i].PivotPoint - VisualSections[0].PivotPoint);
             }
             else
@@ -1365,7 +1418,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
 
         CollMesh->SetVisibility(bShowCollisionView);
         CollMesh->SetHiddenInGame(!bShowCollisionView);
-        CollMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision); // Purely for visual inspector toggle
+        CollMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
         CollisionMeshComponents.Add(CollMesh);
     }
@@ -1381,18 +1434,29 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         MotorItem.BoneName = VisualSections[i].MeshName;
 
         FString LowerName = VisualSections[i].MeshName.ToLower();
-        if (LowerName.StartsWith(TEXT("m_wheel")) || LowerName.StartsWith(TEXT("w_")) || LowerName.Contains(TEXT("wheel")))
+
+        if (SteerToWheelMap.Contains(i))
+        {
+            // MASTER STEER KEMİĞİ: Sadece Yaw dönmeyi tetikler, Child tekerleğiyle eşleşti
+            MotorItem.Role = EPiSimMotorRole::SteeredWheel;
+            MotorItem.ChildWheelBoneIndex = SteerToWheelMap[i];
+            MotorItem.MinLimitDeg = -45.0f;
+            MotorItem.MaxLimitDeg = +45.0f;
+            MotorItem.MaxTorqueNm = 20.0f;
+        }
+        else if (ChildWheelIndices.Contains(i))
+        {
+            // CHILD WHEEL KEMİĞİ: Master'ın altında sadece kendi yuvarlanma ekseninde döner
+            MotorItem.Role = EPiSimMotorRole::DriveWheel;
+            MotorItem.bIsChildOfSteer = true;
+            MotorItem.MaxVelocityRPM = 500.0f;
+            MotorItem.MaxTorqueNm = 15.0f;
+        }
+        else if (LowerName.StartsWith(TEXT("m_wheel")) || LowerName.StartsWith(TEXT("w_")) || LowerName.Contains(TEXT("wheel")))
         {
             MotorItem.Role = EPiSimMotorRole::DriveWheel;
             MotorItem.MaxVelocityRPM = 500.0f;
             MotorItem.MaxTorqueNm = 15.0f;
-        }
-        else if (LowerName.StartsWith(TEXT("m_steer")) || LowerName.StartsWith(TEXT("steer")))
-        {
-            MotorItem.Role = EPiSimMotorRole::SteeredWheel;
-            MotorItem.MinLimitDeg = -45.0f;
-            MotorItem.MaxLimitDeg = +45.0f;
-            MotorItem.MaxTorqueNm = 20.0f;
         }
         else if (LowerName.StartsWith(TEXT("m_caster")) || LowerName.StartsWith(TEXT("caster")))
         {
