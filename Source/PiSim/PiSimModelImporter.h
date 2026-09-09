@@ -387,6 +387,7 @@ public:
     void RemoveMotorFromBone(int32 BoneIndex);
     void AssignMotorToBone(int32 BoneIndex, EPiSimMotorRole NewRole);
     void RemoveSensor(int32 SensorIndex);
+    void AddNewVirtualSensor(EPiSimSensorType InType, FString InSensorName = TEXT(""));
     void ToggleSensorMarkers(bool bShow);
     void UpdateVisualMaterials();
 

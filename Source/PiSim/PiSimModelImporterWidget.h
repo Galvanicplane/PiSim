@@ -45,6 +45,7 @@ private:
     FReply OnToggleSensorMarkersClicked();
     FReply OnSelectSensorClicked(int32 SensorIdx);
     FReply OnRemoveSensorClicked();
+    FReply OnAddVirtualSensorClicked(uint8 SensorTypeEnumVal);
 
     // Slate Tab Container & View Switcher
     TSharedPtr<class SWidgetSwitcher> MainTabSwitcher;

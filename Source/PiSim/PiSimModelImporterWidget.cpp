@@ -685,7 +685,7 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                 .VAlign(VAlign_Center)
                                 [
                                     SNew(STextBlock)
-                                    .Text(FText::FromString(TEXT("📡 SENSÖR YUVALARI (S_...)")))
+                                    .Text(FText::FromString(TEXT("📡 SENSÖR YÖNETİMİ")))
                                     .Font(CardHeaderFont)
                                     .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
                                 ]
@@ -702,6 +702,88 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                         .Text(FText::FromString(TEXT("👁️ S_ GÖSTER")))
                                         .Font(BadgeFont)
                                         .ColorAndOpacity(FLinearColor::White)
+                                    ]
+                                ]
+                            ]
+
+                            // Quick Add Virtual Sensor Section (Attached to root bone / chassis)
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SNew(SBorder)
+                                .BorderBackgroundColor(FLinearColor(0.03f, 0.09f, 0.18f, 0.9f))
+                                .Padding(FMargin(8.0f, 6.0f))
+                                [
+                                    SNew(SVerticalBox)
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                                    [
+                                        SNew(STextBlock)
+                                        .Text(FText::FromString(TEXT("➕ YENİ SANAL SENSÖR EKLE (Ana Kemiğe Bağlı)")))
+                                        .Font(BadgeFont)
+                                        .ColorAndOpacity(FLinearColor(0.2f, 0.9f, 0.5f, 1.0f))
+                                    ]
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    [
+                                        SNew(SHorizontalBox)
+                                        // + GPS
+                                        + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 4.0f, 0.0f))
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.08f, 0.25f, 0.45f, 1.0f))
+                                            .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAddVirtualSensorClicked, (uint8)EPiSimSensorType::GPS))
+                                            .ContentPadding(FMargin(6.0f, 4.0f))
+                                            [
+                                                SNew(STextBlock).Text(FText::FromString(TEXT("🛰️ + GPS"))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
+                                            ]
+                                        ]
+                                        // + IMU
+                                        + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 4.0f, 0.0f))
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.08f, 0.25f, 0.45f, 1.0f))
+                                            .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAddVirtualSensorClicked, (uint8)EPiSimSensorType::IMU))
+                                            .ContentPadding(FMargin(6.0f, 4.0f))
+                                            [
+                                                SNew(STextBlock).Text(FText::FromString(TEXT("📡 + IMU"))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
+                                            ]
+                                        ]
+                                        // + LiDAR
+                                        + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 4.0f, 0.0f))
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.08f, 0.25f, 0.45f, 1.0f))
+                                            .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAddVirtualSensorClicked, (uint8)EPiSimSensorType::LiDAR))
+                                            .ContentPadding(FMargin(6.0f, 4.0f))
+                                            [
+                                                SNew(STextBlock).Text(FText::FromString(TEXT("🎯 + LiDAR"))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
+                                            ]
+                                        ]
+                                        // + Kamera
+                                        + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 4.0f, 0.0f))
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.08f, 0.25f, 0.45f, 1.0f))
+                                            .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAddVirtualSensorClicked, (uint8)EPiSimSensorType::Camera))
+                                            .ContentPadding(FMargin(6.0f, 4.0f))
+                                            [
+                                                SNew(STextBlock).Text(FText::FromString(TEXT("📷 + Kamera"))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
+                                            ]
+                                        ]
+                                        // + Sonar
+                                        + SHorizontalBox::Slot().AutoWidth()
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.08f, 0.25f, 0.45f, 1.0f))
+                                            .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnAddVirtualSensorClicked, (uint8)EPiSimSensorType::Ultrasonic))
+                                            .ContentPadding(FMargin(6.0f, 4.0f))
+                                            [
+                                                SNew(STextBlock).Text(FText::FromString(TEXT("🔊 + Sonar"))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
+                                            ]
+                                        ]
                                     ]
                                 ]
                             ]
@@ -1266,6 +1348,15 @@ FReply UPiSimModelImporterWidget::OnRemoveSensorClicked()
     if (TargetImporter && TargetImporter->SelectedSensorIndex >= 0)
     {
         TargetImporter->RemoveSensor(TargetImporter->SelectedSensorIndex);
+    }
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnAddVirtualSensorClicked(uint8 SensorTypeEnumVal)
+{
+    if (TargetImporter)
+    {
+        TargetImporter->AddNewVirtualSensor((EPiSimSensorType)SensorTypeEnumVal);
     }
     return FReply::Handled();
 }

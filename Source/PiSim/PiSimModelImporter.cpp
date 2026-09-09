@@ -1830,6 +1830,88 @@ void APiSimModelImporter::RemoveSensor(int32 SensorIndex)
     }
 }
 
+void APiSimModelImporter::AddNewVirtualSensor(EPiSimSensorType InType, FString InSensorName)
+{
+    FPiSimSensorItem NewSensor;
+    NewSensor.SensorIndex = ConfiguredSensors.Num();
+    NewSensor.Type = InType;
+    NewSensor.bIsActive = true;
+    NewSensor.PivotPoint = FVector::ZeroVector; // Attached to root chassis bone (0,0,0)
+    NewSensor.Rotation = FRotator::ZeroRotator;
+
+    FString TypePrefix = TEXT("Virtual_Sensor");
+    switch (InType)
+    {
+        case EPiSimSensorType::Camera:
+            TypePrefix = TEXT("Virtual_Camera");
+            NewSensor.FovAngle = 90.0f;
+            NewSensor.Fps = 25;
+            NewSensor.Port = 7402;
+            break;
+        case EPiSimSensorType::IMU:
+            TypePrefix = TEXT("Virtual_IMU");
+            NewSensor.Fps = 50;
+            NewSensor.Port = 7401;
+            break;
+        case EPiSimSensorType::GPS:
+            TypePrefix = TEXT("Virtual_GPS");
+            NewSensor.Fps = 10;
+            NewSensor.Port = 7403;
+            break;
+        case EPiSimSensorType::LiDAR:
+            TypePrefix = TEXT("Virtual_LiDAR");
+            NewSensor.Fps = 20;
+            NewSensor.Port = 7404;
+            break;
+        case EPiSimSensorType::Ultrasonic:
+            TypePrefix = TEXT("Virtual_Sonar");
+            NewSensor.Fps = 30;
+            NewSensor.Port = 7405;
+            break;
+        default:
+            TypePrefix = TEXT("Virtual_Sensor");
+            break;
+    }
+
+    if (InSensorName.IsEmpty())
+    {
+        NewSensor.SensorName = FString::Printf(TEXT("%s_%d"), *TypePrefix, NewSensor.SensorIndex + 1);
+    }
+    else
+    {
+        NewSensor.SensorName = InSensorName;
+    }
+
+    // If Camera, create a SceneCaptureComponent2D attached to the root component if none exists
+    if (InType == EPiSimSensorType::Camera && !FpvCameraCapture && VisualMeshComponents.Num() > 0 && VisualMeshComponents[0])
+    {
+        FpvCameraCapture = NewObject<USceneCaptureComponent2D>(this, TEXT("Virtual_FpvCameraCapture"));
+        if (FpvCameraCapture)
+        {
+            FpvCameraCapture->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::KeepRelativeTransform);
+            FpvCameraCapture->SetRelativeLocation(FVector(20.0f, 0.0f, 15.0f));
+            FpvCameraCapture->SetRelativeRotation(FRotator(0.0f, 0.0f, 0.0f));
+            FpvCameraCapture->FOVAngle = NewSensor.FovAngle;
+            FpvCameraCapture->CaptureSource = SCS_FinalColorLDR;
+            FpvCameraCapture->bCaptureEveryFrame = true;
+            FpvCameraCapture->bCaptureOnMovement = false;
+
+            if (!VideoRenderTarget)
+            {
+                VideoRenderTarget = NewObject<UTextureRenderTarget2D>(this);
+                VideoRenderTarget->InitCustomFormat(320, 240, PF_B8G8R8A8, false);
+                VideoRenderTarget->UpdateResourceImmediate(true);
+            }
+            FpvCameraCapture->TextureTarget = VideoRenderTarget;
+            FpvCameraCapture->RegisterComponent();
+            bEnableVideoStream = true;
+        }
+    }
+
+    int32 NewIdx = ConfiguredSensors.Add(NewSensor);
+    SelectSensor(NewIdx);
+}
+
 void APiSimModelImporter::ToggleSensorMarkers(bool bShow)
 {
     bShowSensorMarkers = bShow;
