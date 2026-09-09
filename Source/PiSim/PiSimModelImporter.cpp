@@ -506,29 +506,49 @@ void APiSimModelImporter::Tick(float DeltaTime)
         TelemetryTimer = 0.0f;
     }
 
-    // 3) Canlı Tekerlek Fiziksel Diferansiyel Dönüşü (Gövdeye göre Y < 0: Sol, Y > 0: Sağ)
-    // 3) Canlı Tekerlek ve Sürüş Simülasyonu (Fiziksel Dönüş ve Gövde Hareketi)
-    if (bIsPhysicsSimulating)
+    // 3) Canlı Tekerlek ve Sürüş Simülasyonu (Tüm Tekerleklerin Dönüşü ve Direksiyon)
+    for (int32 i = 1; i < VisualMeshComponents.Num(); ++i)
     {
-        for (int32 i = 1; i < VisualMeshComponents.Num(); ++i)
+        if (VisualMeshComponents[i] && ConfiguredMotors.IsValidIndex(i) && VisualSections.IsValidIndex(i))
         {
-            if (VisualMeshComponents[i] && ConfiguredMotors.IsValidIndex(i))
+            const FPiSimMotorItem& Motor = ConfiguredMotors[i];
+            if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::TrackPad || Motor.Role == EPiSimMotorRole::Thruster || Motor.Role == EPiSimMotorRole::FreeCaster)
             {
-                const FPiSimMotorItem& Motor = ConfiguredMotors[i];
-                if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::SteeredWheel || Motor.Role == EPiSimMotorRole::TrackPad || Motor.Role == EPiSimMotorRole::Thruster)
-                {
-                    FVector RelLoc = VisualMeshComponents[i]->GetRelativeLocation();
-                    float BaseRpm = (RelLoc.Y < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
-                    float IndividualTestRpm = (Motor.Role == EPiSimMotorRole::DriveWheel) ? (Motor.CurrentTestValue * Motor.MaxVelocityRPM) : 0.0f;
-                    float TotalRpm = BaseRpm + IndividualTestRpm;
+                // FBX koordinatlarında X < 0: Sol Tekerlekler (FL, RL), X > 0: Sağ Tekerlekler (FR, RR)
+                float PivotX = VisualSections[i].PivotPoint.X;
+                float BaseRpm = (PivotX < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
+                BaseRpm += AppliedWheelRpm;
+                float IndividualTestRpm = Motor.CurrentTestValue * Motor.MaxVelocityRPM;
+                float TotalRpm = BaseRpm + IndividualTestRpm;
 
-                    if (FMath::Abs(TotalRpm) > 0.001f)
+                if (FMath::Abs(TotalRpm) > 0.001f)
+                {
+                    float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
+                    
+                    if (bIsPhysicsSimulating)
                     {
-                        float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
                         FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f); // Roll X axle
                         FVector WorldAxle = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalAxle);
                         VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(WorldAxle * AngularSpeedDegPerSec, false);
                     }
+                    else
+                    {
+                        // Statik/Garaj modunda sürekli canlı dönüş!
+                        FRotator CurrentRot = VisualMeshComponents[i]->GetRelativeRotation();
+                        CurrentRot.Roll += AngularSpeedDegPerSec * DeltaTime;
+                        VisualMeshComponents[i]->SetRelativeRotation(CurrentRot);
+                    }
+                }
+            }
+            else if (Motor.Role == EPiSimMotorRole::SteeredWheel || Motor.Role == EPiSimMotorRole::ServoJoint)
+            {
+                // Direksiyon servosu yönlenmesi (Yaw ekseni)
+                float TargetAngle = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
+                if (!bIsPhysicsSimulating)
+                {
+                    FRotator CurrentRot = VisualMeshComponents[i]->GetRelativeRotation();
+                    CurrentRot.Yaw = TargetAngle;
+                    VisualMeshComponents[i]->SetRelativeRotation(CurrentRot);
                 }
             }
         }
@@ -1367,29 +1387,17 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         }
         else
         {
-            // İLGİLİ UCX CONVEX HULL'UNU BUL VE SADECE GÖVDE VE TEKERLEKLERE ZIRH OLARAK GİYDİR
+            // GÖVDE VE TEKERLEKLERE ZEMİNLE ÇARPIŞAN KUSURSUZ MERKEZLİ CONVEX COLLISION VER
             VisComp->ClearCollisionConvexMeshes();
-            bool bFoundUCX = false;
-            for (int32 j = 0; j < UCXSections.Num(); ++j)
-            {
-                if (UCXSections[j].MeshName.Contains(VisualSections[i].MeshName, ESearchCase::IgnoreCase))
-                {
-                    VisComp->AddCollisionConvexMesh(UCXSections[j].Vertices);
-                    bFoundUCX = true;
-                    break;
-                }
-            }
-            if (!bFoundUCX)
-            {
-                VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
-            }
+            VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
 
-            // STATİK HALDE DE SOLID ÇARPIŞMA %100 AKTİF!
+            // STATİK VE CANLI HALDE SOLID ÇARPIŞMA %100 AKTİF
             VisComp->bUseComplexAsSimpleCollision = false;
             VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
             VisComp->SetCollisionObjectType(ECC_WorldDynamic);
             VisComp->SetCollisionResponseToAllChannels(ECR_Block);
-            VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zemini bloklar
+            VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zemini kesinlikle bloklar, içeri batmaz
+            VisComp->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
             VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
             VisComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
             VisComp->RecreatePhysicsState();
@@ -1826,7 +1834,7 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
 
         if (bIsSteerKnuckle)
         {
-            // STEERING MAFSALI (1-eksenli Servo): Çarpışma ve zırh eklenmez!
+            // STEERING MAFSALI (1-eksenli Servo): Çarpışma ve yerçekimi almaz (Kinematik)
             VisComp->ClearCollisionConvexMeshes();
             VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
             VisComp->SetSimulatePhysics(false);
@@ -1834,24 +1842,11 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             continue;
         }
 
-        float Mass = (i == 0) ? 30.0f : 2.5f;
+        float Mass = (i == 0) ? 30.0f : 3.5f;
 
-        // İlgili UCX Convex Zırhını Giydir
+        // Tam merkezli zemin çarpışması
         VisComp->ClearCollisionConvexMeshes();
-        bool bFoundUCX = false;
-        for (const FImporterMeshSection& UcxSec : UCXSections)
-        {
-            if (UcxSec.MeshName.Contains(VisualSections[i].MeshName, ESearchCase::IgnoreCase))
-            {
-                VisComp->AddCollisionConvexMesh(UcxSec.Vertices);
-                bFoundUCX = true;
-                break;
-            }
-        }
-        if (!bFoundUCX)
-        {
-            VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
-        }
+        VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
 
         VisComp->bUseComplexAsSimpleCollision = false;
         VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -1863,30 +1858,39 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         VisComp->RecreatePhysicsState();
         VisComp->UpdateBounds();
 
-        if (i == 0)
+        VisComp->SetMobility(EComponentMobility::Movable);
+        VisComp->SetSimulatePhysics(true);
+        VisComp->SetEnableGravity(true);
+        VisComp->SetMassOverrideInKg(NAME_None, Mass, true);
+        VisComp->SetLinearDamping((i == 0) ? 0.5f : 0.1f);
+        VisComp->SetAngularDamping((i == 0) ? 1.0f : 0.2f);
+        VisComp->WakeRigidBody();
+
+        if (i > 0)
         {
-            VisComp->SetMobility(EComponentMobility::Movable);
-            VisComp->SetSimulatePhysics(true);
-            VisComp->SetEnableGravity(true);
-            VisComp->SetMassOverrideInKg(NAME_None, Mass, true);
-            VisComp->SetLinearDamping(0.8f);
-            VisComp->SetAngularDamping(1.5f);
-            VisComp->WakeRigidBody();
-        }
-        else
-        {
-            // Tekerlekler: Knuckle mafsalına bağlı kalır, zemine çarpar ve yuvarlanır
-            int32 ParentIdx = VisualSections[i].ParentSectionIndex;
-            if (ParentIdx >= 0 && VisualMeshComponents.IsValidIndex(ParentIdx) && VisualMeshComponents[ParentIdx])
+            // Tekerlekler için Şasi ile Fizik Kısıtlaması (Physics Constraint) oluştur
+            FName ConstraintName = *FString::Printf(TEXT("PhysicsJoint_%d_%s"), i, *VisualSections[i].MeshName);
+            UPhysicsConstraintComponent* JointConstraint = NewObject<UPhysicsConstraintComponent>(this, ConstraintName);
+            if (JointConstraint && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
             {
-                VisComp->AttachToComponent(VisualMeshComponents[ParentIdx], FAttachmentTransformRules::KeepRelativeTransform);
+                JointConstraint->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::KeepWorldTransform);
+                JointConstraint->SetWorldLocation(VisComp->GetComponentLocation());
+
+                JointConstraint->SetConstrainedComponents(VisualMeshComponents[0], NAME_None, VisComp, NAME_None);
+                JointConstraint->SetDisableCollision(true); // Gövde ile tekerlek birbirini itmesin
+
+                // Doğrusal eksenleri kilitle (Tekerlek şasideki yuvasında sabit kalsın)
+                JointConstraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                JointConstraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+                JointConstraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+
+                // Yuvarlanma eksenini serbest bırak
+                JointConstraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Free, 0.0f);
+                JointConstraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
+
+                JointConstraint->RegisterComponent();
+                JointConstraints.Add(JointConstraint);
             }
-            else if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
-            {
-                VisComp->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::KeepRelativeTransform);
-            }
-            VisComp->SetSimulatePhysics(false);
-            VisComp->SetEnableGravity(false);
         }
 
         UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' bileşenine ZEMİN ÇARPIŞMASI verildi | Kütle: %.1f kg"),
@@ -1965,16 +1969,9 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
         else if (MotorRole == EPiSimMotorRole::SteeredWheel || MotorRole == EPiSimMotorRole::ServoJoint)
         {
             float TargetAngle = FMath::Lerp(ConfiguredMotors[BoneIndex].MinLimitDeg, ConfiguredMotors[BoneIndex].MaxLimitDeg, (Value + 1.0f) * 0.5f);
-            if (bIsPhysicsSimulating && JointConstraints.IsValidIndex(BoneIndex - 1) && JointConstraints[BoneIndex - 1])
-            {
-                JointConstraints[BoneIndex - 1]->SetAngularOrientationTarget(FRotator(0.0f, TargetAngle, 0.0f));
-            }
-            else
-            {
-                FRotator CurrentRot = VisualMeshComponents[BoneIndex]->GetRelativeRotation();
-                CurrentRot.Yaw = TargetAngle;
-                VisualMeshComponents[BoneIndex]->SetRelativeRotation(CurrentRot);
-            }
+            FRotator CurrentRot = VisualMeshComponents[BoneIndex]->GetRelativeRotation();
+            CurrentRot.Yaw = TargetAngle;
+            VisualMeshComponents[BoneIndex]->SetRelativeRotation(CurrentRot);
         }
         else if (MotorRole == EPiSimMotorRole::LinearActuator)
         {
