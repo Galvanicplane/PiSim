@@ -1779,14 +1779,11 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
 
             EPiSimMotorRole MotorRole = ConfiguredMotors.IsValidIndex(i) ? ConfiguredMotors[i].Role : EPiSimMotorRole::None;
 
-            if (MotorRole == EPiSimMotorRole::SteeredWheel)
+            if (MotorRole == EPiSimMotorRole::SteeredWheel || MotorRole == EPiSimMotorRole::DriveWheel || MotorRole == EPiSimMotorRole::TrackPad || MotorRole == EPiSimMotorRole::Thruster)
             {
-                // Yönlendirilebilir Tekerlek (Steering Knuckle):
-                // Twist (Roll / X ekseni): Serbest tekerlek yuvarlanması
+                // Tekerlekler (Steer & Drive): SADECE Roll (Dönme) Serbest, diğer tüm eksenler ve salınım kilitli!
                 Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
-                // Swing1 (Yaw / Z ekseni): Direksiyon dönüşü (+-45 derece sınır)
-                Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Limited, 45.0f);
-                // Swing2 (Pitch / Y ekseni): Kilitli (dik kamber)
+                Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
                 Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
                 Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
                 Constraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
