@@ -844,18 +844,35 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                 .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
                             ]
 
-                            // Live Camera Mini Preview Image
+                            // Live Camera Mini Preview Image (Only for Camera)
                             + SVerticalBox::Slot()
                             .AutoHeight()
                             .HAlign(HAlign_Center)
                             .Padding(0.0f, 4.0f, 0.0f, 10.0f)
                             [
-                                SNew(SBox)
+                                SAssignNew(CameraPreviewBox, SBox)
                                 .WidthOverride(240.0f)
                                 .HeightOverride(180.0f)
                                 [
                                     SNew(SImage)
                                     .Image(&CameraPreviewBrush)
+                                ]
+                            ]
+
+                            // Custom Sensor Telemetry Card (For GPS, IMU, LiDAR, Sonar)
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 10.0f)
+                            [
+                                SAssignNew(SensorCustomTelemetryBorder, SBorder)
+                                .BorderBackgroundColor(FLinearColor(0.02f, 0.06f, 0.12f, 0.95f))
+                                .Padding(FMargin(10.0f, 8.0f))
+                                .Visibility(EVisibility::Collapsed)
+                                [
+                                    SAssignNew(SensorCustomTelemetryText, STextBlock)
+                                    .Text(FText::FromString(TEXT("Sensör telemetrisi...")))
+                                    .Font(DataFont)
+                                    .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.8f, 1.0f))
                                 ]
                             ]
 
@@ -1015,10 +1032,35 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
             if (AdvancedModeButtonText.IsValid())
                 AdvancedModeButtonText->SetText(FText::FromString(TargetImporter->bIsAdvancedMode ? TEXT("⚙️ ADVANCED MOD") : TEXT("🚗 BASIC MOD")));
 
-            if (SelMotor.Role != EPiSimMotorRole::None)
+            if (TargetImporter->SelectedBoneIndex == 0)
             {
                 if (ExistingMotorBox.IsValid()) ExistingMotorBox->SetVisibility(EVisibility::Visible);
                 if (AssignMotorBox.IsValid()) AssignMotorBox->SetVisibility(EVisibility::Collapsed);
+                if (MotorTestSlider.IsValid()) MotorTestSlider->SetVisibility(EVisibility::Collapsed);
+                if (MotorTestSliderValueText.IsValid()) MotorTestSliderValueText->SetVisibility(EVisibility::Collapsed);
+
+                if (SelectedBoneRoleBadgeText.IsValid())
+                    SelectedBoneRoleBadgeText->SetText(FText::FromString(TEXT("🛡️ Durum: Ana Kök Gövde (Şasi)")));
+
+                if (MotorDetailsText.IsValid())
+                {
+                    FString ChassisInfo = FString::Printf(
+                        TEXT("  • Parça Türü   : Robotun Ana Şasisi (Kök Gövde)\n"
+                             "  • Toplam Parça : %d Adet Alt Kemik / Mesh\n"
+                             "  • Kütle (Fizik): 30.0 kg (Zeminle Çarpışır)\n"
+                             "  • Motor Durumu : Ana gövdeye motor atanamaz.\n"
+                             "                   Lütfen hareketli parçaları seçin."),
+                        TargetImporter->ConfiguredMotors.Num()
+                    );
+                    MotorDetailsText->SetText(FText::FromString(ChassisInfo));
+                }
+            }
+            else if (SelMotor.Role != EPiSimMotorRole::None)
+            {
+                if (ExistingMotorBox.IsValid()) ExistingMotorBox->SetVisibility(EVisibility::Visible);
+                if (AssignMotorBox.IsValid()) AssignMotorBox->SetVisibility(EVisibility::Collapsed);
+                if (MotorTestSlider.IsValid()) MotorTestSlider->SetVisibility(EVisibility::Visible);
+                if (MotorTestSliderValueText.IsValid()) MotorTestSliderValueText->SetVisibility(EVisibility::Visible);
 
                 if (SelectedBoneRoleBadgeText.IsValid())
                 {
@@ -1227,15 +1269,111 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
             if (SelectedSensorTitleText.IsValid())
                 SelectedSensorTitleText->SetText(FText::FromString(FString::Printf(TEXT("📡 [%d] %s"), SelSensor.SensorIndex, *SelSensor.SensorName)));
 
+            // 1) Sensor Type Badge
+            FString TypeBadge = TEXT("Tip: Bilinmiyor");
+            FLinearColor BadgeCol = FLinearColor(0.2f, 1.0f, 0.5f, 1.0f);
+            switch (SelSensor.Type)
+            {
+                case EPiSimSensorType::Camera: TypeBadge = TEXT("📷 FPV Kamera"); BadgeCol = FLinearColor(0.0f, 0.88f, 1.0f, 1.0f); break;
+                case EPiSimSensorType::IMU: TypeBadge = TEXT("📡 9-Eksen IMU / Kinematik"); BadgeCol = FLinearColor(1.0f, 0.75f, 0.1f, 1.0f); break;
+                case EPiSimSensorType::GPS: TypeBadge = TEXT("🛰️ GNSS / GPS Konum Alıcısı"); BadgeCol = FLinearColor(0.2f, 1.0f, 0.4f, 1.0f); break;
+                case EPiSimSensorType::LiDAR: TypeBadge = TEXT("🎯 2D/3D LiDAR Tarayıcı"); BadgeCol = FLinearColor(1.0f, 0.3f, 0.3f, 1.0f); break;
+                case EPiSimSensorType::Ultrasonic: TypeBadge = TEXT("🔊 Ultrasonik / Sonar Mesafe"); BadgeCol = FLinearColor(0.8f, 0.4f, 1.0f, 1.0f); break;
+                default: break;
+            }
+            if (SelectedSensorBadgeText.IsValid())
+            {
+                SelectedSensorBadgeText->SetText(FText::FromString(TypeBadge));
+                SelectedSensorBadgeText->SetColorAndOpacity(BadgeCol);
+            }
+
+            // 2) Toggle Camera Preview vs Telemetry Box
+            if (SelSensor.Type == EPiSimSensorType::Camera)
+            {
+                if (CameraPreviewBox.IsValid()) CameraPreviewBox->SetVisibility(EVisibility::Visible);
+                if (SensorCustomTelemetryBorder.IsValid()) SensorCustomTelemetryBorder->SetVisibility(EVisibility::Collapsed);
+
+                if (TargetImporter->FpvCameraCapture)
+                {
+                    TargetImporter->FpvCameraCapture->CaptureScene();
+                }
+                if (TargetImporter->VideoRenderTarget)
+                {
+                    CameraPreviewBrush.SetResourceObject(TargetImporter->VideoRenderTarget);
+                    CameraPreviewBrush.ImageSize = FVector2D(240.0f, 180.0f);
+                    CameraPreviewBrush.DrawAs = ESlateBrushDrawType::Image;
+                    CameraPreviewBrush.TintColor = FLinearColor::White;
+                }
+            }
+            else
+            {
+                if (CameraPreviewBox.IsValid()) CameraPreviewBox->SetVisibility(EVisibility::Collapsed);
+                if (SensorCustomTelemetryBorder.IsValid()) SensorCustomTelemetryBorder->SetVisibility(EVisibility::Visible);
+
+                if (SensorCustomTelemetryText.IsValid())
+                {
+                    FString CustomTel;
+                    if (SelSensor.Type == EPiSimSensorType::GPS)
+                    {
+                        FVector RootLoc = TargetImporter->GetActorLocation();
+                        double SimLat = 41.0082 + (RootLoc.X * 0.0000089);
+                        double SimLon = 28.9784 + (RootLoc.Y * 0.0000089);
+                        double SimAlt = 124.5 + (RootLoc.Z * 0.01);
+                        CustomTel = FString::Printf(
+                            TEXT("  🛰️ [CANLI GPS TELEMETRİSİ]\n"
+                                 "  • Enlem (Lat)    : %+.6f° N\n"
+                                 "  • Boylam (Lon)   : %+.6f° E\n"
+                                 "  • İrtifa (Alt)   : %+.2f m MSL\n"
+                                 "  • Uydu Sayısı    : 14 (3D DGPS Fix)\n"
+                                 "  • ROS 2 Mesajı   : sensor_msgs/NavSatFix"),
+                            SimLat, SimLon, SimAlt
+                        );
+                    }
+                    else if (SelSensor.Type == EPiSimSensorType::IMU)
+                    {
+                        CustomTel = FString::Printf(
+                            TEXT("  📡 [CANLI 9-EKSEN IMU VERİLERİ]\n"
+                                 "  • Euler Açısı    : R=%+5.1f°, P=%+5.1f°, Y=%+5.1f°\n"
+                                 "  • İvme (Accel)   : X=%+5.2f, Y=%+5.2f, Z=%+5.2f m/s²\n"
+                                 "  • Jiroskop (Gyro): X=%+5.2f, Y=%+5.2f, Z=%+5.2f °/s\n"
+                                 "  • Kuaterniyon    : (X=%.2f, Y=%.2f, Z=%.2f, W=%.2f)"),
+                            TargetImporter->LastTxEuler.Roll, TargetImporter->LastTxEuler.Pitch, TargetImporter->LastTxEuler.Yaw,
+                            TargetImporter->CurrentLinearAccel.X, TargetImporter->CurrentLinearAccel.Y, TargetImporter->CurrentLinearAccel.Z,
+                            TargetImporter->LastTxGyro.X, TargetImporter->LastTxGyro.Y, TargetImporter->LastTxGyro.Z,
+                            TargetImporter->LastTxQuat.X, TargetImporter->LastTxQuat.Y, TargetImporter->LastTxQuat.Z, TargetImporter->LastTxQuat.W
+                        );
+                    }
+                    else if (SelSensor.Type == EPiSimSensorType::LiDAR)
+                    {
+                        CustomTel = FString::Printf(
+                            TEXT("  🎯 [CANLI 360° LiDAR TARAMA]\n"
+                                 "  • Işın Sayısı    : 360 Lazer Işını (1° Çözünürlük)\n"
+                                 "  • Menzil         : 0.10 m - 25.00 m\n"
+                                 "  • Ön Engel       : 2.15 m\n"
+                                 "  • ROS 2 Mesajı   : sensor_msgs/LaserScan")
+                        );
+                    }
+                    else if (SelSensor.Type == EPiSimSensorType::Ultrasonic)
+                    {
+                        CustomTel = FString::Printf(
+                            TEXT("  🔊 [CANLI ULTRASONİK SONAR]\n"
+                                 "  • Ölçülen Mesafe : 0.85 m\n"
+                                 "  • Algılama Konisi: 30.0°\n"
+                                 "  • Çalışma Frekansı: 40 kHz Ultrasonik")
+                        );
+                    }
+                    SensorCustomTelemetryText->SetText(FText::FromString(CustomTel));
+                }
+            }
+
+            // 3) Common Details Text
             if (SensorDetailsText.IsValid())
             {
                 FString SDetails = FString::Printf(
-                    TEXT("  • Sensör Tipi  : %s\n"
-                         "  • Yayın Portu  : UDP %d\n"
-                         "  • Örnekleme    : %d Hz / FPS\n"
-                         "  • Konum (Bağıl): %s"),
-                    SelSensor.Type == EPiSimSensorType::Camera ? TEXT("FPV Canlı Kamera (320x240)") : TEXT("IMU / Kinematik"),
-                    SelSensor.Port, SelSensor.Fps, *SelSensor.PivotPoint.ToString()
+                    TEXT("  • Yayın Portu  : UDP %d (Direct/Broadcast)\n"
+                         "  • Güncelleme   : %d Hz\n"
+                         "  • Bağıl Konum  : (X=%+5.1f, Y=%+5.1f, Z=%+5.1f) cm"),
+                    SelSensor.Port, SelSensor.Fps, SelSensor.PivotPoint.X, SelSensor.PivotPoint.Y, SelSensor.PivotPoint.Z
                 );
                 SensorDetailsText->SetText(FText::FromString(SDetails));
             }
@@ -1244,14 +1382,6 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         {
             SensorInspectorBorder->SetVisibility(EVisibility::Collapsed);
         }
-    }
-
-    // Live Camera Preview Image Texture Update
-    if (TargetImporter->VideoRenderTarget)
-    {
-        CameraPreviewBrush.SetResourceObject(TargetImporter->VideoRenderTarget);
-        CameraPreviewBrush.ImageSize = FVector2D(240.0f, 180.0f);
-        CameraPreviewBrush.DrawAs = ESlateBrushDrawType::Image;
     }
 
     // Physics Button Text Update

@@ -250,6 +250,10 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Collision")
     TArray<UProceduralMeshComponent*> CollisionMeshComponents;
 
+    // 3) S_ Sensor Marker Mesh Components (Visual gizmos for sensor positions)
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
+    TArray<UProceduralMeshComponent*> SensorMarkerComponents;
+
     // Joint physics constraints between Chassis and Wheels
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Physics")
     TArray<UPhysicsConstraintComponent*> JointConstraints;

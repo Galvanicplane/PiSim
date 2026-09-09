@@ -84,6 +84,9 @@ private:
     TSharedPtr<class STextBlock> SelectedSensorBadgeText;
     TSharedPtr<class STextBlock> SensorDetailsText;
     TSharedPtr<class STextBlock> SensorMarkerToggleText;
+    TSharedPtr<class SBox> CameraPreviewBox;
+    TSharedPtr<class SBorder> SensorCustomTelemetryBorder;
+    TSharedPtr<class STextBlock> SensorCustomTelemetryText;
 
     // Mini Preview PiP Brush & Widgets
     FSlateBrush CameraPreviewBrush;

@@ -511,18 +511,23 @@ void APiSimModelImporter::Tick(float DeltaTime)
     {
         for (int32 i = 1; i < VisualMeshComponents.Num(); ++i)
         {
-            if (VisualMeshComponents[i])
+            if (VisualMeshComponents[i] && ConfiguredMotors.IsValidIndex(i))
             {
-                FVector RelLoc = VisualMeshComponents[i]->GetRelativeLocation();
-                float BaseRpm = (RelLoc.Y < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
-                float TotalRpm = BaseRpm + AppliedWheelRpm;
-
-                if (FMath::Abs(TotalRpm) > 0.001f)
+                const FPiSimMotorItem& Motor = ConfiguredMotors[i];
+                if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::TrackPad || Motor.Role == EPiSimMotorRole::Thruster)
                 {
-                    float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
-                    FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f); // Roll X axle
-                    FVector WorldAxle = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalAxle);
-                    VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(WorldAxle * AngularSpeedDegPerSec, false);
+                    FVector RelLoc = VisualMeshComponents[i]->GetRelativeLocation();
+                    float BaseRpm = (RelLoc.Y < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
+                    float IndividualTestRpm = Motor.CurrentTestValue * Motor.MaxVelocityRPM;
+                    float TotalRpm = BaseRpm + IndividualTestRpm;
+
+                    if (FMath::Abs(TotalRpm) > 0.001f)
+                    {
+                        float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
+                        FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f); // Roll X axle
+                        FVector WorldAxle = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalAxle);
+                        VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(WorldAxle * AngularSpeedDegPerSec, false);
+                    }
                 }
             }
         }
@@ -624,6 +629,12 @@ void APiSimModelImporter::ClearSpawnedComponents()
     }
     SpawnedCameraComponents.Empty();
     FpvCameraCapture = nullptr;
+
+    for (UProceduralMeshComponent* MarkerComp : SensorMarkerComponents)
+    {
+        if (MarkerComp) MarkerComp->DestroyComponent();
+    }
+    SensorMarkerComponents.Empty();
 
     VisualSections.Empty();
     UCXSections.Empty();
@@ -1580,6 +1591,52 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         }
     }
 
+    // 9) SENSÖR GÖRSEL İŞARETÇİLERİ (S_... Marker Meshleri)
+    for (int32 s = 0; s < SensorSections.Num(); ++s)
+    {
+        const FImporterSensorSection& Sensor = SensorSections[s];
+        FName MarkerCompName = *FString::Printf(TEXT("SensorMarkerComp_%d_%s"), s, *Sensor.SensorName);
+        UProceduralMeshComponent* MarkerComp = NewObject<UProceduralMeshComponent>(this, MarkerCompName);
+        if (MarkerComp)
+        {
+            MarkerComp->SetMobility(EComponentMobility::Movable);
+            if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+            {
+                MarkerComp->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+                FVector RelativeLoc = Sensor.PivotPoint - VisualSections[0].PivotPoint;
+                MarkerComp->SetRelativeLocation(RelativeLoc);
+                MarkerComp->SetRelativeRotation(Sensor.Rotation);
+            }
+            else
+            {
+                MarkerComp->AttachToComponent(SceneRootComponent, FAttachmentTransformRules::KeepRelativeTransform);
+                MarkerComp->SetRelativeLocation(Sensor.PivotPoint);
+                MarkerComp->SetRelativeRotation(Sensor.Rotation);
+            }
+
+            float H = 4.0f; // 8x8x8 cm küp
+            TArray<FVector> BoxVerts = {
+                FVector(-H,-H,-H), FVector(H,-H,-H), FVector(H,H,-H), FVector(-H,H,-H),
+                FVector(-H,-H,H),  FVector(H,-H,H),  FVector(H,H,H),  FVector(-H,H,H)
+            };
+            TArray<int32> BoxTris = {
+                0,2,1, 0,3,2, 4,5,6, 4,6,7,
+                0,1,5, 0,5,4, 1,2,6, 1,6,5,
+                2,3,7, 2,7,6, 3,0,4, 3,4,7
+            };
+            TArray<FVector> BoxNorms; BoxNorms.Init(FVector::UpVector, BoxVerts.Num());
+            TArray<FVector2D> BoxUVs; BoxUVs.Init(FVector2D::ZeroVector, BoxVerts.Num());
+            TArray<FProcMeshTangent> BoxTangs;
+            TArray<FColor> BoxColors; BoxColors.Init(FColor(0, 220, 255, 200), BoxVerts.Num());
+
+            MarkerComp->CreateMeshSection(0, BoxVerts, BoxTris, BoxNorms, BoxUVs, BoxColors, BoxTangs, false);
+            MarkerComp->SetVisibility(bShowSensorMarkers);
+            MarkerComp->SetHiddenInGame(!bShowSensorMarkers);
+            MarkerComp->RegisterComponent();
+            SensorMarkerComponents.Add(MarkerComp);
+        }
+    }
+
     if (DiscoveredCameras == 0)
     {
         bEnableVideoStream = false;
@@ -1776,7 +1833,7 @@ void APiSimModelImporter::SelectSensor(int32 Index)
 
 void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
 {
-    if (!ConfiguredMotors.IsValidIndex(BoneIndex)) return;
+    if (BoneIndex <= 0 || !ConfiguredMotors.IsValidIndex(BoneIndex)) return; // Gövdeye motor atanamaz
     ConfiguredMotors[BoneIndex].CurrentTestValue = Value;
 
     if (VisualMeshComponents.IsValidIndex(BoneIndex) && VisualMeshComponents[BoneIndex])
@@ -1784,7 +1841,18 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
         EPiSimMotorRole MotorRole = ConfiguredMotors[BoneIndex].Role;
         if (MotorRole == EPiSimMotorRole::DriveWheel || MotorRole == EPiSimMotorRole::Thruster || MotorRole == EPiSimMotorRole::TrackPad)
         {
-            AppliedWheelRpm = Value * ConfiguredMotors[BoneIndex].MaxVelocityRPM;
+            float IndividualRpm = Value * ConfiguredMotors[BoneIndex].MaxVelocityRPM;
+            if (bIsPhysicsSimulating)
+            {
+                float AngularSpeedDegPerSec = IndividualRpm * 6.0f;
+                FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f);
+                FVector WorldAxle = VisualMeshComponents[BoneIndex]->GetComponentTransform().TransformVectorNoScale(LocalAxle);
+                VisualMeshComponents[BoneIndex]->SetPhysicsAngularVelocityInDegrees(WorldAxle * AngularSpeedDegPerSec, false);
+            }
+            else
+            {
+                VisualMeshComponents[BoneIndex]->AddLocalRotation(FRotator(Value * 15.0f, 0.0f, 0.0f));
+            }
         }
         else if (MotorRole == EPiSimMotorRole::SteeredWheel || MotorRole == EPiSimMotorRole::ServoJoint)
         {
@@ -1805,7 +1873,7 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
 
 void APiSimModelImporter::RemoveMotorFromBone(int32 BoneIndex)
 {
-    if (!ConfiguredMotors.IsValidIndex(BoneIndex)) return;
+    if (BoneIndex <= 0 || !ConfiguredMotors.IsValidIndex(BoneIndex)) return;
     ConfiguredMotors[BoneIndex].Role = EPiSimMotorRole::None;
     ConfiguredMotors[BoneIndex].CurrentTestValue = 0.0f;
     UpdateVisualMaterials();
@@ -1813,7 +1881,7 @@ void APiSimModelImporter::RemoveMotorFromBone(int32 BoneIndex)
 
 void APiSimModelImporter::AssignMotorToBone(int32 BoneIndex, EPiSimMotorRole NewRole)
 {
-    if (!ConfiguredMotors.IsValidIndex(BoneIndex)) return;
+    if (BoneIndex <= 0 || !ConfiguredMotors.IsValidIndex(BoneIndex)) return; // Gövdeye motor atanamaz
     ConfiguredMotors[BoneIndex].Role = NewRole;
     UpdateVisualMaterials();
 }
@@ -1915,6 +1983,14 @@ void APiSimModelImporter::AddNewVirtualSensor(EPiSimSensorType InType, FString I
 void APiSimModelImporter::ToggleSensorMarkers(bool bShow)
 {
     bShowSensorMarkers = bShow;
+    for (UProceduralMeshComponent* MarkerComp : SensorMarkerComponents)
+    {
+        if (MarkerComp)
+        {
+            MarkerComp->SetVisibility(bShow);
+            MarkerComp->SetHiddenInGame(!bShow);
+        }
+    }
 }
 
 void APiSimModelImporter::UpdateVisualMaterials()
