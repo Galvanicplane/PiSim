@@ -32,6 +32,9 @@ private:
     FReply OnScale100Clicked();
     FReply OnReimportClicked();
     FReply OnTogglePhysicsClicked();
+    FReply OnToggleModelClicked();
+
+    TSharedPtr<class STextBlock> ModelButtonText;
 
     // Motor Tab Actions
     FReply OnToggleDisplayModeClicked();

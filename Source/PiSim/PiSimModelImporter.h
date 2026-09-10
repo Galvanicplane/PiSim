@@ -162,6 +162,31 @@ struct FImporterMeshSection
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
     float MaxAngle = 90.0f;
+
+    // Aerodinamik Lift & Drag Özellikleri (Ana gövde / kanat için)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    bool bEnableAerodynamics = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float WingArea = 0.25f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float Wingspan = 1.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float CL0 = 0.20f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float CLAlpha = 4.5f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float CD0 = 0.025f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float StallAngleDeg = 16.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float ElevonEffectiveness = 0.5f;
 };
 
 USTRUCT(BlueprintType)
@@ -177,6 +202,61 @@ struct FImporterSensorSection
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Sensor")
     FRotator Rotation = FRotator::ZeroRotator;
+};
+
+USTRUCT(BlueprintType)
+struct FPiSimAerodynamicsConfig
+{
+    GENERATED_BODY()
+
+    /** Aerodinamik Lift ve Drag kuvvet simülasyonu aktif mi? */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    bool bEnableAerodynamics = true;
+
+    /** Kanat Alanı (m^2) - 1 metre uçan kanat için genelde 0.20 - 0.30 m^2 */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float WingArea = 0.25f;
+
+    /** Kanat Açıklığı (m) - Uçtan uca mesafe */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float Wingspan = 1.0f;
+
+    /** Sıfır hücum açısındaki taşıma katsayısı (C_L0) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float CL0 = 0.20f;
+
+    /** Taşıma eğimi (C_L_alpha, radyan başına genelde 4.0 - 5.5) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float CLAlpha = 4.5f;
+
+    /** Parazit sürtünme katsayısı (C_D0) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float CD0 = 0.025f;
+
+    /** Stall / Perdövites Açısı (Derece) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float StallAngleDeg = 16.0f;
+
+    /** Deniz seviyesi hava yoğunluğu (kg/m^3) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float AirDensity = 1.225f;
+
+    /** Elevon kanatçık sapmasının hücum açısına etkinlik çarpanı (tau, 0.4 - 0.7) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float ElevonEffectiveness = 0.5f;
+
+    /** Canlı okunan telemetri değerleri */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Aero")
+    float CurrentAirspeedKmh = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Aero")
+    float CurrentAlphaDeg = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Aero")
+    float CurrentLiftNewtons = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Aero")
+    float CurrentDragNewtons = 0.0f;
 };
 
 UCLASS()
@@ -257,6 +337,10 @@ public:
     // Joint physics constraints between Chassis and Wheels
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Physics")
     TArray<UPhysicsConstraintComponent*> JointConstraints;
+
+    // Ana gövde kütlesi (kg) - Rover: ~30kg, 4-motorlu Drone: ~1.5 - 2.5kg, Sabit Kanat: ~1.0 - 1.5kg
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
+    float ChassisMassKg = 30.0f;
 
     // Steer Bone Components (Kinematik Mafsal Kemikleri - SetSimulatePhysics(false), 1-Eksen Yaw Dönüşü)
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Steer")
@@ -360,6 +444,10 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Network")
     TArray<FString> ConnectionDebugLogs;
 
+    // Aerodinamik Lift & Drag Konfigürasyonu (Uçaklar ve Uçan Kanatlar İçin)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    FPiSimAerodynamicsConfig AeroConfig;
+
     void AddConnectionDebugLog(const FString& LogMsg);
 
     // =========================================================================
@@ -433,6 +521,13 @@ public:
 
     UFUNCTION(CallInEditor, Category = "PiSim|Actions")
     void TogglePhysicsSimulation();
+
+    /** Aktif Model Dosyası (Saved/Robots/Cache/robot_import_test.fbx veya robot_import_test1.fbx) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Model")
+    FString ActiveModelFileName = TEXT("robot_import_test.fbx");
+
+    UFUNCTION(CallInEditor, Category = "PiSim|Actions")
+    void ToggleModelFile();
 
     // =========================================================================
     // CORE PIPELINE FUNCTIONS

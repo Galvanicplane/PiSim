@@ -116,10 +116,26 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                     ]
                 ]
 
-                // Reimport
+                // Model Switch Button (robot_import_test.fbx <-> robot_import_test1.fbx)
                 + SHorizontalBox::Slot()
                 .AutoWidth()
                 .Padding(FMargin(6.0f, 0.0f, 2.0f, 0.0f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(FLinearColor(0.42f, 0.15f, 0.65f, 1.0f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnToggleModelClicked))
+                    [
+                        SAssignNew(ModelButtonText, STextBlock)
+                        .Text(FText::FromString(TEXT(" 📦 MODEL: test.fbx ")))
+                        .Font(ButtonFont)
+                        .ColorAndOpacity(FLinearColor::White)
+                    ]
+                ]
+
+                // Reimport
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .Padding(FMargin(2.0f, 0.0f, 2.0f, 0.0f))
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.08f, 0.45f, 0.25f, 1.0f))
@@ -949,6 +965,13 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         }
     }
 
+    // Model Button Text Update
+    if (ModelButtonText.IsValid())
+    {
+        FString ShortName = TargetImporter->ActiveModelFileName.Contains(TEXT("test1")) ? TEXT(" 📦 MODEL: test1.fbx ") : TEXT(" 📦 MODEL: test.fbx ");
+        ModelButtonText->SetText(FText::FromString(ShortName));
+    }
+
     // 2) Active Tab Navigation Visuals
     if (MainTabSwitcher.IsValid())
     {
@@ -1520,6 +1543,12 @@ FReply UPiSimModelImporterWidget::OnReimportClicked()
 FReply UPiSimModelImporterWidget::OnTogglePhysicsClicked()
 {
     if (TargetImporter) TargetImporter->TogglePhysicsSimulation();
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnToggleModelClicked()
+{
+    if (TargetImporter) TargetImporter->ToggleModelFile();
     return FReply::Handled();
 }
 

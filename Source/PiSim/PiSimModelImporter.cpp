@@ -546,7 +546,7 @@ void APiSimModelImporter::Tick(float DeltaTime)
             if (VisualMeshComponents[i] && ConfiguredMotors.IsValidIndex(i))
             {
                 const FPiSimMotorItem& Motor = ConfiguredMotors[i];
-                if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::TrackPad || Motor.Role == EPiSimMotorRole::Thruster)
+                if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::TrackPad)
                 {
                     FVector RelLoc = VisualMeshComponents[i]->GetRelativeLocation();
                     float BaseRpm = (RelLoc.Y < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
@@ -566,7 +566,160 @@ void APiSimModelImporter::Tick(float DeltaTime)
                         VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
                     }
                 }
+                else if (Motor.Role == EPiSimMotorRole::Thruster)
+                {
+                    // 1) Pervanenin Gövdeye Bağlı Görsel Dönüşü (Spin RPM)
+                    float PropRpm = Motor.CurrentTestValue * Motor.MaxVelocityRPM;
+                    if (FMath::Abs(PropRpm) > 0.001f)
+                    {
+                        float AngularSpeedDegPerSec = PropRpm * 6.0f;
+                        // Yerel Z ekseni etrafında pürüzsüz dönüş (Yaw)
+                        VisualMeshComponents[i]->AddLocalRotation(FRotator(0.0f, AngularSpeedDegPerSec * DeltaTime, 0.0f));
+                    }
+
+                    // 2) Fiziksel İtki Kuvveti (Newton İtki)
+                    if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0] && Motor.CurrentTestValue > 0.01f)
+                    {
+                        float MaxThrustN = (Motor.MaxTorqueNm > 1.0f) ? (Motor.MaxTorqueNm * 5.0f) : 75.0f;
+                        float ThrustNewtons = Motor.CurrentTestValue * MaxThrustN;
+
+                        // İtki yönü: Drone için Yerel Yukarı (+Z), Arkadan İticili (Pusher) Uçak için Yerel İleri (+X)
+                        FString LowPropName = Motor.BoneName.ToLower();
+                        FVector LocalThrustDir = (LowPropName.Contains(TEXT("push")) || LowPropName.Contains(TEXT("forward"))) ? FVector(1.0f, 0.0f, 0.0f) : FVector(0.0f, 0.0f, 1.0f);
+                        FVector WorldThrustDir = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalThrustDir).GetSafeNormal();
+
+                        // Unreal AddForce kg*cm/s^2 birimindedir (1 N = 100 kg*cm/s^2)
+                        FVector ForceVec = WorldThrustDir * (ThrustNewtons * 100.0f);
+                        FVector PropWorldLoc = VisualMeshComponents[i]->GetComponentLocation();
+
+                        // Şasiye pervane yuvasının tam dünya koordinatından kuvvet uygula
+                        VisualMeshComponents[0]->AddForceAtLocation(ForceVec, PropWorldLoc);
+                    }
+                }
+                else if (Motor.Role == EPiSimMotorRole::ServoJoint && !WheelToSteerBoneMap.Contains(i))
+                {
+                    // Uçan Kanat Kontrol Yüzeyleri (Elevon / Aileron) Canlı Görsel Sapması (Pitch)
+                    float TargetAngle = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
+                    VisualMeshComponents[i]->SetRelativeRotation(FRotator(TargetAngle, 0.0f, 0.0f));
+                }
             }
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // 4.5) SABİT KANAT & UÇAN KANAT (FLYING WING) AERODİNAMİK LIFT & DRAG FİZİĞİ
+    // -----------------------------------------------------------------------------------------
+    if (VisualSections.IsValidIndex(0))
+    {
+        AeroConfig.bEnableAerodynamics = VisualSections[0].bEnableAerodynamics;
+        AeroConfig.WingArea = VisualSections[0].WingArea;
+        AeroConfig.Wingspan = VisualSections[0].Wingspan;
+        AeroConfig.CL0 = VisualSections[0].CL0;
+        AeroConfig.CLAlpha = VisualSections[0].CLAlpha;
+        AeroConfig.CD0 = VisualSections[0].CD0;
+        AeroConfig.StallAngleDeg = VisualSections[0].StallAngleDeg;
+        AeroConfig.ElevonEffectiveness = VisualSections[0].ElevonEffectiveness;
+    }
+
+    if (bIsPhysicsSimulating && AeroConfig.bEnableAerodynamics && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+    {
+        FVector VelCmS = VisualMeshComponents[0]->GetPhysicsLinearVelocity();
+        FVector AirVel = VelCmS * 0.01f; // cm/s -> m/s
+        float Airspeed = AirVel.Size();
+        AeroConfig.CurrentAirspeedKmh = Airspeed * 3.6f;
+
+        if (Airspeed > 1.5f) // 1.5 m/s (~5.4 km/h) üzerinde aerodinamik kuvvetler etki eder
+        {
+            FVector Forward = VisualMeshComponents[0]->GetForwardVector();
+            FVector Up = VisualMeshComponents[0]->GetUpVector();
+            FVector Right = VisualMeshComponents[0]->GetRightVector();
+            FVector FlowDir = AirVel.GetSafeNormal();
+
+            // Hücum Açısı (Angle of Attack - Alpha)
+            float VForward = AirVel | Forward;
+            float VUp = AirVel | Up;
+            float AlphaRad = -FMath::Atan2(VUp, FMath::Max(0.1f, VForward));
+            float AlphaDeg = FMath::RadiansToDegrees(AlphaRad);
+            AeroConfig.CurrentAlphaDeg = AlphaDeg;
+
+            // Kontrol Yüzeyleri (Elevon_L ve Elevon_R sapma açılarını bul)
+            float ElevonAngleL = 0.0f;
+            float ElevonAngleR = 0.0f;
+            for (const FPiSimMotorItem& Motor : ConfiguredMotors)
+            {
+                FString LowerName = Motor.BoneName.ToLower();
+                if (LowerName.Contains(TEXT("elevon_l")) || LowerName.Contains(TEXT("aileron_l")))
+                {
+                    ElevonAngleL = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
+                }
+                else if (LowerName.Contains(TEXT("elevon_r")) || LowerName.Contains(TEXT("aileron_r")))
+                {
+                    ElevonAngleR = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
+                }
+            }
+
+            // Uçan Kanat Mikseri:
+            // Pitch (Elevator): İki elevonun ortalaması
+            // Roll (Aileron): İki elevonun farkı
+            float PitchDeflection = (ElevonAngleL + ElevonAngleR) * 0.5f;
+            float RollDeflection = (ElevonAngleL - ElevonAngleR) * 0.5f;
+
+            // Efektif Hücum Açısı
+            float EffAlphaRad = AlphaRad - FMath::DegreesToRadians(PitchDeflection * AeroConfig.ElevonEffectiveness);
+            float EffAlphaDeg = FMath::RadiansToDegrees(EffAlphaRad);
+
+            // Taşıma (CL) ve Sürtünme (CD) Katsayıları
+            float CL = 0.0f;
+            if (FMath::Abs(EffAlphaDeg) <= AeroConfig.StallAngleDeg)
+            {
+                CL = AeroConfig.CL0 + (AeroConfig.CLAlpha * EffAlphaRad);
+            }
+            else
+            {
+                // Stall (Perdövites): Taşıma aniden düşer
+                float StallSign = (EffAlphaDeg > 0.0f) ? 1.0f : -1.0f;
+                CL = (AeroConfig.CL0 * 0.5f) * StallSign;
+            }
+
+            // İndüklenmiş Sürtünme: CD = CD0 + (CL^2 / (pi * AR * e))
+            float AspectRatio = FMath::Max(1.0f, (AeroConfig.Wingspan * AeroConfig.Wingspan) / FMath::Max(0.01f, AeroConfig.WingArea));
+            float InducedDrag = (CL * CL) / (PI * AspectRatio * 0.8f);
+            float CD = AeroConfig.CD0 + InducedDrag;
+
+            // Dinamik Basınç: q = 0.5 * rho * V^2
+            float Q = 0.5f * AeroConfig.AirDensity * Airspeed * Airspeed;
+
+            // Toplam Lift ve Drag Kuvvetleri (Newton)
+            float LiftN = Q * AeroConfig.WingArea * CL;
+            float DragN = Q * AeroConfig.WingArea * CD;
+            AeroConfig.CurrentLiftNewtons = LiftN;
+            AeroConfig.CurrentDragNewtons = DragN;
+
+            // Kuvvet Vektörleri
+            FVector LiftDir = (FlowDir ^ -Right).GetSafeNormal();
+            FVector DragDir = -FlowDir; // Akışın tersine geri
+
+            FVector TotalAeroForce = (LiftDir * LiftN) + (DragDir * DragN);
+
+            // Unreal AddForce kg*cm/s^2 birimindedir (1 N = 100 kg*cm/s^2)
+            VisualMeshComponents[0]->AddForce(TotalAeroForce * 100.0f);
+
+            // Roll Torku: Elevon farkından kaynaklanan yatış momenti
+            if (FMath::Abs(RollDeflection) > 0.01f)
+            {
+                float RollMomentArm = AeroConfig.Wingspan * 0.35f;
+                float DeltaLiftN = Q * (AeroConfig.WingArea * 0.25f) * (AeroConfig.CLAlpha * FMath::DegreesToRadians(FMath::Abs(RollDeflection)));
+                float RollTorqueNm = (RollDeflection > 0.0f ? 1.0f : -1.0f) * DeltaLiftN * RollMomentArm;
+
+                // Unreal AddTorqueInRadians kg*cm^2/s^2 birimindedir (1 Nm = 10000 kg*cm^2/s^2)
+                VisualMeshComponents[0]->AddTorqueInRadians(Forward * (RollTorqueNm * 10000.0f));
+            }
+        }
+        else
+        {
+            AeroConfig.CurrentLiftNewtons = 0.0f;
+            AeroConfig.CurrentDragNewtons = 0.0f;
+            AeroConfig.CurrentAlphaDeg = 0.0f;
         }
     }
 
@@ -715,6 +868,28 @@ void APiSimModelImporter::TogglePhysicsSimulation()
 {
     bIsPhysicsSimulating = !bIsPhysicsSimulating;
     SetPhysicsSimulationActive(bIsPhysicsSimulating);
+}
+
+void APiSimModelImporter::ToggleModelFile()
+{
+    if (ActiveModelFileName.Equals(TEXT("robot_import_test.fbx"), ESearchCase::IgnoreCase))
+    {
+        ActiveModelFileName = TEXT("robot_import_test1.fbx");
+    }
+    else
+    {
+        ActiveModelFileName = TEXT("robot_import_test.fbx");
+    }
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(799, 5.0f, FLinearColor(0.2f, 0.8f, 1.0f).ToFColor(true),
+            FString::Printf(TEXT("📦 [MODEL DEĞİŞTİRİLDİ] Aktif Model: %s"), *ActiveModelFileName));
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("📦 [MODEL GEÇİŞİ] Yeni aktif model dosyası: %s"), *ActiveModelFileName);
+
+    ImportAndSpawnRobot();
 }
 
 // =========================================================================================
@@ -1317,9 +1492,19 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
 {
     ClearSpawnedComponents();
 
-    FString FbxPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_import_test.fbx");
-    if (!ParseBinaryFbxFile(FbxPath, VisualSections, UCXSections, SensorSections, PureBoneNames, Scale))
+    FString FbxPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache") / ActiveModelFileName;
+    if (!FPaths::FileExists(FbxPath))
+    {
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 8.0f, FColor::Red,
+                FString::Printf(TEXT(">>> [HATA] '%s' dosyası bulunamadı! Lütfen Saved/Robots/Cache/ klasörüne ekleyin. <<<"), *ActiveModelFileName));
+        }
+        UE_LOG(LogTemp, Error, TEXT("[PiSimModelImporter HATA] %s bulunamadi!"), *FbxPath);
+        return;
+    }
 
+    if (!ParseBinaryFbxFile(FbxPath, VisualSections, UCXSections, SensorSections, PureBoneNames, Scale))
     {
         if (GEngine)
         {
@@ -1517,6 +1702,21 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
             MotorItem.MaxLimitDeg = +45.0f;
             MotorItem.MaxTorqueNm = 20.0f;
         }
+        else if (LowerName.Contains(TEXT("elevon")) || LowerName.Contains(TEXT("aileron")) || LowerName.Contains(TEXT("flap")) || LowerName.Contains(TEXT("rudder")) || LowerName.Contains(TEXT("elevator")))
+        {
+            // Sabit Kanat / Uçan Kanat Kontrol Yüzeyleri (Elevon, Aileron, Rudder)
+            MotorItem.Role = EPiSimMotorRole::ServoJoint;
+            MotorItem.MinLimitDeg = -25.0f;
+            MotorItem.MaxLimitDeg = +25.0f;
+            MotorItem.MaxTorqueNm = 15.0f;
+        }
+        else if (LowerName.Contains(TEXT("thrust")) || LowerName.Contains(TEXT("prop")) || LowerName.Contains(TEXT("rotor")))
+        {
+            // Drone ve Uçak İtki Pervaneleri (M_Thrust, M_Prop, Propeller, Rotor vb.)
+            MotorItem.Role = EPiSimMotorRole::Thruster;
+            MotorItem.MaxVelocityRPM = 6000.0f;
+            MotorItem.MaxTorqueNm = 30.0f;
+        }
         else if (LowerName.StartsWith(TEXT("m_caster")) || LowerName.StartsWith(TEXT("caster")))
         {
             MotorItem.Role = EPiSimMotorRole::FreeCaster;
@@ -1534,12 +1734,6 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
             MotorItem.MinLimitDeg = 0.0f;
             MotorItem.MaxLimitDeg = 100.0f;
             MotorItem.MaxTorqueNm = 5000.0f;
-        }
-        else if (LowerName.StartsWith(TEXT("m_thrust")) || LowerName.StartsWith(TEXT("prop")) || LowerName.StartsWith(TEXT("thruster")))
-        {
-            MotorItem.Role = EPiSimMotorRole::Thruster;
-            MotorItem.MaxVelocityRPM = 6000.0f;
-            MotorItem.MaxTorqueNm = 30.0f;
         }
         else if (LowerName.StartsWith(TEXT("m_track")) || LowerName.StartsWith(TEXT("track")))
         {
@@ -1876,7 +2070,48 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         UProceduralMeshComponent* VisComp = VisualMeshComponents[i];
         if (!VisComp || !VisualSections.IsValidIndex(i)) continue;
 
-        float Mass = (i == 0) ? 30.0f : 2.5f;
+        EPiSimMotorRole PartRole = ConfiguredMotors.IsValidIndex(i) ? ConfiguredMotors[i].Role : EPiSimMotorRole::None;
+        bool bIsWheel = (PartRole == EPiSimMotorRole::DriveWheel || PartRole == EPiSimMotorRole::SteeredWheel || PartRole == EPiSimMotorRole::FreeCaster || PartRole == EPiSimMotorRole::TrackPad);
+        bool bIsThruster = (PartRole == EPiSimMotorRole::Thruster);
+        bool bIsAeroSurface = (PartRole == EPiSimMotorRole::ServoJoint && !WheelToSteerBoneMap.Contains(i));
+
+        // İtki Pervaneleri ve Uçuş Kontrol Yüzeyleri (Elevon): Şasiye kinematik olarak bağlanır
+        if (i > 0 && (bIsThruster || bIsAeroSurface))
+        {
+            VisComp->SetSimulatePhysics(false);
+            VisComp->SetEnableGravity(false);
+            VisComp->SetMobility(EComponentMobility::Movable);
+            if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+            {
+                VisComp->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::KeepWorldTransform);
+            }
+            UE_LOG(LogTemp, Warning, TEXT("🛸 [KİNEMATİK BAĞLANTI] '%s' şasiye doğrudan bağlandı (Fizik Simülasyonu: KAPALI)"), *VisualSections[i].MeshName);
+            continue;
+        }
+
+        float Mass = 2.5f;
+        if (i == 0)
+        {
+            Mass = (VisualSections[0].MassKg > 0.01f && VisualSections[0].MassKg != 2.5f) ? VisualSections[0].MassKg : ChassisMassKg;
+            if (Mass == 30.0f)
+            {
+                // Modelde tekerlek var mı kontrol et
+                bool bHasWheels = false;
+                for (const FPiSimMotorItem& M : ConfiguredMotors)
+                {
+                    if (M.Role == EPiSimMotorRole::DriveWheel || M.Role == EPiSimMotorRole::SteeredWheel)
+                    {
+                        bHasWheels = true;
+                        break;
+                    }
+                }
+                if (!bHasWheels)
+                {
+                    Mass = 1.2f; // Drone ve uçan kanat için otomatik hafif kütle
+                    UE_LOG(LogTemp, Warning, TEXT("✈️ [HAVA ARACI TESPİT EDİLDİ] Tekerlek bulunamadı. Gövde kütlesi otomatik 1.2 kg ayarlandı."));
+                }
+            }
+        }
 
         // İlgili UCX Convex Hull'unu aktar (veya kendi geometrisi)
         VisComp->ClearCollisionConvexMeshes();
