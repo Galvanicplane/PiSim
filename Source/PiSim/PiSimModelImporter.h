@@ -142,9 +142,6 @@ struct FImporterMeshSection
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Mesh")
     FVector PivotPoint = FVector::ZeroVector;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Mesh")
-    bool bIsPureHierarchy = false;
-
     // Heavy vertex/triangle arrays excluded from PropertyEditor reflection to prevent Editor freezes
     TArray<FVector> Vertices;
     TArray<int32> Triangles;
@@ -267,6 +264,7 @@ public:
     TArray<FImporterMeshSection> VisualSections;
     TArray<FImporterMeshSection> UCXSections;
     TArray<FImporterSensorSection> SensorSections;
+    TArray<FString> PureBoneNames;
 
 
     // Active On-Screen Slate UI Widget
@@ -432,8 +430,8 @@ public:
     // =========================================================================
     // CORE PIPELINE FUNCTIONS
     // =========================================================================
-    /** Parses Saved/Robots/Cache/robot_import_test.fbx into distinct VisualSections, UCXSections, and SensorSections */
-    static bool ParseBinaryFbxFile(const FString& FilePath, TArray<FImporterMeshSection>& OutVisual, TArray<FImporterMeshSection>& OutUCX, TArray<FImporterSensorSection>& OutSensors, float Scale);
+    /** Parses Saved/Robots/Cache/robot_import_test.fbx into distinct VisualSections, UCXSections, SensorSections, and pure bone names */
+    static bool ParseBinaryFbxFile(const FString& FilePath, TArray<FImporterMeshSection>& OutVisual, TArray<FImporterMeshSection>& OutUCX, TArray<FImporterSensorSection>& OutSensors, TArray<FString>& OutPureBones, float Scale);
 
 
     /** Spawns and links both Visual and UCX meshes hierarchically with bone attachments and collisions */

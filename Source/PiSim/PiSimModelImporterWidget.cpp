@@ -990,9 +990,7 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
                 default: RoleIcon = TEXT("📦"); RoleColor = FLinearColor(0.5f, 0.55f, 0.6f, 1.0f); break;
             }
 
-            bool bIsPureBone = (TargetImporter->VisualSections.IsValidIndex(i) && TargetImporter->VisualSections[i].bIsPureHierarchy);
-            FString PureTag = bIsPureBone ? TEXT(" [Mafsal]") : TEXT("");
-            FString BtnLabel = FString::Printf(TEXT("%s  [%d] %s%s"), *RoleIcon, i, *Motor.BoneName, *PureTag);
+            FString BtnLabel = FString::Printf(TEXT("%s  [%d] %s"), *RoleIcon, i, *Motor.BoneName);
 
             TSharedRef<SWidget> BoneRowWidget = SNew(SBorder)
                 .BorderBackgroundColor(bIsSelected ? FLinearColor(0.0f, 0.88f, 1.0f, 1.0f) : FLinearColor(0.05f, 0.1f, 0.2f, 0.6f))
@@ -1084,21 +1082,8 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
 
                 if (MotorDetailsText.IsValid())
                 {
-                    bool bIsPureBone = (TargetImporter->VisualSections.IsValidIndex(TargetImporter->SelectedBoneIndex) && 
-                                        TargetImporter->VisualSections[TargetImporter->SelectedBoneIndex].bIsPureHierarchy);
                     FString Details;
-                    if (bIsPureBone)
-                    {
-                        Details = FString::Printf(
-                            TEXT("  • Kemik Türü   : Hiyerarşik Mafsal (Mesh'siz Düğüm)\n"
-                                 "  • İşlev        : Alt parçaları (tekerlek vb.) yönlendirir\n"
-                                 "  • Maksimum Güç : %5.1f Nm Tork\n"
-                                 "  • Hareket Alanı: %+.1f° ile %+.1f°\n"
-                                 "  • Durum        : Saf Mafsal (Görsel mesh render edilmez)"),
-                            SelMotor.MaxTorqueNm, SelMotor.MinLimitDeg, SelMotor.MaxLimitDeg
-                        );
-                    }
-                    else if (TargetImporter->bIsAdvancedMode)
+                    if (TargetImporter->bIsAdvancedMode)
                     {
                         Details = FString::Printf(
                             TEXT("  • Hız Limiti (Maks)  : %5.1f RPM\n"
