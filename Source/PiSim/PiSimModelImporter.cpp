@@ -506,7 +506,39 @@ void APiSimModelImporter::Tick(float DeltaTime)
         TelemetryTimer = 0.0f;
     }
 
-    // 3) Canlı Tekerlek Fiziksel Diferansiyel Dönüşü (Gövdeye göre Y < 0: Sol, Y > 0: Sağ)
+    // 3) Canlı Direksiyon Açısını Her Tick Koru (Hedef Açıya Kilitle)
+    for (int32 m = 0; m < ConfiguredMotors.Num(); ++m)
+    {
+        const FPiSimMotorItem& Motor = ConfiguredMotors[m];
+        if (Motor.Role == EPiSimMotorRole::ServoJoint || Motor.Role == EPiSimMotorRole::SteeredWheel)
+        {
+            float TargetAngle = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
+
+            // 1) Steer kemiğinin dönüşünü güncelle (Fizik simüle etmez, sadece biz döndürürüz)
+            if (USceneComponent** FoundSteer = SteerBoneComponents.Find(Motor.BoneName))
+            {
+                (*FoundSteer)->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
+            }
+
+            // 2) İlgili tekerleğin fizik kısıtlamasını da aynı 1 eksende (Yaw) yönlendir
+            int32 TargetSection = FindVisualSectionForBone(m);
+            if (TargetSection > 0 && VisualSections.IsValidIndex(TargetSection) && VisualSections.IsValidIndex(0))
+            {
+                if (bIsPhysicsSimulating)
+                {
+                    UPhysicsConstraintComponent* Constraint = FindConstraintForSection(TargetSection);
+                    if (Constraint)
+                    {
+                        FVector RelLoc = VisualSections[TargetSection].PivotPoint - VisualSections[0].PivotPoint;
+                        FTransform SteerPose(FRotator(0.0f, TargetAngle, 0.0f), RelLoc);
+                        Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
+                    }
+                }
+            }
+        }
+    }
+
+    // 4) Canlı Tekerlek Fiziksel Diferansiyel Dönüşü (Gövdeye göre Y < 0: Sol, Y > 0: Sağ)
     if (bIsPhysicsSimulating)
     {
         for (int32 i = 1; i < VisualMeshComponents.Num(); ++i)
@@ -525,8 +557,13 @@ void APiSimModelImporter::Tick(float DeltaTime)
                     {
                         float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
                         FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f); // Roll X axle
-                        FVector WorldAxle = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalAxle);
-                        VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(WorldAxle * AngularSpeedDegPerSec, false);
+                        FVector WorldAxle = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
+
+                        // Direksiyon Yaw açısal hızını bozmadan sadece tekerlek yuvarlanma (Roll) eksenini güncelle
+                        FVector CurrentAngVel = VisualMeshComponents[i]->GetPhysicsAngularVelocityInDegrees();
+                        FVector NonRollVel = CurrentAngVel - (WorldAxle * (CurrentAngVel | WorldAxle));
+                        FVector DesiredRollVel = WorldAxle * AngularSpeedDegPerSec;
+                        VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
                     }
                 }
             }
@@ -635,6 +672,13 @@ void APiSimModelImporter::ClearSpawnedComponents()
         if (MarkerComp) MarkerComp->DestroyComponent();
     }
     SensorMarkerComponents.Empty();
+
+    for (auto& Pair : SteerBoneComponents)
+    {
+        if (Pair.Value) Pair.Value->DestroyComponent();
+    }
+    SteerBoneComponents.Empty();
+    WheelToSteerBoneMap.Empty();
 
     VisualSections.Empty();
     UCXSections.Empty();
@@ -1296,25 +1340,31 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         UProceduralMeshComponent* VisComp = NewObject<UProceduralMeshComponent>(this, CompName);
         VisComp->SetMobility(EComponentMobility::Movable);
 
-        // Hiyerarşik Kemik Bağlantısı: Gövde dışındaki parçalar gövdeye bağlanır
+        // Hiyerarşik Kemik Bağlantısı: Gövde dışındaki parçalar gövdeye veya Steer mafsalına bağlanır
         if (i == 0)
         {
             VisComp->SetupAttachment(SceneRootComponent);
             VisComp->SetRelativeLocation(VisualSections[i].PivotPoint);
         }
+        else if (FString* SteerBoneName = WheelToSteerBoneMap.Find(i))
+        {
+            // ÖN DİREKSİYONLU TEKERLEK: Doğrudan kendi Steer mafsal kemiğine bağlanır!
+            USceneComponent* SteerComp = SteerBoneComponents[*SteerBoneName];
+            VisComp->SetupAttachment(SteerComp);
+            VisComp->SetRelativeLocation(FVector::ZeroVector); // Mafsal tam tekerlek pivotundadır
+            UE_LOG(LogTemp, Warning, TEXT("🔗 [HİYERARŞİ] '%s' tekerleği '%s' steer mafsalına bağlandı."), *VisualSections[i].MeshName, **SteerBoneName);
+        }
+        else if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+        {
+            // ARKA SÜRÜŞ TEKERLEKLERİ: Doğrudan şasiye bağlanır
+            VisComp->SetupAttachment(VisualMeshComponents[0]);
+            VisComp->SetRelativeLocation(VisualSections[i].PivotPoint - VisualSections[0].PivotPoint);
+            UE_LOG(LogTemp, Warning, TEXT("🔗 [HİYERARŞİ] '%s' tekerleği doğrudan şasiye bağlandı."), *VisualSections[i].MeshName);
+        }
         else
         {
-            if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
-            {
-                VisComp->SetupAttachment(VisualMeshComponents[0]);
-                // Gövdeye göre bağıl konum: (TekerlekPivot - GövdePivot)
-                VisComp->SetRelativeLocation(VisualSections[i].PivotPoint - VisualSections[0].PivotPoint);
-            }
-            else
-            {
-                VisComp->SetupAttachment(SceneRootComponent);
-                VisComp->SetRelativeLocation(VisualSections[i].PivotPoint);
-            }
+            VisComp->SetupAttachment(SceneRootComponent);
+            VisComp->SetRelativeLocation(VisualSections[i].PivotPoint);
         }
 
         VisComp->RegisterComponent();
@@ -1359,6 +1409,53 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         VisComp->UpdateBounds();
 
         VisualMeshComponents.Add(VisComp);
+
+        if (i == 0)
+        {
+            // Şasi oluşturulduktan hemen sonra, saf Steer kemiklerini (M_Steer_FR, M_Steer_FL vb.) şasiye bağla
+            SteerBoneComponents.Empty();
+            WheelToSteerBoneMap.Empty();
+
+            for (const FString& PureBoneName : PureBoneNames)
+            {
+                FString LowerPure = PureBoneName.ToLower();
+                if (LowerPure.Contains(TEXT("steer")) || LowerPure.Contains(TEXT("servo")) || LowerPure.StartsWith(TEXT("m_steer")))
+                {
+                    FString Clean = PureBoneName;
+                    Clean.RemoveFromStart(TEXT("M_Steer_"), ESearchCase::IgnoreCase);
+                    Clean.RemoveFromStart(TEXT("Steer_"), ESearchCase::IgnoreCase);
+                    Clean.RemoveFromStart(TEXT("M_"), ESearchCase::IgnoreCase);
+
+                    int32 MatchedWheelIdx = INDEX_NONE;
+                    for (int32 w = 1; w < VisualSections.Num(); ++w)
+                    {
+                        if (VisualSections[w].MeshName.Contains(Clean, ESearchCase::IgnoreCase))
+                        {
+                            MatchedWheelIdx = w;
+                            break;
+                        }
+                    }
+
+                    if (MatchedWheelIdx != INDEX_NONE)
+                    {
+                        FName SteerCompName = *FString::Printf(TEXT("SteerJointComp_%s"), *PureBoneName);
+                        USceneComponent* SteerComp = NewObject<USceneComponent>(this, SteerCompName);
+                        SteerComp->SetMobility(EComponentMobility::Movable);
+                        SteerComp->SetupAttachment(VisualMeshComponents[0]);
+                        FVector SteerPivotOffset = VisualSections[MatchedWheelIdx].PivotPoint - VisualSections[0].PivotPoint;
+                        SteerComp->SetRelativeLocation(SteerPivotOffset);
+                        SteerComp->SetRelativeRotation(FRotator::ZeroRotator);
+                        SteerComp->RegisterComponent();
+
+                        SteerBoneComponents.Add(PureBoneName, SteerComp);
+                        WheelToSteerBoneMap.Add(MatchedWheelIdx, PureBoneName);
+
+                        UE_LOG(LogTemp, Warning, TEXT("🎯 [STEER MAFSALI KURULDU] '%s' şasiye bağlandı | Konum: %s | Eşleşen Tekerlek: [%d] %s"),
+                            *PureBoneName, *SteerPivotOffset.ToString(), MatchedWheelIdx, *VisualSections[MatchedWheelIdx].MeshName);
+                    }
+                }
+            }
+        }
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1415,7 +1512,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         }
         else if (LowerName.StartsWith(TEXT("m_steer")) || LowerName.StartsWith(TEXT("steer")))
         {
-            MotorItem.Role = EPiSimMotorRole::SteeredWheel;
+            MotorItem.Role = EPiSimMotorRole::ServoJoint;
             MotorItem.MinLimitDeg = -45.0f;
             MotorItem.MaxLimitDeg = +45.0f;
             MotorItem.MaxTorqueNm = 20.0f;
@@ -1761,7 +1858,19 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         SetRootComponent(VisualMeshComponents[0]);
     }
 
-    // 2) Her Parçaya Kütle, Zırh ve Dinamik Fizik Ver
+    // 2) Steer Kemiklerini (Kinematik Mafsalları) Kontrol Et & Doğrula
+    // Kullanıcı Kesin Kuralı: Steer kemiği FİZİK SİMÜLE ETMEZ (Kinematiktir)!
+    // Sadece 1 eksende (Yaw) döner ve sadece slider / kod ile döndürülür!
+    for (auto& SteerPair : SteerBoneComponents)
+    {
+        if (SteerPair.Value)
+        {
+            SteerPair.Value->SetRelativeRotation(FRotator::ZeroRotator);
+            UE_LOG(LogTemp, Warning, TEXT("🎯 [STEER KEMİĞİ HAZIR] '%s' Şasiye bağlı 1-Eksen (Yaw) Kinematik Mafsal! (Fizik Simülasyonu: KAPALI)"), *SteerPair.Key);
+        }
+    }
+
+    // 3) Her Parçaya (Gövde ve Tüm Tekerleklere) Kütle, Zırh ve Dinamik Fizik Ver
     for (int32 i = 0; i < VisualMeshComponents.Num(); ++i)
     {
         UProceduralMeshComponent* VisComp = VisualMeshComponents[i];
@@ -1793,7 +1902,6 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zeminle çarpış
         VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
         VisComp->RecreatePhysicsState();
-        VisComp->UpdateBounds();
 
         // Dinamik Fiziği Aç
         VisComp->SetMobility(EComponentMobility::Movable);
@@ -1807,22 +1915,35 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' bileşenine CANLI DİNAMİK FİZİK verildi | Kütle: %.1f kg | Yerçekimi: AÇIK"),
             *VisualSections[i].MeshName, Mass);
 
-        // 3) Gövde Dışındaki Tekerlekler İçin Fiziksel Eklem (Constraint) Bağla
-        if (i > 0 && VisualMeshComponents[0])
+        // 4) Gövde Dışındaki Tüm Tekerlekler İçin Şasi ile Fiziksel Eklem (Constraint) Bağla
+        // ÖN VE ARKA TEKERLEK FARKI YOK: HEPSİ 1 EKSENDE (Roll / Twist) DÖNER!
+        if (i > 0 && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
         {
             FName ConstraintName = *FString::Printf(TEXT("PhysicsJoint_%d_%s"), i, *VisualSections[i].MeshName);
             UPhysicsConstraintComponent* Constraint = NewObject<UPhysicsConstraintComponent>(this, ConstraintName);
-            Constraint->SetupAttachment(VisualMeshComponents[0]);
-            Constraint->SetRelativeLocation(VisualSections[i].PivotPoint - VisualSections[0].PivotPoint);
-            Constraint->RegisterComponent();
 
+            Constraint->SetupAttachment(VisualMeshComponents[0]);
+            FVector WheelRelLoc = VisualSections[i].PivotPoint - VisualSections[0].PivotPoint;
+            Constraint->SetRelativeLocation(WheelRelLoc);
+
+            // Tüm tekerlekler için 1-DOF Roll kuralı:
+            ConfigureConstraintDof(Constraint, i);
+            Constraint->RegisterComponent();
             Constraint->SetConstrainedComponents(VisualMeshComponents[0], NAME_None, VisComp, NAME_None);
-            Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f); // Serbest tekerlek dönüşü
-            Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
-            Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
-            Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
-            Constraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
-            Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+
+            // Eğer bu tekerlek bir Steer kemiğine bağlıysa, referans yönelimini Steer kemiğine eşitle
+            if (FString* SteerBoneName = WheelToSteerBoneMap.Find(i))
+            {
+                FTransform InitialSteerPose(FRotator::ZeroRotator, WheelRelLoc);
+                Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, InitialSteerPose);
+                UE_LOG(LogTemp, Warning, TEXT("🔗 [DİREKSİYON BAĞLANTISI] '%s' tekerleği '%s' steer mafsalına kilitlendi! (1-DOF Roll)"),
+                    *VisualSections[i].MeshName, **SteerBoneName);
+            }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("🔗 [STANDART SÜRÜŞ TEKERLEĞİ] '%s' tekerleği doğrudan şasiye bağlandı. (1-DOF Roll)"),
+                    *VisualSections[i].MeshName);
+            }
 
             JointConstraints.Add(Constraint);
         }
@@ -1839,6 +1960,107 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
 
         GEngine->AddOnScreenDebugMessage(803, 10.0f, FColor::Yellow,
             FString::Printf(TEXT("⚙️ >>> [%d ADET EKLEM KISITLAMASI BAĞLANDI] Tekerlekler Serbest Dönüyor! <<<"), JointConstraints.Num()));
+    }
+}
+
+int32 APiSimModelImporter::FindVisualSectionForBone(int32 BoneIndex)
+{
+    if (BoneIndex <= 0 || !ConfiguredMotors.IsValidIndex(BoneIndex)) return INDEX_NONE;
+    if (VisualSections.IsValidIndex(BoneIndex) && VisualMeshComponents.IsValidIndex(BoneIndex))
+    {
+        return BoneIndex;
+    }
+
+    // Saf Kemik (Pure Bone - Örn: M_Steer_FR, M_Steer_FL)
+    FString PureName = ConfiguredMotors[BoneIndex].BoneName;
+
+    // 1) Doğrudan WheelToSteerBoneMap haritasından ara
+    for (const auto& Pair : WheelToSteerBoneMap)
+    {
+        if (Pair.Value.Equals(PureName, ESearchCase::IgnoreCase))
+        {
+            return Pair.Key;
+        }
+    }
+
+    FString Clean = PureName;
+    Clean.RemoveFromStart(TEXT("M_Steer_"), ESearchCase::IgnoreCase);
+    Clean.RemoveFromStart(TEXT("Steer_"), ESearchCase::IgnoreCase);
+    Clean.RemoveFromStart(TEXT("M_"), ESearchCase::IgnoreCase);
+
+    // İlgili tekerleği (FR -> M_Wheel_FR) eşleştir
+    for (int32 i = 1; i < VisualSections.Num(); ++i)
+    {
+        FString VName = VisualSections[i].MeshName;
+        if (VName.Contains(Clean, ESearchCase::IgnoreCase) && 
+            (VName.Contains(TEXT("Wheel"), ESearchCase::IgnoreCase) || VName.StartsWith(TEXT("W_"))))
+        {
+            return i;
+        }
+    }
+
+    for (int32 i = 1; i < VisualSections.Num(); ++i)
+    {
+        if (VisualSections[i].MeshName.Contains(Clean, ESearchCase::IgnoreCase))
+        {
+            return i;
+        }
+    }
+
+    return INDEX_NONE;
+}
+
+UPhysicsConstraintComponent* APiSimModelImporter::FindConstraintForSection(int32 SectionIndex)
+{
+    if (SectionIndex <= 0 || !VisualSections.IsValidIndex(SectionIndex)) return nullptr;
+
+    FString TargetPrefix = FString::Printf(TEXT("PhysicsJoint_%d_"), SectionIndex);
+    for (UPhysicsConstraintComponent* Constraint : JointConstraints)
+    {
+        if (Constraint && Constraint->GetName().StartsWith(TargetPrefix))
+        {
+            return Constraint;
+        }
+    }
+
+    int32 ConstraintIdx = SectionIndex - 1;
+    if (JointConstraints.IsValidIndex(ConstraintIdx))
+    {
+        return JointConstraints[ConstraintIdx];
+    }
+    return nullptr;
+}
+
+void APiSimModelImporter::ConfigureConstraintDof(UPhysicsConstraintComponent* Constraint, int32 SectionIndex)
+{
+    if (!Constraint || !VisualSections.IsValidIndex(SectionIndex)) return;
+
+    // 1) Doğrusal Hareket (Linear Motion) - Tekerlek şasiden kopamaz
+    Constraint->SetLinearXLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+    Constraint->SetLinearYLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+    Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
+    Constraint->SetDisableCollision(true); // Şasi ile tekerlek birbirini itmesin
+
+    // 2) Açısal Hareket (Angular Motion) - GENEL GEÇER TEKERLEK STANDARDI:
+    // TÜM TEKERLEKLER (Ön veya Arka ayrımı olmaksızın) TEK BİR EKSENDE (Roll / Twist) DÖNER!
+    // Twist (Roll / Yuvarlanma): ACM_Free (Tekerlek zeminde ileri/geri serbestçe döner)
+    // Swing1 (Yaw / Direksiyon): ACM_Locked (Direksiyon ekseni kilitli - Steer mafsalının referans açısıyla yönlendirilir)
+    // Swing2 (Pitch / Kamber): ACM_Locked (Kamber açısı kilitli - devrilmez)
+    Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
+    Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+    Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+    Constraint->SetOrientationDriveTwistAndSwing(false, false);
+}
+
+void APiSimModelImporter::UpdateAllConstraintDofs()
+{
+    for (int32 i = 1; i < VisualSections.Num(); ++i)
+    {
+        UPhysicsConstraintComponent* Constraint = FindConstraintForSection(i);
+        if (Constraint)
+        {
+            ConfigureConstraintDof(Constraint, i);
+        }
     }
 }
 
@@ -1877,66 +2099,67 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
     if (BoneIndex <= 0 || !ConfiguredMotors.IsValidIndex(BoneIndex)) return; // Gövdeye motor atanamaz
     ConfiguredMotors[BoneIndex].CurrentTestValue = Value;
 
-    if (VisualMeshComponents.IsValidIndex(BoneIndex) && VisualMeshComponents[BoneIndex])
+    int32 TargetSection = FindVisualSectionForBone(BoneIndex);
+
+    EPiSimMotorRole MotorRole = ConfiguredMotors[BoneIndex].Role;
+    if (MotorRole == EPiSimMotorRole::DriveWheel || MotorRole == EPiSimMotorRole::Thruster || MotorRole == EPiSimMotorRole::TrackPad)
     {
-        EPiSimMotorRole MotorRole = ConfiguredMotors[BoneIndex].Role;
-        if (MotorRole == EPiSimMotorRole::DriveWheel || MotorRole == EPiSimMotorRole::Thruster || MotorRole == EPiSimMotorRole::TrackPad)
+        if (TargetSection > 0 && VisualMeshComponents.IsValidIndex(TargetSection) && VisualMeshComponents[TargetSection])
         {
             float IndividualRpm = Value * ConfiguredMotors[BoneIndex].MaxVelocityRPM;
             if (bIsPhysicsSimulating)
             {
                 float AngularSpeedDegPerSec = IndividualRpm * 6.0f;
                 FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f);
-                FVector WorldAxle = VisualMeshComponents[BoneIndex]->GetComponentTransform().TransformVectorNoScale(LocalAxle);
-                VisualMeshComponents[BoneIndex]->SetPhysicsAngularVelocityInDegrees(WorldAxle * AngularSpeedDegPerSec, false);
+                FVector WorldAxle = VisualMeshComponents[TargetSection]->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
+                FVector CurrentAngVel = VisualMeshComponents[TargetSection]->GetPhysicsAngularVelocityInDegrees();
+                FVector NonRollVel = CurrentAngVel - (WorldAxle * (CurrentAngVel | WorldAxle));
+                FVector DesiredRollVel = WorldAxle * AngularSpeedDegPerSec;
+                VisualMeshComponents[TargetSection]->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
             }
             else
             {
-                VisualMeshComponents[BoneIndex]->AddLocalRotation(FRotator(Value * 15.0f, 0.0f, 0.0f));
-            }
-        }
-        else if (MotorRole == EPiSimMotorRole::SteeredWheel || MotorRole == EPiSimMotorRole::ServoJoint)
-        {
-            float TargetAngle = FMath::Lerp(ConfiguredMotors[BoneIndex].MinLimitDeg, ConfiguredMotors[BoneIndex].MaxLimitDeg, (Value + 1.0f) * 0.5f);
-            VisualMeshComponents[BoneIndex]->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
-        }
-        else if (MotorRole == EPiSimMotorRole::LinearActuator)
-        {
-            float Stroke = Value * ConfiguredMotors[BoneIndex].MaxLimitDeg; // cm
-            if (BoneIndex > 0 && VisualSections.IsValidIndex(BoneIndex) && VisualSections.IsValidIndex(0))
-            {
-                FVector BaseLoc = VisualSections[BoneIndex].PivotPoint - VisualSections[0].PivotPoint;
-                VisualMeshComponents[BoneIndex]->SetRelativeLocation(BaseLoc + FVector(Stroke, 0.0f, 0.0f));
+                VisualMeshComponents[TargetSection]->AddLocalRotation(FRotator(Value * 15.0f, 0.0f, 0.0f));
             }
         }
     }
-    else
+    else if (MotorRole == EPiSimMotorRole::SteeredWheel || MotorRole == EPiSimMotorRole::ServoJoint)
     {
-        // Saf kemik (örn: M_Steer_FR, M_Steer_FL) servo olarak test ediliyorsa:
-        // Kendisine bağlı olan ön tekerleği (M_Wheel_FR, M_Wheel_FL) Yaw ekseninde servo gibi döndürür
-        EPiSimMotorRole MotorRole = ConfiguredMotors[BoneIndex].Role;
-        if (MotorRole == EPiSimMotorRole::ServoJoint || MotorRole == EPiSimMotorRole::SteeredWheel)
+        float TargetAngle = FMath::Lerp(ConfiguredMotors[BoneIndex].MinLimitDeg, ConfiguredMotors[BoneIndex].MaxLimitDeg, (Value + 1.0f) * 0.5f);
+        
+        // 1) Steer kemiğini 1 eksende (Yaw) döndür (Fizik simüle etmez, sadece biz döndürürüz)
+        if (USceneComponent** FoundSteer = SteerBoneComponents.Find(ConfiguredMotors[BoneIndex].BoneName))
         {
-            float TargetAngle = FMath::Lerp(ConfiguredMotors[BoneIndex].MinLimitDeg, ConfiguredMotors[BoneIndex].MaxLimitDeg, (Value + 1.0f) * 0.5f);
-            FString PureName = ConfiguredMotors[BoneIndex].BoneName;
+            (*FoundSteer)->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
+        }
 
-            FString SteerSuffix = PureName;
-            SteerSuffix.RemoveFromStart(TEXT("M_Steer_"), ESearchCase::IgnoreCase);
-            SteerSuffix.RemoveFromStart(TEXT("Steer_"), ESearchCase::IgnoreCase);
-
-            for (int32 c = 0; c < VisualMeshComponents.Num(); ++c)
+        // 2) İlgili tekerleğin fizik kısıtlamasını da aynı 1 eksende (Yaw) yönlendir
+        if (TargetSection > 0 && VisualSections.IsValidIndex(TargetSection) && VisualSections.IsValidIndex(0))
+        {
+            if (bIsPhysicsSimulating)
             {
-                if (VisualSections.IsValidIndex(c) && VisualMeshComponents[c])
+                UPhysicsConstraintComponent* Constraint = FindConstraintForSection(TargetSection);
+                if (Constraint)
                 {
-                    FString CompName = VisualSections[c].MeshName;
-                    if (CompName.Contains(SteerSuffix, ESearchCase::IgnoreCase) &&
-                        (CompName.Contains(TEXT("Wheel"), ESearchCase::IgnoreCase) || CompName.StartsWith(TEXT("W_"))))
-                    {
-                        VisualMeshComponents[c]->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
-                        break;
-                    }
+                    FVector RelLoc = VisualSections[TargetSection].PivotPoint - VisualSections[0].PivotPoint;
+                    FTransform SteerPose(FRotator(0.0f, TargetAngle, 0.0f), RelLoc);
+                    Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
                 }
             }
+            else if (VisualMeshComponents.IsValidIndex(TargetSection) && VisualMeshComponents[TargetSection])
+            {
+                // Statik modda görsel güncelleme (Tekerlek zaten Steer kemiğine bağlıdır)
+                VisualMeshComponents[TargetSection]->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
+            }
+        }
+    }
+    else if (MotorRole == EPiSimMotorRole::LinearActuator)
+    {
+        float Stroke = Value * ConfiguredMotors[BoneIndex].MaxLimitDeg; // cm
+        if (TargetSection > 0 && VisualSections.IsValidIndex(TargetSection) && VisualSections.IsValidIndex(0) && VisualMeshComponents.IsValidIndex(TargetSection) && VisualMeshComponents[TargetSection])
+        {
+            FVector BaseLoc = VisualSections[TargetSection].PivotPoint - VisualSections[0].PivotPoint;
+            VisualMeshComponents[TargetSection]->SetRelativeLocation(BaseLoc + FVector(Stroke, 0.0f, 0.0f));
         }
     }
 }
@@ -1946,6 +2169,7 @@ void APiSimModelImporter::RemoveMotorFromBone(int32 BoneIndex)
     if (BoneIndex <= 0 || !ConfiguredMotors.IsValidIndex(BoneIndex)) return;
     ConfiguredMotors[BoneIndex].Role = EPiSimMotorRole::None;
     ConfiguredMotors[BoneIndex].CurrentTestValue = 0.0f;
+    UpdateAllConstraintDofs();
     UpdateVisualMaterials();
 }
 
@@ -1953,6 +2177,7 @@ void APiSimModelImporter::AssignMotorToBone(int32 BoneIndex, EPiSimMotorRole New
 {
     if (BoneIndex <= 0 || !ConfiguredMotors.IsValidIndex(BoneIndex)) return; // Gövdeye motor atanamaz
     ConfiguredMotors[BoneIndex].Role = NewRole;
+    UpdateAllConstraintDofs();
     UpdateVisualMaterials();
 }
 

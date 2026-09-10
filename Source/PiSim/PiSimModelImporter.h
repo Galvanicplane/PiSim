@@ -258,6 +258,13 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Physics")
     TArray<UPhysicsConstraintComponent*> JointConstraints;
 
+    // Steer Bone Components (Kinematik Mafsal Kemikleri - SetSimulatePhysics(false), 1-Eksen Yaw Dönüşü)
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Steer")
+    TMap<FString, USceneComponent*> SteerBoneComponents;
+
+    // Tekerlek -> Steer Kemik Eşleşmesi (Wheel Section Index -> Steer Bone Name)
+    TMap<int32, FString> WheelToSteerBoneMap;
+
     // =========================================================================
     // SEPARATED PARSED FBX DATA LISTS (Transient to prevent lag)
     // =========================================================================
@@ -439,6 +446,12 @@ public:
 
     /** Activates or disables live Chaos physics simulation and gravity */
     void SetPhysicsSimulationActive(bool bActive);
+
+    /** Configures degree of freedom (DOF) and angular drives for a constraint based on role */
+    void ConfigureConstraintDof(UPhysicsConstraintComponent* Constraint, int32 SectionIndex);
+    void UpdateAllConstraintDofs();
+    UPhysicsConstraintComponent* FindConstraintForSection(int32 SectionIndex);
+    int32 FindVisualSectionForBone(int32 BoneIndex);
 
     /** Callback for incoming UDP control packets from Raspberry Pi 5 */
     void OnControlPacketReceived(const TArray<uint8>& PacketData, const FString& SenderIP);
