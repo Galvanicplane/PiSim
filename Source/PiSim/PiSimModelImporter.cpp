@@ -703,9 +703,17 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
     {
         FString BoneLabel;
         TArray<int32> Indices;
+        FVector LinkPos = FVector::ZeroVector;
+        bool bHasLinkPos = false;
     };
 
-    TMap<uint64, FString> ModelMap;
+    struct FRawFbxModel
+    {
+        FString Name;
+        FString Type;
+    };
+
+    TMap<uint64, FRawFbxModel> ModelMap;
     TMap<uint64, FRawFbxGeom> GeomMap;
     TMap<uint64, FString> DeformerMap;
     TMap<uint64, FRawFbxSubDef> SubDeformerMap;
@@ -793,26 +801,41 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
             ObjID = *reinterpret_cast<const uint64*>(&FileBytes[OPropsStart + 1]);
         }
 
-        // Extract Label String
+        // Extract Label String and Type String
         FString LabelStr = TEXT("");
-        for (int32 off = OPropsStart; off + 5 < OChildStart && off < OPropsStart + 60; ++off)
+        FString TypeStr = TEXT("");
+        int32 StrCount = 0;
+        for (int32 off = OPropsStart; off + 5 < OChildStart && off < OPropsStart + 120; ++off)
         {
             if (FileBytes[off] == 'S')
             {
                 uint32 sLen = *reinterpret_cast<const uint32*>(&FileBytes[off + 1]);
                 if (off + 5 + (int32)sLen <= OChildStart)
                 {
-                    LabelStr = FString(sLen, (const ANSICHAR*)&FileBytes[off + 5]);
+                    FString SVal = FString(sLen, (const ANSICHAR*)&FileBytes[off + 5]);
                     int32 NullIdx;
-                    if (LabelStr.FindChar('\0', NullIdx)) LabelStr = LabelStr.Left(NullIdx);
-                    break;
+                    if (SVal.FindChar('\0', NullIdx)) SVal = SVal.Left(NullIdx);
+                    if (StrCount == 0)
+                    {
+                        LabelStr = SVal;
+                    }
+                    else if (StrCount == 1)
+                    {
+                        TypeStr = SVal;
+                    }
+                    StrCount++;
+                    off += 4 + (int32)sLen;
+                    if (StrCount >= 2) break;
                 }
             }
         }
 
         if (OName.Equals(TEXT("Model")))
         {
-            ModelMap.Add(ObjID, LabelStr);
+            FRawFbxModel M;
+            M.Name = LabelStr;
+            M.Type = TypeStr;
+            ModelMap.Add(ObjID, M);
         }
         else if (OName.Equals(TEXT("Geometry")))
         {
@@ -934,6 +957,8 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         {
             int32 DP = OChildStart;
             TArray<int32> SubIndices;
+            FVector SubDefLinkPos = FVector::ZeroVector;
+            bool bHasSubDefLink = false;
 
             while (DP + 13 < (int32)OEnd)
             {
@@ -975,20 +1000,48 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                         }
                     }
                 }
+                else if (DName.Equals(TEXT("TransformLink")) && DPropLen > 12)
+                {
+                    uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[DPropsStart + 1]);
+                    uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[DPropsStart + 5]);
+                    uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[DPropsStart + 9]);
+                    int32 DataOffset = DPropsStart + 13;
+
+                    int32 ElemSize = 8;
+                    int32 UncompSize = ArrayLen * ElemSize;
+                    TArray<uint8> UncompBuf;
+                    const uint8* DataPtr = nullptr;
+
+                    if (Encoding == 0 && DataOffset + UncompSize <= (int32)DEnd)
+                    {
+                        DataPtr = &FileBytes[DataOffset];
+                    }
+                    else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)DEnd)
+                    {
+                        UncompBuf.AddUninitialized(UncompSize);
+                        if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
+                        {
+                            DataPtr = UncompBuf.GetData();
+                        }
+                    }
+
+                    if (DataPtr && ArrayLen == 16)
+                    {
+                        const double* Mat = reinterpret_cast<const double*>(DataPtr);
+                        SubDefLinkPos = FVector(Mat[12] * Scale, -Mat[13] * Scale, Mat[14] * Scale);
+                        bHasSubDefLink = true;
+                    }
+                }
                 DP = (int32)DEnd;
             }
 
-            if (SubIndices.Num() > 0)
-            {
-                FRawFbxSubDef SubDef;
-                SubDef.BoneLabel = LabelStr;
-                SubDef.Indices = SubIndices;
-                SubDeformerMap.Add(ObjID, SubDef);
-            }
-            else
-            {
-                DeformerMap.Add(ObjID, LabelStr);
-            }
+            FRawFbxSubDef SubDef;
+            SubDef.BoneLabel = LabelStr;
+            SubDef.Indices = SubIndices;
+            SubDef.LinkPos = SubDefLinkPos;
+            SubDef.bHasLinkPos = bHasSubDefLink;
+            SubDeformerMap.Add(ObjID, SubDef);
+            DeformerMap.Add(ObjID, LabelStr);
         }
         OP = (int32)OEnd;
     }
@@ -1005,9 +1058,9 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         {
             for (uint64 PID : *Parents)
             {
-                if (const FString* MName = ModelMap.Find(PID))
+                if (const FRawFbxModel* M = ModelMap.Find(PID))
                 {
-                    ModelName = *MName;
+                    ModelName = M->Name;
                     break;
                 }
             }
@@ -1067,15 +1120,39 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
 
                             if (SubVerts.Num() > 0)
                             {
-                                FString MeshLabel = SubDef->BoneLabel.IsEmpty() ? ModelName : SubDef->BoneLabel;
+                                FString MeshLabel = SubDef->BoneLabel;
+                                if (MeshLabel.IsEmpty())
+                                {
+                                    if (const TArray<uint64>* ConnModels = ParentToChildren.Find(SubDefID))
+                                    {
+                                        for (uint64 Mid : *ConnModels)
+                                        {
+                                            if (const FRawFbxModel* M = ModelMap.Find(Mid))
+                                            {
+                                                MeshLabel = M->Name;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (MeshLabel.IsEmpty()) MeshLabel = ModelName;
+
                                 bool bBoneIsSensor = MeshLabel.StartsWith(TEXT("S_"), ESearchCase::IgnoreCase) ||
                                                      MeshLabel.StartsWith(TEXT("Sensor_"), ESearchCase::IgnoreCase) ||
                                                      bIsSensorMesh;
 
-                                // 1) Calculate Exact Pivot Point (Centroid in World Space)
-                                FVector Center = FVector::ZeroVector;
-                                for (const FVector& V : SubVerts) Center += V;
-                                FVector Pivot = Center / (float)SubVerts.Num();
+                                // 1) Calculate Exact Pivot Point (LinkPos from bone if available, else Centroid in World Space)
+                                FVector Pivot = FVector::ZeroVector;
+                                if (SubDef->bHasLinkPos)
+                                {
+                                    Pivot = SubDef->LinkPos;
+                                }
+                                else
+                                {
+                                    FVector Center = FVector::ZeroVector;
+                                    for (const FVector& V : SubVerts) Center += V;
+                                    Pivot = Center / (float)SubVerts.Num();
+                                }
 
                                 if (bBoneIsSensor)
                                 {
@@ -1181,6 +1258,184 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         }
     }
 
+    // -----------------------------------------------------------------------------------------
+    // 6) BONE HIERARCHY & PURE SKELETAL JOINTS (Hiyerarşik Mafsal Kemiklerinin Çıkarılması)
+    // -----------------------------------------------------------------------------------------
+    TMap<FString, FString> BoneParentMap;
+    TMap<FString, FVector> BoneLinkPosMap;
+
+    for (const auto& Pair : ModelMap)
+    {
+        uint64 Mid = Pair.Key;
+        const FRawFbxModel& M = Pair.Value;
+        if (M.Type.Equals(TEXT("LimbNode"), ESearchCase::IgnoreCase))
+        {
+            // Find parent bone in ChildToParents
+            if (const TArray<uint64>* Parents = ChildToParents.Find(Mid))
+            {
+                for (uint64 Pid : *Parents)
+                {
+                    if (const FRawFbxModel* PM = ModelMap.Find(Pid))
+                    {
+                        BoneParentMap.Add(M.Name, PM->Name);
+                        break;
+                    }
+                }
+            }
+
+            // Find connected SubDeformer for LinkPos
+            if (const TArray<uint64>* Children = ParentToChildren.Find(Mid))
+            {
+                for (uint64 Cid : *Children)
+                {
+                    if (const FRawFbxSubDef* SD = SubDeformerMap.Find(Cid))
+                    {
+                        if (SD->bHasLinkPos)
+                        {
+                            BoneLinkPosMap.Add(M.Name, SD->LinkPos);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!BoneLinkPosMap.Contains(M.Name))
+            {
+                if (const TArray<uint64>* SubDefs = ChildToParents.Find(Mid))
+                {
+                    for (uint64 Sid : *SubDefs)
+                    {
+                        if (const FRawFbxSubDef* SD = SubDeformerMap.Find(Sid))
+                        {
+                            if (SD->bHasLinkPos)
+                            {
+                                BoneLinkPosMap.Add(M.Name, SD->LinkPos);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Saf hiyerarşik (üzerinde render mesh'i olmayan) kemikleri tespit et
+    TSet<FString> ExistingVisualNames;
+    for (const FImporterMeshSection& Sec : OutVisual)
+    {
+        ExistingVisualNames.Add(Sec.MeshName);
+    }
+    for (const FImporterSensorSection& Sens : OutSensors)
+    {
+        ExistingVisualNames.Add(Sens.SensorName);
+    }
+
+    for (const auto& Pair : ModelMap)
+    {
+        const FRawFbxModel& M = Pair.Value;
+        if (M.Type.Equals(TEXT("LimbNode"), ESearchCase::IgnoreCase))
+        {
+            if (!ExistingVisualNames.Contains(M.Name) && !M.Name.Equals(TEXT("Armature"), ESearchCase::IgnoreCase))
+            {
+                FImporterMeshSection PureSec;
+                PureSec.MeshName = M.Name;
+                PureSec.bIsPureHierarchy = true;
+                if (const FVector* PLink = BoneLinkPosMap.Find(M.Name))
+                {
+                    PureSec.PivotPoint = *PLink;
+                }
+                else
+                {
+                    PureSec.PivotPoint = FVector::ZeroVector;
+                }
+
+                PureSec.Vertices.Empty();
+                PureSec.Triangles.Empty();
+                PureSec.Normals.Empty();
+
+                OutVisual.Add(PureSec);
+                ExistingVisualNames.Add(M.Name);
+
+                UE_LOG(LogTemp, Warning, TEXT("[PiSimModelImporter] 🦴 SAF HİYERARŞİK KEMİK EKLENDİ: '%s' | Pivot: %s"),
+                    *PureSec.MeshName, *PureSec.PivotPoint.ToString());
+            }
+        }
+    }
+
+    // Hiyerarşik sıralama: Gövde (chassis) en başta (0), ebeveynler çocuklardan önce gelecek şekilde sıralanır
+    if (OutVisual.Num() > 0)
+    {
+        for (int32 k = 0; k < OutVisual.Num(); ++k)
+        {
+            FString LName = OutVisual[k].MeshName.ToLower();
+            if (LName.Contains(TEXT("chassis")) || LName.Contains(TEXT("body")) || LName.Contains(TEXT("root")))
+            {
+                if (k != 0) OutVisual.Swap(0, k);
+                break;
+            }
+        }
+
+        TArray<FImporterMeshSection> SortedVisual;
+        TSet<FString> AddedNames;
+        SortedVisual.Add(OutVisual[0]);
+        AddedNames.Add(OutVisual[0].MeshName);
+
+        bool bProgress = true;
+        while (SortedVisual.Num() < OutVisual.Num() && bProgress)
+        {
+            bProgress = false;
+            for (int32 k = 1; k < OutVisual.Num(); ++k)
+            {
+                if (!AddedNames.Contains(OutVisual[k].MeshName))
+                {
+                    FString PName = BoneParentMap.FindRef(OutVisual[k].MeshName);
+                    if (PName.IsEmpty() || AddedNames.Contains(PName) || !ExistingVisualNames.Contains(PName))
+                    {
+                        SortedVisual.Add(OutVisual[k]);
+                        AddedNames.Add(OutVisual[k].MeshName);
+                        bProgress = true;
+                    }
+                }
+            }
+        }
+
+        for (int32 k = 1; k < OutVisual.Num(); ++k)
+        {
+            if (!AddedNames.Contains(OutVisual[k].MeshName))
+            {
+                SortedVisual.Add(OutVisual[k]);
+                AddedNames.Add(OutVisual[k].MeshName);
+            }
+        }
+
+        OutVisual = SortedVisual;
+
+        // ParentSectionIndex atamalarını tamamla
+        for (int32 i = 0; i < OutVisual.Num(); ++i)
+        {
+            if (i == 0)
+            {
+                OutVisual[i].ParentSectionIndex = -1;
+                continue;
+            }
+
+            FString PName = BoneParentMap.FindRef(OutVisual[i].MeshName);
+            int32 FoundParentIdx = -1;
+            if (!PName.IsEmpty())
+            {
+                for (int32 j = 0; j < i; ++j)
+                {
+                    if (OutVisual[j].MeshName.Equals(PName, ESearchCase::IgnoreCase))
+                    {
+                        FoundParentIdx = j;
+                        break;
+                    }
+                }
+            }
+
+            OutVisual[i].ParentSectionIndex = (FoundParentIdx >= 0) ? FoundParentIdx : 0;
+        }
+    }
+
     // =========================================================================================
     // HEM LOGA HEM DE EKRANA HER ÜÇ LİSTEYİ DE DETAYLICA YAZDIR!
     // =========================================================================================
@@ -1189,8 +1444,13 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
     UE_LOG(LogTemp, Warning, TEXT("🎨 GÖRSEL PARÇA LİSTESİ (Toplam: %d Adet):"), OutVisual.Num());
     for (int32 v = 0; v < OutVisual.Num(); ++v)
     {
-        UE_LOG(LogTemp, Warning, TEXT("   [%d] VisualMesh: '%s' | Vertices: %d | Triangles: %d | Pivot: %s"),
-            v, *OutVisual[v].MeshName, OutVisual[v].Vertices.Num(), OutVisual[v].Triangles.Num() / 3, *OutVisual[v].PivotPoint.ToString());
+        FString ParentStr = (OutVisual[v].ParentSectionIndex >= 0 && OutVisual.IsValidIndex(OutVisual[v].ParentSectionIndex))
+            ? OutVisual[OutVisual[v].ParentSectionIndex].MeshName
+            : TEXT("None (Root)");
+        FString PureStr = OutVisual[v].bIsPureHierarchy ? TEXT("[SAF HİYERARŞİK MAFSAL]") : TEXT("[GÖRSEL MESH]");
+
+        UE_LOG(LogTemp, Warning, TEXT("   [%d] %s: '%s' | Parent: [%d] %s | Verts: %d | Pivot: %s"),
+            v, *PureStr, *OutVisual[v].MeshName, OutVisual[v].ParentSectionIndex, *ParentStr, OutVisual[v].Vertices.Num(), *OutVisual[v].PivotPoint.ToString());
     }
 
     UE_LOG(LogTemp, Warning, TEXT("🛡️ UCX COLLISION PARÇA LİSTESİ (Toplam: %d Adet):"), OutUCX.Num());
@@ -1269,67 +1529,71 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         UProceduralMeshComponent* VisComp = NewObject<UProceduralMeshComponent>(this, CompName);
         VisComp->SetMobility(EComponentMobility::Movable);
 
-        // Hiyerarşik Kemik Bağlantısı: Gövde dışındaki parçalar gövdeye bağlanır
-        if (i == 0)
+        // Hiyerarşik Kemik Bağlantısı: Gerçek Ebeveyn Kemiğe Bağla
+        int32 ParentIdx = VisualSections[i].ParentSectionIndex;
+        if (i > 0 && ParentIdx >= 0 && VisualMeshComponents.IsValidIndex(ParentIdx) && VisualMeshComponents[ParentIdx])
+        {
+            VisComp->SetupAttachment(VisualMeshComponents[ParentIdx]);
+            // Ebeveyn kemiğe göre bağıl konum: (BuKemikPivot - EbeveynKemikPivot)
+            VisComp->SetRelativeLocation(VisualSections[i].PivotPoint - VisualSections[ParentIdx].PivotPoint);
+        }
+        else
         {
             VisComp->SetupAttachment(SceneRootComponent);
             VisComp->SetRelativeLocation(VisualSections[i].PivotPoint);
         }
-        else
-        {
-            if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
-            {
-                VisComp->SetupAttachment(VisualMeshComponents[0]);
-                // Gövdeye göre bağıl konum: (TekerlekPivot - GövdePivot)
-                VisComp->SetRelativeLocation(VisualSections[i].PivotPoint - VisualSections[0].PivotPoint);
-            }
-            else
-            {
-                VisComp->SetupAttachment(SceneRootComponent);
-                VisComp->SetRelativeLocation(VisualSections[i].PivotPoint);
-            }
-        }
 
         VisComp->RegisterComponent();
 
-        TArray<FVector2D> UV0;
-        TArray<FLinearColor> VertexColors;
-        TArray<FProcMeshTangent> Tangents;
-
-        // Görsel Modeli Çiz (Render)
-        VisComp->CreateMeshSection_LinearColor(0, VisualSections[i].Vertices, VisualSections[i].Triangles, VisualSections[i].Normals, UV0, VertexColors, Tangents, false);
-        if (DefaultMat) VisComp->SetMaterial(0, DefaultMat);
-
-        VisComp->SetVisibility(true);
-        VisComp->SetHiddenInGame(false);
-
-        // İLGİLİ UCX CONVEX HULL'UNU BUL VE PARÇAYA ZIRH OLARAK GİYDİR
-        VisComp->ClearCollisionConvexMeshes();
-        bool bFoundUCX = false;
-        for (int32 j = 0; j < UCXSections.Num(); ++j)
+        if (!VisualSections[i].bIsPureHierarchy && VisualSections[i].Vertices.Num() > 0)
         {
-            if (UCXSections[j].MeshName.Contains(VisualSections[i].MeshName, ESearchCase::IgnoreCase))
+            TArray<FVector2D> UV0;
+            TArray<FLinearColor> VertexColors;
+            TArray<FProcMeshTangent> Tangents;
+
+            // Görsel Modeli Çiz (Render)
+            VisComp->CreateMeshSection_LinearColor(0, VisualSections[i].Vertices, VisualSections[i].Triangles, VisualSections[i].Normals, UV0, VertexColors, Tangents, false);
+            if (DefaultMat) VisComp->SetMaterial(0, DefaultMat);
+
+            VisComp->SetVisibility(true);
+            VisComp->SetHiddenInGame(false);
+
+            // İLGİLİ UCX CONVEX HULL'UNU BUL VE PARÇAYA ZIRH OLARAK GİYDİR
+            VisComp->ClearCollisionConvexMeshes();
+            bool bFoundUCX = false;
+            for (int32 j = 0; j < UCXSections.Num(); ++j)
             {
-                VisComp->AddCollisionConvexMesh(UCXSections[j].Vertices);
-                bFoundUCX = true;
-                break;
+                if (UCXSections[j].MeshName.Contains(VisualSections[i].MeshName, ESearchCase::IgnoreCase))
+                {
+                    VisComp->AddCollisionConvexMesh(UCXSections[j].Vertices);
+                    bFoundUCX = true;
+                    break;
+                }
             }
-        }
-        if (!bFoundUCX)
-        {
-            VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
-        }
+            if (!bFoundUCX)
+            {
+                VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
+            }
 
-        // STATİK HALDE DE SOLID ÇARPIŞMA %100 AKTİF!
-        VisComp->bUseComplexAsSimpleCollision = false;
-        VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-        VisComp->SetCollisionObjectType(ECC_WorldDynamic);
-        VisComp->SetCollisionResponseToAllChannels(ECR_Block);
-        VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zemini bloklar
-        VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-        VisComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-        VisComp->RecreatePhysicsState();
-        VisComp->UpdateBounds();
+            // STATİK HALDE DE SOLID ÇARPIŞMA %100 AKTİF!
+            VisComp->bUseComplexAsSimpleCollision = false;
+            VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+            VisComp->SetCollisionObjectType(ECC_WorldDynamic);
+            VisComp->SetCollisionResponseToAllChannels(ECR_Block);
+            VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zemini bloklar
+            VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+            VisComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+            VisComp->RecreatePhysicsState();
+            VisComp->UpdateBounds();
+        }
+        else
+        {
+            // SAF HİYERARŞİK KEMİK (Mesh'siz Mafsal / Servo Düğümü):
+            // Görsel render ve fizik çarpışması eklenmez, saf transform mafsalı olarak çalışır!
+            VisComp->SetVisibility(false);
+            VisComp->SetHiddenInGame(true);
+            VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        }
 
         VisualMeshComponents.Add(VisComp);
     }
@@ -1380,29 +1644,29 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         MotorItem.BoneName = VisualSections[i].MeshName;
 
         FString LowerName = VisualSections[i].MeshName.ToLower();
-        if (LowerName.StartsWith(TEXT("m_wheel")) || LowerName.StartsWith(TEXT("w_")) || LowerName.Contains(TEXT("wheel")))
+        if (i == 0 || LowerName.Contains(TEXT("chassis")) || LowerName.Contains(TEXT("body")) || LowerName.Contains(TEXT("root")))
         {
-            MotorItem.Role = EPiSimMotorRole::DriveWheel;
-            MotorItem.MaxVelocityRPM = 500.0f;
-            MotorItem.MaxTorqueNm = 15.0f;
+            MotorItem.Role = EPiSimMotorRole::None;
         }
-        else if (LowerName.StartsWith(TEXT("m_steer")) || LowerName.StartsWith(TEXT("steer")))
+        else if (LowerName.StartsWith(TEXT("m_steer")) || LowerName.StartsWith(TEXT("steer")) || LowerName.Contains(TEXT("steer")))
         {
             MotorItem.Role = EPiSimMotorRole::SteeredWheel;
             MotorItem.MinLimitDeg = -45.0f;
             MotorItem.MaxLimitDeg = +45.0f;
             MotorItem.MaxTorqueNm = 20.0f;
         }
-        else if (LowerName.StartsWith(TEXT("m_caster")) || LowerName.StartsWith(TEXT("caster")))
-        {
-            MotorItem.Role = EPiSimMotorRole::FreeCaster;
-        }
-        else if (LowerName.StartsWith(TEXT("m_servo")) || LowerName.StartsWith(TEXT("joint")) || LowerName.StartsWith(TEXT("bone")) || LowerName.Contains(TEXT("arm")))
+        else if (VisualSections[i].bIsPureHierarchy || LowerName.StartsWith(TEXT("m_servo")) || LowerName.StartsWith(TEXT("joint")) || LowerName.StartsWith(TEXT("bone")) || LowerName.Contains(TEXT("arm")))
         {
             MotorItem.Role = EPiSimMotorRole::ServoJoint;
             MotorItem.MinLimitDeg = -90.0f;
             MotorItem.MaxLimitDeg = +90.0f;
             MotorItem.MaxTorqueNm = 25.0f;
+        }
+        else if (LowerName.StartsWith(TEXT("m_wheel")) || LowerName.StartsWith(TEXT("w_")) || LowerName.Contains(TEXT("wheel")))
+        {
+            MotorItem.Role = EPiSimMotorRole::DriveWheel;
+            MotorItem.MaxVelocityRPM = 500.0f;
+            MotorItem.MaxTorqueNm = 15.0f;
         }
         else if (LowerName.StartsWith(TEXT("m_piston")) || LowerName.StartsWith(TEXT("piston")) || LowerName.StartsWith(TEXT("linear")))
         {
@@ -1726,6 +1990,16 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         UProceduralMeshComponent* VisComp = VisualMeshComponents[i];
         if (!VisComp || !VisualSections.IsValidIndex(i)) continue;
 
+        // Saf Hiyerarşik Kemikler (Mesh'siz Mafsal / Servo Düğümü):
+        // Fizik simülasyonu ve zemin çarpışması verilmez, hiyerarşik transform mafsalı olarak kalır.
+        if (VisualSections[i].bIsPureHierarchy || VisualSections[i].Vertices.Num() == 0)
+        {
+            VisComp->SetSimulatePhysics(false);
+            VisComp->SetEnableGravity(false);
+            VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            continue;
+        }
+
         float Mass = (i == 0) ? 30.0f : 2.5f;
 
         // İlgili UCX Convex Hull'unu aktar (veya kendi geometrisi)
@@ -1999,8 +2273,16 @@ void APiSimModelImporter::UpdateVisualMaterials()
     {
         if (VisualMeshComponents[i])
         {
-            VisualMeshComponents[i]->SetVisibility(!bShowCollisionView);
-            VisualMeshComponents[i]->SetHiddenInGame(bShowCollisionView);
+            if (VisualSections.IsValidIndex(i) && (VisualSections[i].bIsPureHierarchy || VisualSections[i].Vertices.Num() == 0))
+            {
+                VisualMeshComponents[i]->SetVisibility(false);
+                VisualMeshComponents[i]->SetHiddenInGame(true);
+            }
+            else
+            {
+                VisualMeshComponents[i]->SetVisibility(!bShowCollisionView);
+                VisualMeshComponents[i]->SetHiddenInGame(bShowCollisionView);
+            }
         }
     }
 

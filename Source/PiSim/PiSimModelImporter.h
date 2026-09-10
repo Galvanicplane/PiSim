@@ -142,6 +142,9 @@ struct FImporterMeshSection
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Mesh")
     FVector PivotPoint = FVector::ZeroVector;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Mesh")
+    bool bIsPureHierarchy = false;
+
     // Heavy vertex/triangle arrays excluded from PropertyEditor reflection to prevent Editor freezes
     TArray<FVector> Vertices;
     TArray<int32> Triangles;
