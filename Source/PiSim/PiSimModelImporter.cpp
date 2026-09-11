@@ -514,24 +514,30 @@ void APiSimModelImporter::Tick(float DeltaTime)
         {
             float TargetAngle = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
 
+            // Sadece gerçek direksiyon mafsalı mı kontrol et (Elevon / kanat yüzeyleri tekerlek mafsalı değildir!):
+            bool bIsSteerJoint = SteerBoneComponents.Contains(Motor.BoneName) || (Motor.Role == EPiSimMotorRole::SteeredWheel);
+
             // 1) Steer kemiğinin dönüşünü güncelle (Fizik simüle etmez, sadece biz döndürürüz)
             if (USceneComponent** FoundSteer = SteerBoneComponents.Find(Motor.BoneName))
             {
                 (*FoundSteer)->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
             }
 
-            // 2) İlgili tekerleğin fizik kısıtlamasını da aynı 1 eksende (Yaw) yönlendir
-            int32 TargetSection = FindVisualSectionForBone(m);
-            if (TargetSection > 0 && VisualSections.IsValidIndex(TargetSection) && VisualSections.IsValidIndex(0))
+            // 2) SADECE gerçek direksiyon mafsalı ise ilgili tekerleğin fizik kısıtlamasını da aynı 1 eksende (Yaw) yönlendir
+            if (bIsSteerJoint)
             {
-                if (bIsPhysicsSimulating)
+                int32 TargetSection = FindVisualSectionForBone(m);
+                if (TargetSection > 0 && VisualSections.IsValidIndex(TargetSection) && VisualSections.IsValidIndex(0))
                 {
-                    UPhysicsConstraintComponent* Constraint = FindConstraintForSection(TargetSection);
-                    if (Constraint)
+                    if (bIsPhysicsSimulating)
                     {
-                        FVector RelLoc = VisualSections[TargetSection].PivotPoint - VisualSections[0].PivotPoint;
-                        FTransform SteerPose(FRotator(0.0f, TargetAngle, 0.0f), RelLoc);
-                        Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
+                        UPhysicsConstraintComponent* Constraint = FindConstraintForSection(TargetSection);
+                        if (Constraint)
+                        {
+                            FVector RelLoc = VisualSections[TargetSection].PivotPoint - VisualSections[0].PivotPoint;
+                            FTransform SteerPose(FRotator(0.0f, TargetAngle, 0.0f), RelLoc);
+                            Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
+                        }
                     }
                 }
             }
@@ -568,39 +574,52 @@ void APiSimModelImporter::Tick(float DeltaTime)
                 }
                 else if (Motor.Role == EPiSimMotorRole::Thruster)
                 {
-                    // 1) Pervanenin Gövdeye Bağlı Görsel Dönüşü (Spin RPM)
+                    // Kemiğin uzandığı doğrultu (FBX TransformLink matrisinden çıkarılan birim vektör)
+                    FVector LocalThrustAxis = VisualSections.IsValidIndex(i) ? VisualSections[i].BoneDirection : Motor.BoneDirection;
+                    if (LocalThrustAxis.IsNearlyZero()) LocalThrustAxis = FVector(0.0f, 1.0f, 0.0f);
+
+                    // 1) Pervanenin Görsel Dönüşü (Spin RPM) – Kemiğin uzanma ekseni etrafında döner
                     float PropRpm = Motor.CurrentTestValue * Motor.MaxVelocityRPM;
                     if (FMath::Abs(PropRpm) > 0.001f)
                     {
                         float AngularSpeedDegPerSec = PropRpm * 6.0f;
-                        // Yerel Z ekseni etrafında pürüzsüz dönüş (Yaw)
-                        VisualMeshComponents[i]->AddLocalRotation(FRotator(0.0f, AngularSpeedDegPerSec * DeltaTime, 0.0f));
+                        FQuat SpinQuat(LocalThrustAxis, FMath::DegreesToRadians(AngularSpeedDegPerSec * DeltaTime));
+                        VisualMeshComponents[i]->AddLocalRotation(SpinQuat);
                     }
 
-                    // 2) Fiziksel İtki Kuvveti (Newton İtki)
-                    if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0] && Motor.CurrentTestValue > 0.01f)
+                    // 2) Fiziksel İtki Kuvveti – Kemiğin uzandığı yönde şasiye itki uygula
+                    if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0] && FMath::Abs(Motor.CurrentTestValue) > 0.001f)
                     {
                         float MaxThrustN = (Motor.MaxTorqueNm > 1.0f) ? (Motor.MaxTorqueNm * 5.0f) : 75.0f;
                         float ThrustNewtons = Motor.CurrentTestValue * MaxThrustN;
 
-                        // İtki yönü: Drone için Yerel Yukarı (+Z), Arkadan İticili (Pusher) Uçak için Yerel İleri (+X)
-                        FString LowPropName = Motor.BoneName.ToLower();
-                        FVector LocalThrustDir = (LowPropName.Contains(TEXT("push")) || LowPropName.Contains(TEXT("forward"))) ? FVector(1.0f, 0.0f, 0.0f) : FVector(0.0f, 0.0f, 1.0f);
-                        FVector WorldThrustDir = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalThrustDir).GetSafeNormal();
+                        // Şasinin dünya yönüne dönüştür: kemiğin uzanım yönünde itki uygula
+                        FVector WorldThrustAxis = VisualMeshComponents[0]->GetComponentTransform()
+                            .TransformVectorNoScale(LocalThrustAxis).GetSafeNormal();
 
-                        // Unreal AddForce kg*cm/s^2 birimindedir (1 N = 100 kg*cm/s^2)
-                        FVector ForceVec = WorldThrustDir * (ThrustNewtons * 100.0f);
+                        // bReverseThrust: itki yönünü ters çevir (Pusher prop / ters yön için)
+                        float DirectionSign = Motor.bReverseThrust ? -1.0f : 1.0f;
+
+                        FVector ForceVec = WorldThrustAxis * (DirectionSign * ThrustNewtons * 100.0f);
                         FVector PropWorldLoc = VisualMeshComponents[i]->GetComponentLocation();
-
-                        // Şasiye pervane yuvasının tam dünya koordinatından kuvvet uygula
                         VisualMeshComponents[0]->AddForceAtLocation(ForceVec, PropWorldLoc);
+
+                        // Debug: itki yönü görsel ok (kavuniçi ok)
+                        if (AeroConfig.bShowAeroGizmos)
+                        {
+                            DrawDebugDirectionalArrow(GetWorld(), PropWorldLoc,
+                                PropWorldLoc + ForceVec.GetSafeNormal() * 50.0f,
+                                15.0f, FColor::Orange, false, 0.0f, 0, 2.5f);
+                        }
                     }
                 }
+
                 else if (Motor.Role == EPiSimMotorRole::ServoJoint && !WheelToSteerBoneMap.Contains(i))
                 {
-                    // Uçan Kanat Kontrol Yüzeyleri (Elevon / Aileron) Canlı Görsel Sapması (Pitch)
+                    // Uçan Kanat Kontrol Yüzeyleri (Elevon / Aileron) Canlı Görsel Sapması
                     float TargetAngle = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
-                    VisualMeshComponents[i]->SetRelativeRotation(FRotator(TargetAngle, 0.0f, 0.0f));
+                    FQuat HingeQuat(FVector(1.0f, 0.0f, 0.0f), FMath::DegreesToRadians(TargetAngle));
+                    VisualMeshComponents[i]->SetRelativeRotation(FRotator(HingeQuat));
                 }
             }
         }
@@ -619,6 +638,9 @@ void APiSimModelImporter::Tick(float DeltaTime)
         AeroConfig.CD0 = VisualSections[0].CD0;
         AeroConfig.StallAngleDeg = VisualSections[0].StallAngleDeg;
         AeroConfig.ElevonEffectiveness = VisualSections[0].ElevonEffectiveness;
+        AeroConfig.CoGForwardCm = VisualSections[0].CoGForwardCm;
+        AeroConfig.CoLForwardCm = VisualSections[0].CoLForwardCm;
+        AeroConfig.ChassisBoneLengthCm = VisualSections[0].BoneLength;
     }
 
     if (bIsPhysicsSimulating && AeroConfig.bEnableAerodynamics && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
@@ -628,98 +650,156 @@ void APiSimModelImporter::Tick(float DeltaTime)
         float Airspeed = AirVel.Size();
         AeroConfig.CurrentAirspeedKmh = Airspeed * 3.6f;
 
-        if (Airspeed > 1.5f) // 1.5 m/s (~5.4 km/h) üzerinde aerodinamik kuvvetler etki eder
+        // Gövde Eksenleri: +Y İleri (Fuselage Forward), +X Sağ Kanat (Right Wing), +Z Tavan (Local UP)
+        FVector WorldForward = VisualMeshComponents[0]->GetComponentTransform().TransformVectorNoScale(FVector(0.0f, 1.0f, 0.0f)).GetSafeNormal();
+        FVector WorldRight = VisualMeshComponents[0]->GetComponentTransform().TransformVectorNoScale(FVector(1.0f, 0.0f, 0.0f)).GetSafeNormal();
+        FVector WorldUp = VisualMeshComponents[0]->GetUpVector();
+        FVector FlowDir = (Airspeed > 0.01f) ? (AirVel / Airspeed) : WorldForward;
+
+        // Hücum Açısı (Angle of Attack - Alpha)
+        float VForward = AirVel | WorldForward;
+        float VUp = AirVel | WorldUp;
+        float AlphaRad = -FMath::Atan2(VUp, FMath::Max(0.05f, VForward));
+        float AlphaDeg = FMath::RadiansToDegrees(AlphaRad);
+        AeroConfig.CurrentAlphaDeg = AlphaDeg;
+
+        // Kontrol Yüzeyleri (Elevon_L ve Elevon_R sapma açılarını bul)
+        float ElevonAngleL = 0.0f;
+        float ElevonAngleR = 0.0f;
+        for (const FPiSimMotorItem& Motor : ConfiguredMotors)
         {
-            FVector Forward = VisualMeshComponents[0]->GetForwardVector();
-            FVector Up = VisualMeshComponents[0]->GetUpVector();
-            FVector Right = VisualMeshComponents[0]->GetRightVector();
-            FVector FlowDir = AirVel.GetSafeNormal();
-
-            // Hücum Açısı (Angle of Attack - Alpha)
-            float VForward = AirVel | Forward;
-            float VUp = AirVel | Up;
-            float AlphaRad = -FMath::Atan2(VUp, FMath::Max(0.1f, VForward));
-            float AlphaDeg = FMath::RadiansToDegrees(AlphaRad);
-            AeroConfig.CurrentAlphaDeg = AlphaDeg;
-
-            // Kontrol Yüzeyleri (Elevon_L ve Elevon_R sapma açılarını bul)
-            float ElevonAngleL = 0.0f;
-            float ElevonAngleR = 0.0f;
-            for (const FPiSimMotorItem& Motor : ConfiguredMotors)
+            FString LowerName = Motor.BoneName.ToLower();
+            if (LowerName.Contains(TEXT("elevon_l")) || LowerName.Contains(TEXT("aileron_l")))
             {
-                FString LowerName = Motor.BoneName.ToLower();
-                if (LowerName.Contains(TEXT("elevon_l")) || LowerName.Contains(TEXT("aileron_l")))
-                {
-                    ElevonAngleL = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
-                }
-                else if (LowerName.Contains(TEXT("elevon_r")) || LowerName.Contains(TEXT("aileron_r")))
-                {
-                    ElevonAngleR = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
-                }
+                ElevonAngleL = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
             }
-
-            // Uçan Kanat Mikseri:
-            // Pitch (Elevator): İki elevonun ortalaması
-            // Roll (Aileron): İki elevonun farkı
-            float PitchDeflection = (ElevonAngleL + ElevonAngleR) * 0.5f;
-            float RollDeflection = (ElevonAngleL - ElevonAngleR) * 0.5f;
-
-            // Efektif Hücum Açısı
-            float EffAlphaRad = AlphaRad - FMath::DegreesToRadians(PitchDeflection * AeroConfig.ElevonEffectiveness);
-            float EffAlphaDeg = FMath::RadiansToDegrees(EffAlphaRad);
-
-            // Taşıma (CL) ve Sürtünme (CD) Katsayıları
-            float CL = 0.0f;
-            if (FMath::Abs(EffAlphaDeg) <= AeroConfig.StallAngleDeg)
+            else if (LowerName.Contains(TEXT("elevon_r")) || LowerName.Contains(TEXT("aileron_r")))
             {
-                CL = AeroConfig.CL0 + (AeroConfig.CLAlpha * EffAlphaRad);
-            }
-            else
-            {
-                // Stall (Perdövites): Taşıma aniden düşer
-                float StallSign = (EffAlphaDeg > 0.0f) ? 1.0f : -1.0f;
-                CL = (AeroConfig.CL0 * 0.5f) * StallSign;
-            }
-
-            // İndüklenmiş Sürtünme: CD = CD0 + (CL^2 / (pi * AR * e))
-            float AspectRatio = FMath::Max(1.0f, (AeroConfig.Wingspan * AeroConfig.Wingspan) / FMath::Max(0.01f, AeroConfig.WingArea));
-            float InducedDrag = (CL * CL) / (PI * AspectRatio * 0.8f);
-            float CD = AeroConfig.CD0 + InducedDrag;
-
-            // Dinamik Basınç: q = 0.5 * rho * V^2
-            float Q = 0.5f * AeroConfig.AirDensity * Airspeed * Airspeed;
-
-            // Toplam Lift ve Drag Kuvvetleri (Newton)
-            float LiftN = Q * AeroConfig.WingArea * CL;
-            float DragN = Q * AeroConfig.WingArea * CD;
-            AeroConfig.CurrentLiftNewtons = LiftN;
-            AeroConfig.CurrentDragNewtons = DragN;
-
-            // Kuvvet Vektörleri
-            FVector LiftDir = (FlowDir ^ -Right).GetSafeNormal();
-            FVector DragDir = -FlowDir; // Akışın tersine geri
-
-            FVector TotalAeroForce = (LiftDir * LiftN) + (DragDir * DragN);
-
-            // Unreal AddForce kg*cm/s^2 birimindedir (1 N = 100 kg*cm/s^2)
-            VisualMeshComponents[0]->AddForce(TotalAeroForce * 100.0f);
-
-            // Roll Torku: Elevon farkından kaynaklanan yatış momenti
-            if (FMath::Abs(RollDeflection) > 0.01f)
-            {
-                float RollMomentArm = AeroConfig.Wingspan * 0.35f;
-                float DeltaLiftN = Q * (AeroConfig.WingArea * 0.25f) * (AeroConfig.CLAlpha * FMath::DegreesToRadians(FMath::Abs(RollDeflection)));
-                float RollTorqueNm = (RollDeflection > 0.0f ? 1.0f : -1.0f) * DeltaLiftN * RollMomentArm;
-
-                // Unreal AddTorqueInRadians kg*cm^2/s^2 birimindedir (1 Nm = 10000 kg*cm^2/s^2)
-                VisualMeshComponents[0]->AddTorqueInRadians(Forward * (RollTorqueNm * 10000.0f));
+                ElevonAngleR = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
             }
         }
-        else
+
+        // Uçan Kanat Mikseri:
+        // Pitch (Elevator): İki elevonun ortalaması
+        // Roll (Aileron): İki elevonun farkı
+        float PitchDeflection = (ElevonAngleL + ElevonAngleR) * 0.5f;
+        float RollDeflection = (ElevonAngleL - ElevonAngleR) * 0.5f;
+
+        // Efektif Hücum Açısı
+        float EffAlphaRad = AlphaRad - FMath::DegreesToRadians(PitchDeflection * AeroConfig.ElevonEffectiveness);
+        float EffAlphaDeg = FMath::RadiansToDegrees(EffAlphaRad);
+
+        // =========================================================================
+        // KESİNTİSİZ GERÇEK FİZİKSEL AERODİNAMİK FORMÜL (HİÇBİR HIZDA İSTİSNA YOK)
+        // =========================================================================
+        // 1) Dinamik Basınç: q = 0.5 * rho * V^2 (Parabolik)
+        float Q = 0.5f * AeroConfig.AirDensity * Airspeed * Airspeed;
+
+        // 2) Sürekli Analitik Taşıma Katsayısı Formülü (Polhamus Teorisi):
+        float SinA = FMath::Sin(EffAlphaRad);
+        float CosA = FMath::Cos(EffAlphaRad);
+        float SignA = (EffAlphaRad >= 0.0f) ? 1.0f : -1.0f;
+
+        float CamberCL = AeroConfig.CL0 * CosA;
+        float AttachedCL = AeroConfig.CLAlpha * SinA * (CosA * CosA);
+        float VortexCL = 1.8f * (SinA * SinA) * CosA * SignA;
+        float CL = CamberCL + AttachedCL + VortexCL;
+
+        // 3) Sürekli Sürtünme Katsayısı Formülü (CD):
+        float AspectRatio = FMath::Max(1.0f, (AeroConfig.Wingspan * AeroConfig.Wingspan) / FMath::Max(0.01f, AeroConfig.WingArea));
+        float InducedDrag = (CL * CL) / (PI * AspectRatio * 0.8f);
+        float FormDrag = 1.5f * FMath::Abs(SinA * SinA * SinA);
+        float CD = AeroConfig.CD0 + InducedDrag + FormDrag;
+
+        // 4) Toplam Lift ve Drag Kuvvetleri (Newton):
+        float LiftN = Q * AeroConfig.WingArea * CL;
+        float DragN = Q * AeroConfig.WingArea * CD;
+        AeroConfig.CurrentLiftNewtons = LiftN;
+        AeroConfig.CurrentDragNewtons = DragN;
+
+        // =========================================================================
+        // KUVVET VEKTÖRLERİ:
+        // LİFT YÖNÜ: Kemiğin uzandığı eksen ASLA DEĞİLDİR!
+        // Daima uçağın kendi yerel tavanına (Local UP) doğrudur:
+        // =========================================================================
+        FVector LiftDir = VisualMeshComponents[0]->GetUpVector();
+        FVector DragDir = (Airspeed > 0.01f) ? -FlowDir : -WorldForward;
+
+        // CoL (Taşıma Merkezi): Şasi kemiğinin kök noktası (ChassisRoot) + CoLForwardCm
+        FVector ChassisRoot = VisualMeshComponents[0]->GetComponentLocation();
+        FVector CoLWorld = ChassisRoot + (WorldForward * AeroConfig.CoLForwardCm);
+
+        // Kuvvetleri doğrudan CoL (Şasi Kemiği Kökü) noktasından tatbik et:
+        FVector LiftForceVec = LiftDir * (LiftN * 100.0f);
+        FVector DragForceVec = DragDir * (DragN * 100.0f);
+        VisualMeshComponents[0]->AddForceAtLocation(LiftForceVec + DragForceVec, CoLWorld);
+
+        // Yunuslama Sönümlemesi (Pitch Damping)
+        FVector CurrentAngVel = VisualMeshComponents[0]->GetPhysicsAngularVelocityInDegrees();
+        float PitchRate = CurrentAngVel | WorldRight;
+        float PitchDampingTorqueNm = -PitchRate * (Q * AeroConfig.WingArea * 0.03f);
+
+        float PitchMomentArm = AeroConfig.Wingspan * 0.35f;
+        float ElevonPitchTorqueNm = PitchDeflection * (Q * AeroConfig.WingArea * 0.10f * AeroConfig.ElevonEffectiveness * PitchMomentArm);
+        float TotalPitchTorqueNm = ElevonPitchTorqueNm + PitchDampingTorqueNm;
+        if (FMath::Abs(TotalPitchTorqueNm) > 0.001f)
         {
-            AeroConfig.CurrentLiftNewtons = 0.0f;
-            AeroConfig.CurrentDragNewtons = 0.0f;
-            AeroConfig.CurrentAlphaDeg = 0.0f;
+            VisualMeshComponents[0]->AddTorqueInRadians(WorldRight * (TotalPitchTorqueNm * 10000.0f));
+        }
+
+        // Roll Torku
+        if (FMath::Abs(RollDeflection) > 0.01f)
+        {
+            float RollMomentArm = AeroConfig.Wingspan * 0.35f;
+            float DeltaLiftN = Q * (AeroConfig.WingArea * 0.25f) * (AeroConfig.CLAlpha * FMath::DegreesToRadians(FMath::Abs(RollDeflection)));
+            float RollTorqueNm = (RollDeflection > 0.0f ? 1.0f : -1.0f) * DeltaLiftN * RollMomentArm;
+            VisualMeshComponents[0]->AddTorqueInRadians(WorldForward * (RollTorqueNm * 10000.0f));
+        }
+    }
+    else
+    {
+        AeroConfig.CurrentLiftNewtons = 0.0f;
+        AeroConfig.CurrentDragNewtons = 0.0f;
+        AeroConfig.CurrentAlphaDeg = 0.0f;
+    }
+
+    // =========================================================================================
+    // 3D CANLI DEBUG GİZMO GÖRSELLEŞTİRİCİLERİ (GÖVDE MERKEZİ VE BOYUNA EKSENİNDE ÇİZİLİR)
+    // =========================================================================================
+    if (GetWorld() && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0] && AeroConfig.bShowAeroGizmos)
+    {
+        FVector ChassisRoot = VisualMeshComponents[0]->GetComponentLocation();
+        FVector ForwardDirWorld = VisualMeshComponents[0]->GetComponentTransform().TransformVectorNoScale(FVector(0.0f, 1.0f, 0.0f)).GetSafeNormal();
+        FVector CoLWorld = ChassisRoot + (ForwardDirWorld * AeroConfig.CoLForwardCm);
+        FVector BoneEndWorld = ChassisRoot + (ForwardDirWorld * AeroConfig.ChassisBoneLengthCm);
+        FVector CoGWorld = ChassisRoot + (ForwardDirWorld * AeroConfig.CoGForwardCm);
+
+        // 🔵 MAVİ KÜRE: CoL (Şasi Kemiği Kökü - Taşıma Merkezi)
+        DrawDebugSphere(GetWorld(), CoLWorld, 8.0f, 12, FColor(0, 150, 255), false, 0.0f, 0, 2.5f);
+        DrawDebugString(GetWorld(), CoLWorld + FVector(0.0f, 0.0f, 12.0f), TEXT("🔵 CoL (Taşıma Merkezi)"), nullptr, FColor::Cyan, 0.0f, true);
+
+        // 🟣 MOR KÜRE: Şasi Kemiğinin Bittiği Yer (Burun)
+        DrawDebugSphere(GetWorld(), BoneEndWorld, 6.0f, 10, FColor(200, 50, 255), false, 0.0f, 0, 1.8f);
+        DrawDebugString(GetWorld(), BoneEndWorld + FVector(0.0f, 0.0f, 10.0f), TEXT("🟣 Kemik Bitişi"), nullptr, FColor(200, 50, 255), 0.0f, true);
+
+        // 🟡 SARI KÜRE: CoG (Kullanıcının Belirlediği Ağırlık Merkezi)
+        DrawDebugSphere(GetWorld(), CoGWorld, 8.0f, 12, FColor(255, 235, 0), false, 0.0f, 0, 2.5f);
+        DrawDebugString(GetWorld(), CoGWorld + FVector(0.0f, 0.0f, 12.0f), TEXT("🟡 CoG (Ağırlık Merkezi)"), nullptr, FColor::Yellow, 0.0f, true);
+
+        // Şasi kemiği eksen çizgisi
+        DrawDebugLine(GetWorld(), CoLWorld, BoneEndWorld, FColor(160, 160, 200), false, 0.0f, 0, 1.5f);
+
+        // 🔴 KIRMIZI OK: Ağırlık (Yerçekimi) -> CoG noktasından doğrudan aşağı (-Z)
+        float WeightN = ChassisMassKg * 9.81f;
+        float WeightArrowLen = FMath::Clamp(WeightN * 3.0f, 25.0f, 250.0f);
+        DrawDebugDirectionalArrow(GetWorld(), CoGWorld, CoGWorld + FVector(0.0f, 0.0f, -WeightArrowLen), 14.0f, FColor(255, 50, 50), false, 0.0f, 2.0f);
+
+        // 🟢 YEŞİL OK: Taşıma Kuvveti (Lift) -> CoL'den uçağın LOCAL UP yönünde çıkar
+        if (bIsPhysicsSimulating && FMath::Abs(AeroConfig.CurrentLiftNewtons) > 0.01f)
+        {
+            FVector LiftDir = VisualMeshComponents[0]->GetUpVector();
+            float LiftArrowLen = FMath::Clamp(AeroConfig.CurrentLiftNewtons * 3.0f, 25.0f, 300.0f);
+            DrawDebugDirectionalArrow(GetWorld(), CoLWorld, CoLWorld + (LiftDir * LiftArrowLen), 14.0f, FColor(40, 255, 40), false, 0.0f, 3.5f);
         }
     }
 
@@ -812,6 +892,7 @@ void APiSimModelImporter::ClearSpawnedComponents()
         if (Constraint) Constraint->DestroyComponent();
     }
     JointConstraints.Empty();
+    SectionConstraintMap.Empty();
 
     for (USceneCaptureComponent2D* CamComp : SpawnedCameraComponents)
     {
@@ -924,6 +1005,7 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
     {
         FString BoneLabel;
         TArray<int32> Indices;
+        FVector BoneDirection = FVector(0.0f, 1.0f, 0.0f);
     };
 
     TMap<uint64, FString> ModelMap;
@@ -1155,6 +1237,7 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         {
             int32 DP = OChildStart;
             TArray<int32> SubIndices;
+            FVector SubBoneDir = FVector(0.0f, 1.0f, 0.0f);
 
             while (DP + 13 < (int32)OEnd)
             {
@@ -1196,6 +1279,42 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                         }
                     }
                 }
+                else if (DName.Equals(TEXT("TransformLink")) && DPropLen > 12)
+                {
+                    uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[DPropsStart + 1]);
+                    uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[DPropsStart + 5]);
+                    uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[DPropsStart + 9]);
+                    int32 DataOffset = DPropsStart + 13;
+
+                    int32 UncompSize = ArrayLen * 8; // double array (16 doubles = 128 bytes)
+                    TArray<uint8> UncompBuf;
+                    const uint8* DataPtr = nullptr;
+
+                    if (Encoding == 0 && DataOffset + UncompSize <= (int32)DEnd)
+                    {
+                        DataPtr = &FileBytes[DataOffset];
+                    }
+                    else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)DEnd)
+                    {
+                        UncompBuf.AddUninitialized(UncompSize);
+                        if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
+                        {
+                            DataPtr = UncompBuf.GetData();
+                        }
+                    }
+
+                    if (DataPtr && ArrayLen >= 16)
+                    {
+                        const double* Mat = reinterpret_cast<const double*>(DataPtr);
+                        // Mat[4..6] is the local Y axis of the bone in Blender (Head -> Tail).
+                        // In Blender -> Unreal coordinate conversion: (X, -Y, Z)
+                        FVector Dir(Mat[4], -Mat[5], Mat[6]);
+                        if (!Dir.IsNearlyZero())
+                        {
+                            SubBoneDir = Dir.GetSafeNormal();
+                        }
+                    }
+                }
                 DP = (int32)DEnd;
             }
 
@@ -1204,6 +1323,7 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                 FRawFbxSubDef SubDef;
                 SubDef.BoneLabel = LabelStr;
                 SubDef.Indices = SubIndices;
+                SubDef.BoneDirection = SubBoneDir;
                 SubDeformerMap.Add(ObjID, SubDef);
             }
             else
@@ -1312,6 +1432,17 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                                     FImporterMeshSection Sec;
                                     Sec.MeshName = bIsUCXModel ? FString::Printf(TEXT("%s_%s"), *ModelName, *MeshLabel) : MeshLabel;
                                     Sec.PivotPoint = Pivot;
+                                    Sec.BoneDirection = SubDef->BoneDirection;
+
+                                    // Gövdenin boyuna uzanımını (Pivot -> Burun mesafesi) hesapla
+                                    float MaxForwardProj = 0.0f;
+                                    FVector ForwardAxis = FVector(0.0f, 1.0f, 0.0f); // Model ileri standardı (+Y)
+                                    for (const FVector& V : SubVerts)
+                                    {
+                                        float Proj = (V - Pivot) | ForwardAxis;
+                                        if (Proj > MaxForwardProj) MaxForwardProj = Proj;
+                                    }
+                                    Sec.BoneLength = (MaxForwardProj > 5.0f) ? MaxForwardProj : 100.0f;
 
                                     // 2) Center Vertices around local origin (0,0,0) for component
                                     for (FVector& V : SubVerts)
@@ -1610,11 +1741,26 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
                     Clean.RemoveFromStart(TEXT("M_Steer_"), ESearchCase::IgnoreCase);
                     Clean.RemoveFromStart(TEXT("Steer_"), ESearchCase::IgnoreCase);
                     Clean.RemoveFromStart(TEXT("M_"), ESearchCase::IgnoreCase);
+                    FString CleanLower = Clean.ToLower();
 
                     int32 MatchedWheelIdx = INDEX_NONE;
                     for (int32 w = 1; w < VisualSections.Num(); ++w)
                     {
-                        if (VisualSections[w].MeshName.Contains(Clean, ESearchCase::IgnoreCase))
+                        FString LowerW = VisualSections[w].MeshName.ToLower();
+
+                        // Sadece tekerlek mesh'leri ile eşleştir — elevon, aero yüzeyleri ASLA
+                        bool bIsWheelMesh = LowerW.Contains(TEXT("wheel")) ||
+                                            LowerW.Contains(TEXT("teker")) ||
+                                            LowerW.StartsWith(TEXT("w_"));
+                        if (!bIsWheelMesh) continue;
+
+                        // Clean token'ı mesh isminde tam sözcük sınırında ara:
+                        // "_FR", "_1", "_L" gibi kısa suffix'lerin "M_Elevon_1" gibi isimlerle yanlış eşleşmesini engelle
+                        bool bSuffixMatch = LowerW.EndsWith(TEXT("_") + CleanLower) ||
+                                            LowerW.Contains(TEXT("_") + CleanLower + TEXT("_")) ||
+                                            LowerW.Equals(CleanLower);
+
+                        if (bSuffixMatch)
                         {
                             MatchedWheelIdx = w;
                             break;
@@ -1637,6 +1783,11 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
 
                         UE_LOG(LogTemp, Warning, TEXT("🎯 [STEER MAFSALI KURULDU] '%s' şasiye bağlandı | Konum: %s | Eşleşen Tekerlek: [%d] %s"),
                             *PureBoneName, *SteerPivotOffset.ToString(), MatchedWheelIdx, *VisualSections[MatchedWheelIdx].MeshName);
+                    }
+                    else
+                    {
+                        UE_LOG(LogTemp, Warning, TEXT("⚠️ [STEER] '%s' için tekerlek mesh eşleşmesi bulunamadı (Clean='%s') – Steer bone atlandı."),
+                            *PureBoneName, *Clean);
                     }
                 }
             }
@@ -1687,6 +1838,7 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         FPiSimMotorItem MotorItem;
         MotorItem.BoneIndex = i;
         MotorItem.BoneName = VisualSections[i].MeshName;
+        MotorItem.BoneDirection = VisualSections[i].BoneDirection;
 
         FString LowerName = VisualSections[i].MeshName.ToLower();
         if (LowerName.StartsWith(TEXT("m_wheel")) || LowerName.StartsWith(TEXT("w_")) || LowerName.Contains(TEXT("wheel")))
@@ -2016,6 +2168,7 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             if (Constraint) Constraint->DestroyComponent();
         }
         JointConstraints.Empty();
+        SectionConstraintMap.Empty();
 
         for (int32 i = 0; i < VisualMeshComponents.Num(); ++i)
         {
@@ -2075,8 +2228,10 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         bool bIsThruster = (PartRole == EPiSimMotorRole::Thruster);
         bool bIsAeroSurface = (PartRole == EPiSimMotorRole::ServoJoint && !WheelToSteerBoneMap.Contains(i));
 
-        // İtki Pervaneleri ve Uçuş Kontrol Yüzeyleri (Elevon): Şasiye kinematik olarak bağlanır
-        if (i > 0 && (bIsThruster || bIsAeroSurface))
+        // İtki Pervaneleri, Uçuş Kontrol Yüzeyleri (Elevon) ve tanımsız parçalar: Şasiye kinematik bağlan
+        // Tekerlek OLMAYAN tüm i>0 parçalar (thruster, elevon, None-rol) kinematik → fizik simüle etmez
+        bool bIsKinematic = (i > 0) && (bIsThruster || bIsAeroSurface || (!bIsWheel));
+        if (bIsKinematic)
         {
             VisComp->SetSimulatePhysics(false);
             VisComp->SetEnableGravity(false);
@@ -2085,7 +2240,8 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             {
                 VisComp->AttachToComponent(VisualMeshComponents[0], FAttachmentTransformRules::KeepWorldTransform);
             }
-            UE_LOG(LogTemp, Warning, TEXT("🛸 [KİNEMATİK BAĞLANTI] '%s' şasiye doğrudan bağlandı (Fizik Simülasyonu: KAPALI)"), *VisualSections[i].MeshName);
+            UE_LOG(LogTemp, Warning, TEXT("🔒 [KİNEMATİK] [%d] '%s' rol=%d → şasiye kinematik bağlandı"),
+                i, *VisualSections[i].MeshName, (int32)PartRole);
             continue;
         }
 
@@ -2150,9 +2306,8 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' bileşenine CANLI DİNAMİK FİZİK verildi | Kütle: %.1f kg | Yerçekimi: AÇIK"),
             *VisualSections[i].MeshName, Mass);
 
-        // 4) Gövde Dışındaki Tüm Tekerlekler İçin Şasi ile Fiziksel Eklem (Constraint) Bağla
-        // ÖN VE ARKA TEKERLEK FARKI YOK: HEPSİ 1 EKSENDE (Roll / Twist) DÖNER!
-        if (i > 0 && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+        // 4) SADECE Tekerlekler için şasi ile fiziksel eklem (Constraint) bağla
+        if (i > 0 && bIsWheel && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
         {
             FName ConstraintName = *FString::Printf(TEXT("PhysicsJoint_%d_%s"), i, *VisualSections[i].MeshName);
             UPhysicsConstraintComponent* Constraint = NewObject<UPhysicsConstraintComponent>(this, ConstraintName);
@@ -2181,6 +2336,7 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             }
 
             JointConstraints.Add(Constraint);
+            SectionConstraintMap.Add(i, Constraint);
         }
     }
 
@@ -2249,6 +2405,11 @@ UPhysicsConstraintComponent* APiSimModelImporter::FindConstraintForSection(int32
 {
     if (SectionIndex <= 0 || !VisualSections.IsValidIndex(SectionIndex)) return nullptr;
 
+    if (UPhysicsConstraintComponent** Found = SectionConstraintMap.Find(SectionIndex))
+    {
+        if (Found && *Found) return *Found;
+    }
+
     FString TargetPrefix = FString::Printf(TEXT("PhysicsJoint_%d_"), SectionIndex);
     for (UPhysicsConstraintComponent* Constraint : JointConstraints)
     {
@@ -2258,11 +2419,9 @@ UPhysicsConstraintComponent* APiSimModelImporter::FindConstraintForSection(int32
         }
     }
 
-    int32 ConstraintIdx = SectionIndex - 1;
-    if (JointConstraints.IsValidIndex(ConstraintIdx))
-    {
-        return JointConstraints[ConstraintIdx];
-    }
+    // Kesinlikle SectionIndex - 1 fallback'i YAPMA!
+    // Tekerlek olmayan parçalar için (örn. Elevon) rastgele tekerlek kısıtlaması dönmek
+    // tekerleklerin elevon pivotuna yapışmasına (snap) neden oluyordu!
     return nullptr;
 }
 
@@ -2362,14 +2521,16 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
     {
         float TargetAngle = FMath::Lerp(ConfiguredMotors[BoneIndex].MinLimitDeg, ConfiguredMotors[BoneIndex].MaxLimitDeg, (Value + 1.0f) * 0.5f);
         
+        bool bIsSteerJoint = SteerBoneComponents.Contains(ConfiguredMotors[BoneIndex].BoneName) || (MotorRole == EPiSimMotorRole::SteeredWheel);
+
         // 1) Steer kemiğini 1 eksende (Yaw) döndür (Fizik simüle etmez, sadece biz döndürürüz)
         if (USceneComponent** FoundSteer = SteerBoneComponents.Find(ConfiguredMotors[BoneIndex].BoneName))
         {
             (*FoundSteer)->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
         }
 
-        // 2) İlgili tekerleğin fizik kısıtlamasını da aynı 1 eksende (Yaw) yönlendir
-        if (TargetSection > 0 && VisualSections.IsValidIndex(TargetSection) && VisualSections.IsValidIndex(0))
+        // 2) SADECE gerçek direksiyon mafsalı ise tekerlek kısıtlamasını yönlendir
+        if (bIsSteerJoint && TargetSection > 0 && VisualSections.IsValidIndex(TargetSection) && VisualSections.IsValidIndex(0))
         {
             if (bIsPhysicsSimulating)
             {
@@ -2386,6 +2547,12 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
                 // Statik modda görsel güncelleme (Tekerlek zaten Steer kemiğine bağlıdır)
                 VisualMeshComponents[TargetSection]->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
             }
+        }
+        else if (!bIsSteerJoint && TargetSection > 0 && VisualMeshComponents.IsValidIndex(TargetSection) && VisualMeshComponents[TargetSection])
+        {
+            // Aero kontrol yüzeyi (Elevon / Aileron) doğrudan menteşe ekseninde sapar
+            FQuat HingeQuat(FVector(1.0f, 0.0f, 0.0f), FMath::DegreesToRadians(TargetAngle));
+            VisualMeshComponents[TargetSection]->SetRelativeRotation(FRotator(HingeQuat));
         }
     }
     else if (MotorRole == EPiSimMotorRole::LinearActuator)
@@ -2543,3 +2710,43 @@ void APiSimModelImporter::UpdateVisualMaterials()
         }
     }
 }
+
+void APiSimModelImporter::SetCoGToBoneEnd()
+{
+    float BoneLen = AeroConfig.ChassisBoneLengthCm;
+    if (BoneLen <= 1.0f && VisualSections.IsValidIndex(0) && VisualSections[0].BoneLength > 1.0f)
+    {
+        BoneLen = VisualSections[0].BoneLength;
+    }
+    AeroConfig.CoGForwardCm = BoneLen;
+    if (VisualSections.IsValidIndex(0))
+    {
+        VisualSections[0].CoGForwardCm = BoneLen;
+    }
+}
+
+void APiSimModelImporter::SetCoGToCenterOfMass()
+{
+    if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+    {
+        FVector ChassisRoot = VisualMeshComponents[0]->GetComponentLocation();
+        FVector CoMLoc = VisualMeshComponents[0]->GetCenterOfMass();
+        FVector Diff = CoMLoc - ChassisRoot;
+
+        FVector ForwardDirWorld = VisualMeshComponents[0]->GetComponentTransform().TransformVectorNoScale(FVector(0.0f, 1.0f, 0.0f)).GetSafeNormal();
+        if (ForwardDirWorld.IsNearlyZero()) ForwardDirWorld = VisualMeshComponents[0]->GetForwardVector();
+
+        float ForwardProj = Diff | ForwardDirWorld;
+        AeroConfig.CoGForwardCm = ForwardProj;
+        if (VisualSections.IsValidIndex(0))
+        {
+            VisualSections[0].CoGForwardCm = ForwardProj;
+        }
+    }
+}
+
+void APiSimModelImporter::ToggleAeroGizmos()
+{
+    AeroConfig.bShowAeroGizmos = !AeroConfig.bShowAeroGizmos;
+}
+

@@ -90,6 +90,14 @@ struct FPiSimMotorItem
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
     FString Ros2Topic = TEXT("/cmd_vel");
+
+    /** Thrust motorları için itki yönünü ters çevir (Pusher prop: +Y local yerine -Y) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    bool bReverseThrust = false;
+
+    /** Kemiğin uzandığı yön (Model/Şasi koordinatlarında birim vektör) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    FVector BoneDirection = FVector(0.0f, 1.0f, 0.0f);
 };
 
 USTRUCT(BlueprintType)
@@ -157,6 +165,10 @@ struct FImporterMeshSection
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
     FVector RotationAxis = FVector(0.0f, 1.0f, 0.0f); // Default Y-axis axle rotation
 
+    /** Kemiğin uzandığı yön (FBX TransformLink matrisinden hesaplanan doğrultu) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
+    FVector BoneDirection = FVector(0.0f, 1.0f, 0.0f);
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
     float MinAngle = -90.0f;
 
@@ -187,6 +199,15 @@ struct FImporterMeshSection
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
     float ElevonEffectiveness = 0.5f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float CoGForwardCm = 20.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float CoLForwardCm = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float BoneLength = 100.0f;
 };
 
 USTRUCT(BlueprintType)
@@ -244,6 +265,22 @@ struct FPiSimAerodynamicsConfig
     /** Elevon kanatçık sapmasının hücum açısına etkinlik çarpanı (tau, 0.4 - 0.7) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
     float ElevonEffectiveness = 0.5f;
+
+    /** CoL (Taşıma Merkezi) Şasi merkezine göre ileri ofseti (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float CoLForwardCm = 0.0f;
+
+    /** CoG (Ağırlık Merkezi) Şasi merkezine göre ileri ofseti (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float CoGForwardCm = 20.0f;
+
+    /** Şasi gövde kemik uzunluğu (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float ChassisBoneLengthCm = 100.0f;
+
+    /** 3D Canlı kuvvet okları ve CoL/CoG kürelerini göster */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    bool bShowAeroGizmos = true;
 
     /** Canlı okunan telemetri değerleri */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Aero")
@@ -337,6 +374,10 @@ public:
     // Joint physics constraints between Chassis and Wheels
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Physics")
     TArray<UPhysicsConstraintComponent*> JointConstraints;
+
+    // VisualSection index -> Physics constraint eşleşmesi (Kinematik parçalar için boştur)
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Physics")
+    TMap<int32, UPhysicsConstraintComponent*> SectionConstraintMap;
 
     // Ana gövde kütlesi (kg) - Rover: ~30kg, 4-motorlu Drone: ~1.5 - 2.5kg, Sabit Kanat: ~1.0 - 1.5kg
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
@@ -528,6 +569,15 @@ public:
 
     UFUNCTION(CallInEditor, Category = "PiSim|Actions")
     void ToggleModelFile();
+
+    UFUNCTION(CallInEditor, Category = "PiSim|Actions")
+    void SetCoGToBoneEnd();
+
+    UFUNCTION(CallInEditor, Category = "PiSim|Actions")
+    void SetCoGToCenterOfMass();
+
+    UFUNCTION(CallInEditor, Category = "PiSim|Actions")
+    void ToggleAeroGizmos();
 
     // =========================================================================
     // CORE PIPELINE FUNCTIONS

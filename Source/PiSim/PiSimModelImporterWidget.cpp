@@ -32,6 +32,33 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
     FSlateFontInfo DataFont = FCoreStyle::GetDefaultFontStyle("Regular", 9);
     FSlateFontInfo BadgeFont = FCoreStyle::GetDefaultFontStyle("Bold", 9);
     FSlateFontInfo ButtonFont = FCoreStyle::GetDefaultFontStyle("Bold", 9);
+    FSlateFontInfo ParamFont = FCoreStyle::GetDefaultFontStyle("Regular", 8);
+
+    auto MakeParamRow = [this, ParamFont](const FString& LabelStr, TSharedPtr<SEditableTextBox>& OutBox, EPiSimParamId ParamId) -> TSharedRef<SWidget>
+    {
+        return SNew(SHorizontalBox)
+            + SHorizontalBox::Slot()
+            .FillWidth(0.6f)
+            .VAlign(VAlign_Center)
+            .Padding(FMargin(0.0f, 1.0f))
+            [
+                SNew(STextBlock)
+                .Text(FText::FromString(LabelStr))
+                .Font(ParamFont)
+                .ColorAndOpacity(FLinearColor(0.85f, 0.9f, 1.0f, 1.0f))
+            ]
+            + SHorizontalBox::Slot()
+            .FillWidth(0.4f)
+            .VAlign(VAlign_Center)
+            .Padding(FMargin(4.0f, 1.0f, 0.0f, 1.0f))
+            [
+                SAssignNew(OutBox, SEditableTextBox)
+                .Font(ParamFont)
+                .SelectAllTextWhenFocused(true)
+                .ClearKeyboardFocusOnCommit(true)
+                .OnTextCommitted(FOnTextCommitted::CreateUObject(this, &UPiSimModelImporterWidget::OnParamTextCommitted, ParamId))
+            ];
+    };
 
     return SNew(SOverlay)
         // ---------------------------------------------------------------------
@@ -387,6 +414,124 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                 SNew(SBorder).BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f)).Padding(FMargin(0.0f, 0.5f))
                             ]
 
+                            // Chassis & Aerodynamics Container (Shown if BoneIndex == 0)
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            [
+                                SAssignNew(ChassisBox, SBox)
+                                .Visibility(EVisibility::Collapsed)
+                                [
+                                    SNew(SVerticalBox)
+
+                                    // Header
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                                    [
+                                        SNew(STextBlock)
+                                        .Text(FText::FromString(TEXT("✈️ AERODİNAMİK VE ŞASİ AYARLARI")))
+                                        .Font(CardHeaderFont)
+                                        .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
+                                    ]
+
+                                    // Aero rows
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("Kanat Alanı (S) [m²]"), AeroWingAreaInput, EPiSimParamId::AeroWingArea) ]
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("Kanat Açıklığı (b) [m]"), AeroWingspanInput, EPiSimParamId::AeroWingspan) ]
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("Taşıma Sabiti (CL0)"), AeroCL0Input, EPiSimParamId::AeroCL0) ]
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("Taşıma Eğimi (CL_α) [/rad]"), AeroCLAlphaInput, EPiSimParamId::AeroCLAlpha) ]
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("Sürükleme Sabiti (CD0)"), AeroCD0Input, EPiSimParamId::AeroCD0) ]
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("Stall Açısı [°]"), AeroStallAngleInput, EPiSimParamId::AeroStallAngle) ]
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("Elevon Etkinliği"), AeroElevonEffectInput, EPiSimParamId::AeroElevonEffect) ]
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("CoL İleri (Lift Noktası) [cm]"), AeroCoLForwardInput, EPiSimParamId::AeroCoLForward) ]
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("CoG İleri (Ağırlık Merk.) [cm]"), AeroCoGForwardInput, EPiSimParamId::AeroCoGForward) ]
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("Şasi Kütlesi (Mass) [kg]"), ChassisMassInput, EPiSimParamId::ChassisMass) ]
+
+                                    // Quick CoG / Gizmo buttons
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 6.0f, 0.0f, 2.0f)
+                                    [
+                                        SNew(SHorizontalBox)
+                                        + SHorizontalBox::Slot()
+                                        .FillWidth(0.5f)
+                                        .Padding(FMargin(0.0f, 0.0f, 2.0f, 0.0f))
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.2f, 0.1f, 0.35f, 1.0f))
+                                            .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnSetCoGToBoneEndClicked))
+                                            .ContentPadding(FMargin(4.0f, 4.0f))
+                                            [
+                                                SNew(STextBlock)
+                                                .Text(FText::FromString(TEXT("🎯 CoG -> KEMİK UCUNA AL")))
+                                                .Font(ParamFont)
+                                                .ColorAndOpacity(FLinearColor::White)
+                                            ]
+                                        ]
+                                        + SHorizontalBox::Slot()
+                                        .FillWidth(0.5f)
+                                        .Padding(FMargin(2.0f, 0.0f, 0.0f, 0.0f))
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.08f, 0.25f, 0.35f, 1.0f))
+                                            .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnSetCoGToCenterOfMassClicked))
+                                            .ContentPadding(FMargin(4.0f, 4.0f))
+                                            [
+                                                SNew(STextBlock)
+                                                .Text(FText::FromString(TEXT("⚖️ CoG -> GEOMETRİK MERKEZE")))
+                                                .Font(ParamFont)
+                                                .ColorAndOpacity(FLinearColor::White)
+                                            ]
+                                        ]
+                                    ]
+
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 2.0f, 0.0f, 6.0f)
+                                    [
+                                        SNew(SButton)
+                                        .ButtonColorAndOpacity(FLinearColor(0.05f, 0.3f, 0.2f, 1.0f))
+                                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnToggleAeroGizmosClicked))
+                                        .ContentPadding(FMargin(6.0f, 4.0f))
+                                        [
+                                            SAssignNew(AeroGizmoToggleText, STextBlock)
+                                            .Text(FText::FromString(TEXT("📐 3D VEKTÖR GİZMO: AÇIK")))
+                                            .Font(BadgeFont)
+                                            .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.6f, 1.0f))
+                                        ]
+                                    ]
+
+                                    // Live Flight Telemetry Section
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 4.0f, 0.0f, 2.0f)
+                                    [
+                                        SNew(STextBlock)
+                                        .Text(FText::FromString(TEXT("📊 CANLI UÇUŞ VE AERO TELEMETRİSİ:")))
+                                        .Font(BadgeFont)
+                                        .ColorAndOpacity(FLinearColor(1.0f, 0.75f, 0.1f, 1.0f))
+                                    ]
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 0.0f, 0.0f, 6.0f)
+                                    [
+                                        SAssignNew(FlightTelemetryLiveText, STextBlock)
+                                        .Text(FText::FromString(TEXT("Uçuş verileri bekleniyor...")))
+                                        .Font(DataFont)
+                                        .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
+                                    ]
+                                ]
+                            ]
+
                             // Existing Motor Container
                             + SVerticalBox::Slot()
                             .AutoHeight()
@@ -404,6 +549,22 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                         .Text(FText::FromString(TEXT("Motor parametreleri yükleniyor...")))
                                         .Font(DataFont)
                                         .ColorAndOpacity(FLinearColor(0.9f, 0.95f, 1.0f, 1.0f))
+                                    ]
+
+                                    // Motor Editable Parameters
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 2.0f, 0.0f, 6.0f)
+                                    [
+                                        SNew(SVerticalBox)
+                                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                        [ MakeParamRow(TEXT("Maksimum Hız [RPM]"), MotorMaxRpmInput, EPiSimParamId::MotorMaxRpm) ]
+                                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                        [ MakeParamRow(TEXT("Maksimum Tork [Nm]"), MotorMaxTorqueInput, EPiSimParamId::MotorMaxTorque) ]
+                                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                        [ MakeParamRow(TEXT("Min Sınır [°]"), MotorMinLimitInput, EPiSimParamId::MotorMinLimit) ]
+                                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                        [ MakeParamRow(TEXT("Maks Sınır [°]"), MotorMaxLimitInput, EPiSimParamId::MotorMaxLimit) ]
                                     ]
 
                                     // Live Motor Test Slider Header
@@ -441,6 +602,27 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                         .OnValueChanged(FOnFloatValueChanged::CreateUObject(this, &UPiSimModelImporterWidget::OnMotorTestSliderChanged))
                                     ]
 
+                                    // Thruster-only: İtki Yönü Toggle Butonu
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 4.0f, 0.0f, 0.0f)
+                                    [
+                                        SAssignNew(ThrusterControlsBox, SBox)
+                                        .Visibility(EVisibility::Collapsed)
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.08f, 0.08f, 0.35f, 1.0f))
+                                            .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnToggleReverseThrustClicked))
+                                            .ContentPadding(FMargin(10.0f, 6.0f))
+                                            [
+                                                SAssignNew(ReverseThrustButtonText, STextBlock)
+                                                .Text(FText::FromString(TEXT("➡️ İTKİ YÖNÜ: NORMAL (Tıkla → Ters Çevir)")))
+                                                .Font(ButtonFont)
+                                                .ColorAndOpacity(FLinearColor::White)
+                                            ]
+                                        ]
+                                    ]
+
                                     // Remove Motor Button
                                     + SVerticalBox::Slot()
                                     .AutoHeight()
@@ -459,6 +641,7 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                     ]
                                 ]
                             ]
+
 
                             // Assign Motor Container (Shown if Role == None)
                             + SVerticalBox::Slot()
@@ -993,6 +1176,30 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         CachedSelectedBone = TargetImporter->SelectedBoneIndex;
         BoneListScrollBox->ClearChildren();
 
+        // Populate editable text boxes whenever the selected bone changes
+        if (TargetImporter->SelectedBoneIndex == 0)
+        {
+            if (AeroWingAreaInput.IsValid()) AeroWingAreaInput->SetText(FText::FromString(FString::Printf(TEXT("%.3f"), TargetImporter->AeroConfig.WingArea)));
+            if (AeroWingspanInput.IsValid()) AeroWingspanInput->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), TargetImporter->AeroConfig.Wingspan)));
+            if (AeroCL0Input.IsValid()) AeroCL0Input->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), TargetImporter->AeroConfig.CL0)));
+            if (AeroCLAlphaInput.IsValid()) AeroCLAlphaInput->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), TargetImporter->AeroConfig.CLAlpha)));
+            if (AeroCD0Input.IsValid()) AeroCD0Input->SetText(FText::FromString(FString::Printf(TEXT("%.3f"), TargetImporter->AeroConfig.CD0)));
+            if (AeroStallAngleInput.IsValid()) AeroStallAngleInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), TargetImporter->AeroConfig.StallAngleDeg)));
+            if (AeroElevonEffectInput.IsValid()) AeroElevonEffectInput->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), TargetImporter->AeroConfig.ElevonEffectiveness)));
+            if (AeroCoLForwardInput.IsValid()) AeroCoLForwardInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), TargetImporter->AeroConfig.CoLForwardCm)));
+            if (AeroCoGForwardInput.IsValid()) AeroCoGForwardInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), TargetImporter->AeroConfig.CoGForwardCm)));
+            if (ChassisMassInput.IsValid())
+                ChassisMassInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), TargetImporter->ChassisMassKg)));
+        }
+        else if (TargetImporter->SelectedBoneIndex > 0 && TargetImporter->ConfiguredMotors.IsValidIndex(TargetImporter->SelectedBoneIndex))
+        {
+            const FPiSimMotorItem& MotorSel = TargetImporter->ConfiguredMotors[TargetImporter->SelectedBoneIndex];
+            if (MotorMaxRpmInput.IsValid()) MotorMaxRpmInput->SetText(FText::FromString(FString::Printf(TEXT("%.0f"), MotorSel.MaxVelocityRPM)));
+            if (MotorMaxTorqueInput.IsValid()) MotorMaxTorqueInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), MotorSel.MaxTorqueNm)));
+            if (MotorMinLimitInput.IsValid()) MotorMinLimitInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), MotorSel.MinLimitDeg)));
+            if (MotorMaxLimitInput.IsValid()) MotorMaxLimitInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), MotorSel.MaxLimitDeg)));
+        }
+
         for (int32 i = 0; i < TargetImporter->ConfiguredMotors.Num(); ++i)
         {
             const FPiSimMotorItem& Motor = TargetImporter->ConfiguredMotors[i];
@@ -1058,33 +1265,77 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
 
             if (TargetImporter->SelectedBoneIndex == 0)
             {
-                if (ExistingMotorBox.IsValid()) ExistingMotorBox->SetVisibility(EVisibility::Visible);
+                if (ChassisBox.IsValid()) ChassisBox->SetVisibility(EVisibility::Visible);
+                if (ExistingMotorBox.IsValid()) ExistingMotorBox->SetVisibility(EVisibility::Collapsed);
                 if (AssignMotorBox.IsValid()) AssignMotorBox->SetVisibility(EVisibility::Collapsed);
                 if (MotorTestSlider.IsValid()) MotorTestSlider->SetVisibility(EVisibility::Collapsed);
                 if (MotorTestSliderValueText.IsValid()) MotorTestSliderValueText->SetVisibility(EVisibility::Collapsed);
 
                 if (SelectedBoneRoleBadgeText.IsValid())
-                    SelectedBoneRoleBadgeText->SetText(FText::FromString(TEXT("🛡️ Durum: Ana Kök Gövde (Şasi)")));
+                    SelectedBoneRoleBadgeText->SetText(FText::FromString(TEXT("🛡️ Durum: Ana Kök Gövde (Şasi & Aerodinamik)")));
 
                 if (MotorDetailsText.IsValid())
                 {
+                    float ChassisM = TargetImporter->VisualSections.Num() > 0 ? TargetImporter->VisualSections[0].MassKg : 30.0f;
                     FString ChassisInfo = FString::Printf(
                         TEXT("  • Parça Türü   : Robotun Ana Şasisi (Kök Gövde)\n"
                              "  • Toplam Parça : %d Adet Alt Kemik / Mesh\n"
-                             "  • Kütle (Fizik): 30.0 kg (Zeminle Çarpışır)\n"
-                             "  • Motor Durumu : Ana gövdeye motor atanamaz.\n"
-                             "                   Lütfen hareketli parçaları seçin."),
-                        TargetImporter->ConfiguredMotors.Num()
+                             "  • Kütle (Fizik): %.1f kg (Zeminle Çarpışır)\n"
+                             "  • Kemik Boyu   : %.1f cm (İleri Boyut)\n"
+                             "  • Aerodinamik  : Canlı İnce Kanat + Girdap Modeli"),
+                        TargetImporter->ConfiguredMotors.Num(),
+                        ChassisM,
+                        TargetImporter->AeroConfig.ChassisBoneLengthCm
                     );
                     MotorDetailsText->SetText(FText::FromString(ChassisInfo));
+                }
+
+                if (FlightTelemetryLiveText.IsValid())
+                {
+                    float SpeedKmh = TargetImporter->AeroConfig.CurrentAirspeedKmh;
+                    float SpeedMs = SpeedKmh / 3.6f;
+                    float DynQ = 0.5f * TargetImporter->AeroConfig.AirDensity * SpeedMs * SpeedMs;
+                    float LiftN = TargetImporter->AeroConfig.CurrentLiftNewtons;
+                    float DragN = TargetImporter->AeroConfig.CurrentDragNewtons;
+                    float AlphaDeg = TargetImporter->AeroConfig.CurrentAlphaDeg;
+
+                    FString FltInfo = FString::Printf(
+                        TEXT("  • Hava Hızı (Airspeed) : %5.1f km/h  (%.1f m/s)\n"
+                             "  • Dinamik Basınç (q)   : %5.1f Pa\n"
+                             "  • Hücum Açısı (AoA)    : %+5.1f°\n"
+                             "  • Taşıma Kuvveti (Lift): %6.1f N\n"
+                             "  • Sürükleme (Drag)     : %6.1f N\n"
+                             "  • 3D Vektör Gizmosu    : %s"),
+                        SpeedKmh, SpeedMs,
+                        DynQ,
+                        AlphaDeg,
+                        LiftN,
+                        DragN,
+                        TargetImporter->AeroConfig.bShowAeroGizmos ? TEXT("🟢 AÇIK") : TEXT("⚪ KAPALI")
+                    );
+                    FlightTelemetryLiveText->SetText(FText::FromString(FltInfo));
                 }
             }
             else if (SelMotor.Role != EPiSimMotorRole::None)
             {
+                if (ChassisBox.IsValid()) ChassisBox->SetVisibility(EVisibility::Collapsed);
                 if (ExistingMotorBox.IsValid()) ExistingMotorBox->SetVisibility(EVisibility::Visible);
                 if (AssignMotorBox.IsValid()) AssignMotorBox->SetVisibility(EVisibility::Collapsed);
                 if (MotorTestSlider.IsValid()) MotorTestSlider->SetVisibility(EVisibility::Visible);
                 if (MotorTestSliderValueText.IsValid()) MotorTestSliderValueText->SetVisibility(EVisibility::Visible);
+
+                // Thruster kontrol panelini yalnızca Thruster rolü seçiliyken göster
+                bool bIsThrusterRole = (SelMotor.Role == EPiSimMotorRole::Thruster);
+                if (ThrusterControlsBox.IsValid())
+                    ThrusterControlsBox->SetVisibility(bIsThrusterRole ? EVisibility::Visible : EVisibility::Collapsed);
+                if (ReverseThrustButtonText.IsValid() && bIsThrusterRole)
+                {
+                    ReverseThrustButtonText->SetText(FText::FromString(
+                        SelMotor.bReverseThrust
+                            ? TEXT("⬅️ İTKİ YÖNÜ: TERS / PUSHER (Tıkla → Normal Yap)")
+                            : TEXT("➡️ İTKİ YÖNÜ: NORMAL / TRACTOR (Tıkla → Ters Çevir)")
+                    ));
+                }
 
                 if (SelectedBoneRoleBadgeText.IsValid())
                 {
@@ -1130,6 +1381,15 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
                             SelMotor.MaxVelocityRPM, SelMotor.MaxTorqueNm, SelMotor.MinLimitDeg, SelMotor.MaxLimitDeg
                         );
                     }
+
+                    // Thruster ise itki yönü bilgisini ekle
+                    if (SelMotor.Role == EPiSimMotorRole::Thruster)
+                    {
+                        Details += SelMotor.bReverseThrust
+                            ? TEXT("\n  • İtki Yönü    : ⬅️ TERS (Pusher / Reverse)")
+                            : TEXT("\n  • İtki Yönü    : ➡️ NORMAL (Tractor / Forward)");
+                    }
+
                     MotorDetailsText->SetText(FText::FromString(Details));
                 }
 
@@ -1149,6 +1409,7 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
             }
             else
             {
+                if (ChassisBox.IsValid()) ChassisBox->SetVisibility(EVisibility::Collapsed);
                 if (ExistingMotorBox.IsValid()) ExistingMotorBox->SetVisibility(EVisibility::Collapsed);
                 if (AssignMotorBox.IsValid()) AssignMotorBox->SetVisibility(EVisibility::Visible);
 
@@ -1159,6 +1420,7 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
         else
         {
             BoneInspectorBorder->SetVisibility(EVisibility::Collapsed);
+            if (ChassisBox.IsValid()) ChassisBox->SetVisibility(EVisibility::Collapsed);
         }
     }
 
@@ -1552,3 +1814,145 @@ FReply UPiSimModelImporterWidget::OnToggleModelClicked()
     return FReply::Handled();
 }
 
+void UPiSimModelImporterWidget::OnParamTextCommitted(const FText& NewText, ETextCommit::Type CommitType, EPiSimParamId ParamId)
+{
+    if (!TargetImporter) return;
+
+    float Val = FCString::Atof(*NewText.ToString());
+
+    switch (ParamId)
+    {
+        case EPiSimParamId::AeroWingArea:
+            TargetImporter->AeroConfig.WingArea = FMath::Max(0.01f, Val);
+            if (TargetImporter->VisualSections.Num() > 0) TargetImporter->VisualSections[0].WingArea = TargetImporter->AeroConfig.WingArea;
+            break;
+        case EPiSimParamId::AeroWingspan:
+            TargetImporter->AeroConfig.Wingspan = FMath::Max(0.1f, Val);
+            if (TargetImporter->VisualSections.Num() > 0) TargetImporter->VisualSections[0].Wingspan = TargetImporter->AeroConfig.Wingspan;
+            break;
+        case EPiSimParamId::AeroCL0:
+            TargetImporter->AeroConfig.CL0 = Val;
+            if (TargetImporter->VisualSections.Num() > 0) TargetImporter->VisualSections[0].CL0 = Val;
+            break;
+        case EPiSimParamId::AeroCLAlpha:
+            TargetImporter->AeroConfig.CLAlpha = Val;
+            if (TargetImporter->VisualSections.Num() > 0) TargetImporter->VisualSections[0].CLAlpha = Val;
+            break;
+        case EPiSimParamId::AeroCD0:
+            TargetImporter->AeroConfig.CD0 = FMath::Max(0.001f, Val);
+            if (TargetImporter->VisualSections.Num() > 0) TargetImporter->VisualSections[0].CD0 = TargetImporter->AeroConfig.CD0;
+            break;
+        case EPiSimParamId::AeroStallAngle:
+            TargetImporter->AeroConfig.StallAngleDeg = FMath::Clamp(Val, 5.0f, 45.0f);
+            if (TargetImporter->VisualSections.Num() > 0) TargetImporter->VisualSections[0].StallAngleDeg = TargetImporter->AeroConfig.StallAngleDeg;
+            break;
+        case EPiSimParamId::AeroElevonEffect:
+            TargetImporter->AeroConfig.ElevonEffectiveness = FMath::Max(0.0f, Val);
+            if (TargetImporter->VisualSections.Num() > 0) TargetImporter->VisualSections[0].ElevonEffectiveness = TargetImporter->AeroConfig.ElevonEffectiveness;
+            break;
+        case EPiSimParamId::AeroCoLForward:
+            TargetImporter->AeroConfig.CoLForwardCm = Val;
+            if (TargetImporter->VisualSections.Num() > 0) TargetImporter->VisualSections[0].CoLForwardCm = Val;
+            break;
+        case EPiSimParamId::AeroCoGForward:
+            TargetImporter->AeroConfig.CoGForwardCm = Val;
+            if (TargetImporter->VisualSections.Num() > 0) TargetImporter->VisualSections[0].CoGForwardCm = Val;
+            break;
+        case EPiSimParamId::ChassisMass:
+            TargetImporter->ChassisMassKg = FMath::Max(0.1f, Val);
+            if (TargetImporter->VisualSections.Num() > 0)
+            {
+                TargetImporter->VisualSections[0].MassKg = TargetImporter->ChassisMassKg;
+            }
+            if (TargetImporter->VisualMeshComponents.IsValidIndex(0) && TargetImporter->VisualMeshComponents[0])
+            {
+                TargetImporter->VisualMeshComponents[0]->SetMassOverrideInKg(NAME_None, TargetImporter->ChassisMassKg, true);
+            }
+            break;
+        case EPiSimParamId::MotorMaxRpm:
+            if (TargetImporter->ConfiguredMotors.IsValidIndex(TargetImporter->SelectedBoneIndex))
+            {
+                TargetImporter->ConfiguredMotors[TargetImporter->SelectedBoneIndex].MaxVelocityRPM = FMath::Max(0.0f, Val);
+            }
+            break;
+        case EPiSimParamId::MotorMaxTorque:
+            if (TargetImporter->ConfiguredMotors.IsValidIndex(TargetImporter->SelectedBoneIndex))
+            {
+                TargetImporter->ConfiguredMotors[TargetImporter->SelectedBoneIndex].MaxTorqueNm = FMath::Max(0.0f, Val);
+            }
+            break;
+        case EPiSimParamId::MotorMinLimit:
+            if (TargetImporter->ConfiguredMotors.IsValidIndex(TargetImporter->SelectedBoneIndex))
+            {
+                TargetImporter->ConfiguredMotors[TargetImporter->SelectedBoneIndex].MinLimitDeg = Val;
+            }
+            break;
+        case EPiSimParamId::MotorMaxLimit:
+            if (TargetImporter->ConfiguredMotors.IsValidIndex(TargetImporter->SelectedBoneIndex))
+            {
+                TargetImporter->ConfiguredMotors[TargetImporter->SelectedBoneIndex].MaxLimitDeg = Val;
+            }
+            break;
+    }
+}
+
+FReply UPiSimModelImporterWidget::OnToggleAeroGizmosClicked()
+{
+    if (TargetImporter)
+    {
+        TargetImporter->ToggleAeroGizmos();
+        if (AeroGizmoToggleText.IsValid())
+        {
+            AeroGizmoToggleText->SetText(FText::FromString(
+                TargetImporter->AeroConfig.bShowAeroGizmos ? TEXT("📐 3D VEKTÖR GİZMO: AÇIK") : TEXT("📐 3D VEKTÖR GİZMO: KAPALI")));
+        }
+    }
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnSetCoGToBoneEndClicked()
+{
+    if (TargetImporter)
+    {
+        TargetImporter->SetCoGToBoneEnd();
+        if (AeroCoGForwardInput.IsValid())
+        {
+            AeroCoGForwardInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), TargetImporter->AeroConfig.CoGForwardCm)));
+        }
+    }
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnSetCoGToCenterOfMassClicked()
+{
+    if (TargetImporter)
+    {
+        TargetImporter->SetCoGToCenterOfMass();
+        if (AeroCoGForwardInput.IsValid())
+        {
+            AeroCoGForwardInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), TargetImporter->AeroConfig.CoGForwardCm)));
+        }
+    }
+    return FReply::Handled();
+}
+
+
+
+FReply UPiSimModelImporterWidget::OnToggleReverseThrustClicked()
+{
+    if (!TargetImporter) return FReply::Handled();
+
+    int32 SelIdx = TargetImporter->SelectedBoneIndex;
+    if (!TargetImporter->ConfiguredMotors.IsValidIndex(SelIdx)) return FReply::Handled();
+
+    FPiSimMotorItem& Motor = TargetImporter->ConfiguredMotors[SelIdx];
+    if (Motor.Role != EPiSimMotorRole::Thruster) return FReply::Handled();
+
+    Motor.bReverseThrust = !Motor.bReverseThrust;
+
+    UE_LOG(LogTemp, Warning, TEXT("Thruster '%s' itki yonu: %s"),
+        *Motor.BoneName,
+        Motor.bReverseThrust ? TEXT("TERS (Pusher)") : TEXT("NORMAL (Tractor)"));
+
+    return FReply::Handled();
+}

@@ -10,6 +10,24 @@
 
 class APiSimModelImporter;
 
+enum class EPiSimParamId : uint8
+{
+    AeroWingArea,
+    AeroWingspan,
+    AeroCL0,
+    AeroCLAlpha,
+    AeroCD0,
+    AeroStallAngle,
+    AeroElevonEffect,
+    AeroCoLForward,
+    AeroCoGForward,
+    ChassisMass,
+    MotorMaxRpm,
+    MotorMaxTorque,
+    MotorMinLimit,
+    MotorMaxLimit
+};
+
 UCLASS()
 class PISIM_API UPiSimModelImporterWidget : public UUserWidget
 {
@@ -94,6 +112,37 @@ private:
     // Mini Preview PiP Brush & Widgets
     FSlateBrush CameraPreviewBrush;
     TSharedPtr<class STextBlock> CameraPipInfoText;
+
+    // Aerodynamics & Chassis Controls
+    TSharedPtr<class SBox> ChassisBox;
+    TSharedPtr<class SEditableTextBox> AeroWingAreaInput;
+    TSharedPtr<class SEditableTextBox> AeroWingspanInput;
+    TSharedPtr<class SEditableTextBox> AeroCL0Input;
+    TSharedPtr<class SEditableTextBox> AeroCLAlphaInput;
+    TSharedPtr<class SEditableTextBox> AeroCD0Input;
+    TSharedPtr<class SEditableTextBox> AeroStallAngleInput;
+    TSharedPtr<class SEditableTextBox> AeroElevonEffectInput;
+    TSharedPtr<class SEditableTextBox> AeroCoLForwardInput;
+    TSharedPtr<class SEditableTextBox> AeroCoGForwardInput;
+    TSharedPtr<class SEditableTextBox> ChassisMassInput;
+    TSharedPtr<class STextBlock> FlightTelemetryLiveText;
+    TSharedPtr<class STextBlock> AeroGizmoToggleText;
+
+    // Motor Editable Controls
+    TSharedPtr<class SEditableTextBox> MotorMaxRpmInput;
+    TSharedPtr<class SEditableTextBox> MotorMaxTorqueInput;
+    TSharedPtr<class SEditableTextBox> MotorMinLimitInput;
+    TSharedPtr<class SEditableTextBox> MotorMaxLimitInput;
+
+    // Thruster-only Controls
+    TSharedPtr<class SBox> ThrusterControlsBox;
+    TSharedPtr<class STextBlock> ReverseThrustButtonText;
+
+    void OnParamTextCommitted(const FText& NewText, ETextCommit::Type CommitType, EPiSimParamId ParamId);
+    FReply OnToggleAeroGizmosClicked();
+    FReply OnSetCoGToBoneEndClicked();
+    FReply OnSetCoGToCenterOfMassClicked();
+    FReply OnToggleReverseThrustClicked();
 
     int32 LastRenderedBoneCount = -1;
     int32 LastRenderedSensorCount = -1;
