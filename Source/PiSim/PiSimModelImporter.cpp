@@ -601,14 +601,17 @@ void APiSimModelImporter::Tick(float DeltaTime)
                         float DirectionSign = Motor.bReverseThrust ? -1.0f : 1.0f;
 
                         FVector ForceVec = WorldThrustAxis * (DirectionSign * ThrustNewtons * 100.0f);
-                        FVector PropWorldLoc = VisualMeshComponents[i]->GetComponentLocation();
-                        VisualMeshComponents[0]->AddForceAtLocation(ForceVec, PropWorldLoc);
+                        // ⚠️ ÖNEMLI: AddForceAtLocation(PropWorldLoc) KULLANMA!
+                        // Pervane gövde merkezinde değilse istenmeyen pitch/yaw torku üretir.
+                        // Pervane gövdeye rijit bağlıdır, itki doğrudan şasiye (merkeze) uygulanır:
+                        VisualMeshComponents[0]->AddForce(ForceVec);
 
-                        // Debug: itki yönü görsel ok (kavuniçi ok)
+                        // Debug: itki yönü görsel ok (kavuniçi ok) - görsel amaçlı pervanenin konumundan çizilir
                         if (AeroConfig.bShowAeroGizmos)
                         {
-                            DrawDebugDirectionalArrow(GetWorld(), PropWorldLoc,
-                                PropWorldLoc + ForceVec.GetSafeNormal() * 50.0f,
+                            FVector PropWorldLocDbg = VisualMeshComponents[i]->GetComponentLocation();
+                            DrawDebugDirectionalArrow(GetWorld(), PropWorldLocDbg,
+                                PropWorldLocDbg + ForceVec.GetSafeNormal() * 50.0f,
                                 15.0f, FColor::Orange, false, 0.0f, 0, 2.5f);
                         }
                     }
@@ -719,19 +722,31 @@ void APiSimModelImporter::Tick(float DeltaTime)
 
         // =========================================================================
         // KUVVET VEKTÖRLERİ:
-        // LİFT YÖNÜ: Kemiğin uzandığı eksen ASLA DEĞİLDİR!
-        // Daima uçağın kendi yerel tavanına (Local UP) doğrudur:
+        // LİFT YÖNÜ: Aerodinamik olarak doğru hesaplama.
+        // Lift, hava akışına (FlowDir) ve kanat sağ eksenine (WorldRight) DİK olmalıdır.
+        // GetUpVector() KULLANILMAZ - uçak eğilince positive-feedback ölüm döngüsü yaratır!
         // =========================================================================
-        FVector LiftDir = VisualMeshComponents[0]->GetUpVector();
+
+        // Aerodinamik lift yönü: FlowDir × WorldRight (akışa ve kanada dik)
+        FVector AeroLiftDir = FVector::CrossProduct(FlowDir, WorldRight).GetSafeNormal();
+        // Eğer uçak ters dönmüşse (AeroLiftDir aşağı bakıyorsa), WorldUp referansıyla düzelt:
+        if ((AeroLiftDir | WorldUp) < 0.0f)
+        {
+            AeroLiftDir = -AeroLiftDir;
+        }
+        // Düşük hızda (hava akışı belirsizken) world up'a yumuşak geçiş:
+        float SpeedBlend = FMath::Clamp(Airspeed / 3.0f, 0.0f, 1.0f); // 0-3 m/s arası blend
+        FVector LiftDir = FMath::Lerp(WorldUp, AeroLiftDir, SpeedBlend).GetSafeNormal();
+
         FVector DragDir = (Airspeed > 0.01f) ? -FlowDir : -WorldForward;
 
         // CoL (Taşıma Merkezi): Şasi kemiğinin kök noktası (ChassisRoot) + CoLForwardCm
         FVector ChassisRoot = VisualMeshComponents[0]->GetComponentLocation();
         FVector CoLWorld = ChassisRoot + (WorldForward * AeroConfig.CoLForwardCm);
 
-        // Kuvvetleri doğrudan CoL (Şasi Kemiği Kökü) noktasından tatbik et:
-        FVector LiftForceVec = LiftDir * (LiftN * 100.0f);
-        FVector DragForceVec = DragDir * (DragN * 100.0f);
+        // Kuvvetleri CoL noktasından tatbik et (AeroForceScale ile ölçeklendirilmiş):
+        FVector LiftForceVec = LiftDir * (LiftN * 100.0f * AeroConfig.AeroForceScale);
+        FVector DragForceVec = DragDir * (DragN * 100.0f * AeroConfig.AeroForceScale);
         VisualMeshComponents[0]->AddForceAtLocation(LiftForceVec + DragForceVec, CoLWorld);
 
         // Yunuslama Sönümlemesi (Pitch Damping)
@@ -744,7 +759,7 @@ void APiSimModelImporter::Tick(float DeltaTime)
         float TotalPitchTorqueNm = ElevonPitchTorqueNm + PitchDampingTorqueNm;
         if (FMath::Abs(TotalPitchTorqueNm) > 0.001f)
         {
-            VisualMeshComponents[0]->AddTorqueInRadians(WorldRight * (TotalPitchTorqueNm * 10000.0f));
+            VisualMeshComponents[0]->AddTorqueInRadians(WorldRight * (TotalPitchTorqueNm * 10000.0f * AeroConfig.AeroForceScale));
         }
 
         // Roll Torku
@@ -753,7 +768,7 @@ void APiSimModelImporter::Tick(float DeltaTime)
             float RollMomentArm = AeroConfig.Wingspan * 0.35f;
             float DeltaLiftN = Q * (AeroConfig.WingArea * 0.25f) * (AeroConfig.CLAlpha * FMath::DegreesToRadians(FMath::Abs(RollDeflection)));
             float RollTorqueNm = (RollDeflection > 0.0f ? 1.0f : -1.0f) * DeltaLiftN * RollMomentArm;
-            VisualMeshComponents[0]->AddTorqueInRadians(WorldForward * (RollTorqueNm * 10000.0f));
+            VisualMeshComponents[0]->AddTorqueInRadians(WorldForward * (RollTorqueNm * 10000.0f * AeroConfig.AeroForceScale));
         }
     }
     else
@@ -794,13 +809,26 @@ void APiSimModelImporter::Tick(float DeltaTime)
         float WeightArrowLen = FMath::Clamp(WeightN * 3.0f, 25.0f, 250.0f);
         DrawDebugDirectionalArrow(GetWorld(), CoGWorld, CoGWorld + FVector(0.0f, 0.0f, -WeightArrowLen), 14.0f, FColor(255, 50, 50), false, 0.0f, 2.0f);
 
-        // 🟢 YEŞİL OK: Taşıma Kuvveti (Lift) -> CoL'den uçağın LOCAL UP yönünde çıkar
+        // 🟢 YEŞİL OK: Taşıma Kuvveti (Lift) -> CoL'den lift yönünde çıkar
         if (bIsPhysicsSimulating && FMath::Abs(AeroConfig.CurrentLiftNewtons) > 0.01f)
         {
-            FVector LiftDir = VisualMeshComponents[0]->GetUpVector();
+            // Debug scope'da fizik değişkenleri yok, tekrar hesapla:
+            FVector DbgVelCmS = VisualMeshComponents[0]->GetPhysicsLinearVelocity();
+            FVector DbgAirVel = DbgVelCmS * 0.01f;
+            float DbgAirspeed = DbgAirVel.Size();
+            FVector DbgWorldForward = VisualMeshComponents[0]->GetComponentTransform().TransformVectorNoScale(FVector(0.f, 1.f, 0.f)).GetSafeNormal();
+            FVector DbgWorldRight   = VisualMeshComponents[0]->GetComponentTransform().TransformVectorNoScale(FVector(1.f, 0.f, 0.f)).GetSafeNormal();
+            FVector DbgWorldUp      = VisualMeshComponents[0]->GetUpVector();
+            FVector DbgFlowDir = (DbgAirspeed > 0.01f) ? (DbgAirVel / DbgAirspeed) : DbgWorldForward;
+            FVector DbgAeroLift = FVector::CrossProduct(DbgFlowDir, DbgWorldRight).GetSafeNormal();
+            if ((DbgAeroLift | DbgWorldUp) < 0.0f) DbgAeroLift = -DbgAeroLift;
+            float DbgBlend = FMath::Clamp(DbgAirspeed / 3.0f, 0.0f, 1.0f);
+            FVector DbgLiftDir = FMath::Lerp(DbgWorldUp, DbgAeroLift, DbgBlend).GetSafeNormal();
             float LiftArrowLen = FMath::Clamp(AeroConfig.CurrentLiftNewtons * 3.0f, 25.0f, 300.0f);
-            DrawDebugDirectionalArrow(GetWorld(), CoLWorld, CoLWorld + (LiftDir * LiftArrowLen), 14.0f, FColor(40, 255, 40), false, 0.0f, 3.5f);
+            DrawDebugDirectionalArrow(GetWorld(), CoLWorld, CoLWorld + (DbgLiftDir * LiftArrowLen), 14.0f, FColor(40, 255, 40), false, 0.0f, 3.5f);
         }
+
+
     }
 
     // 4) Kamerayı gövdenin dünya konumuna kilitle (Araç hareket ettikçe kamera tam arkasında kalsın)

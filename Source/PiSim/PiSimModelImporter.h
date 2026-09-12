@@ -282,7 +282,10 @@ struct FPiSimAerodynamicsConfig
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
     bool bShowAeroGizmos = true;
 
-    /** Canlı okunan telemetri değerleri */
+    /** Tüm aerodinamik kuvvet ve torklara uygulanan ölçek çarpanı (debug için: 0.1, 1.0, 10.0) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
+    float AeroForceScale = 1.0f;
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Aero")
     float CurrentAirspeedKmh = 0.0f;
 

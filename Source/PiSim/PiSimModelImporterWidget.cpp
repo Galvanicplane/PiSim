@@ -510,6 +510,47 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                         ]
                                     ]
 
+                                    // Aero Kuvvet Ölçek Butonları (Debug: 0.1x / 1x / 10x)
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 2.0f, 0.0f, 4.0f)
+                                    [
+                                        SNew(SHorizontalBox)
+                                        + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 2.0f, 0.0f)
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.4f, 0.08f, 0.08f, 1.0f))
+                                            .OnClicked_Lambda([this]() -> FReply {
+                                                if (TargetImporter) TargetImporter->AeroConfig.AeroForceScale = 0.1f;
+                                                return FReply::Handled();
+                                            })
+                                            .ContentPadding(FMargin(4.0f, 3.0f))
+                                            [ SNew(STextBlock).Text(FText::FromString(TEXT("⬇ 0.1x"))).Font(BadgeFont).ColorAndOpacity(FLinearColor(1.0f, 0.5f, 0.5f, 1.0f)).Justification(ETextJustify::Center) ]
+                                        ]
+                                        + SHorizontalBox::Slot().FillWidth(1.0f).Padding(2.0f, 0.0f)
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.05f, 0.25f, 0.05f, 1.0f))
+                                            .OnClicked_Lambda([this]() -> FReply {
+                                                if (TargetImporter) TargetImporter->AeroConfig.AeroForceScale = 1.0f;
+                                                return FReply::Handled();
+                                            })
+                                            .ContentPadding(FMargin(4.0f, 3.0f))
+                                            [ SNew(STextBlock).Text(FText::FromString(TEXT("↔ 1x"))).Font(BadgeFont).ColorAndOpacity(FLinearColor(0.4f, 1.0f, 0.4f, 1.0f)).Justification(ETextJustify::Center) ]
+                                        ]
+                                        + SHorizontalBox::Slot().FillWidth(1.0f).Padding(2.0f, 0.0f, 0.0f, 0.0f)
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.08f, 0.08f, 0.45f, 1.0f))
+                                            .OnClicked_Lambda([this]() -> FReply {
+                                                if (TargetImporter) TargetImporter->AeroConfig.AeroForceScale = 10.0f;
+                                                return FReply::Handled();
+                                            })
+                                            .ContentPadding(FMargin(4.0f, 3.0f))
+                                            [ SNew(STextBlock).Text(FText::FromString(TEXT("⬆ 10x"))).Font(BadgeFont).ColorAndOpacity(FLinearColor(0.5f, 0.7f, 1.0f, 1.0f)).Justification(ETextJustify::Center) ]
+                                        ]
+                                    ]
+
                                     // Live Flight Telemetry Section
                                     + SVerticalBox::Slot()
                                     .AutoHeight()
@@ -1305,12 +1346,14 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
                              "  • Hücum Açısı (AoA)    : %+5.1f°\n"
                              "  • Taşıma Kuvveti (Lift): %6.1f N\n"
                              "  • Sürükleme (Drag)     : %6.1f N\n"
+                             "  • Kuvvet Ölçeği        : %.1fx\n"
                              "  • 3D Vektör Gizmosu    : %s"),
                         SpeedKmh, SpeedMs,
                         DynQ,
                         AlphaDeg,
                         LiftN,
                         DragN,
+                        TargetImporter->AeroConfig.AeroForceScale,
                         TargetImporter->AeroConfig.bShowAeroGizmos ? TEXT("🟢 AÇIK") : TEXT("⚪ KAPALI")
                     );
                     FlightTelemetryLiveText->SetText(FText::FromString(FltInfo));
