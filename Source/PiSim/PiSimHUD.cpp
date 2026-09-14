@@ -66,8 +66,8 @@ void APiSimHUD::DrawHUD()
 
     if (Importer)
     {
-        // APiSimModelImporter manages its own dedicated modern Slate HUD (UPiSimModelImporterWidget).
-        // Return early to prevent overlapping Canvas drawings.
+        // Telemetri tablosu doğrudan UPiSimModelImporterWidget (Slate) arayüzünde
+        // kristal netliğinde çizilmektedir. Çift çizimi (üst üste çakışmayı) engelliyoruz.
         return;
     }
 
@@ -1207,6 +1207,84 @@ void APiSimHUD::DrawInteractiveNumberBox(const FString& LabelText, const FString
     float TempVal = (float)Value;
     DrawInteractiveNumberBox(LabelText, UnitsText, TempVal, MinVal, MaxVal, DragSensitivity, BoxX, BoxY, BoxW, BoxH, BoxID, MouseX, MouseY, bJustPressed, PC);
     Value = (double)TempVal;
+}
+
+// =========================================================================================
+// EKRANIN ORTA-ÜST KISMINDA TÜM MENÜLERDEN BAĞIMSIZ CANLI AERODİNAMİK TELEMETRİ OVERLAY
+// =========================================================================================
+void APiSimHUD::DrawAeroTelemetryHUD(APiSimModelImporter* Importer)
+{
+    if (!Canvas || !Importer) return;
+
+    const FPiSimFlightTelemetry& Tel = Importer->FlightTelemetry;
+
+    float BoxW = 760.0f;
+    float BoxH = 172.0f;
+    float BoxX = FMath::Max(10.0f, (Canvas->SizeX - BoxW) * 0.5f);
+    float BoxY = 12.0f;
+
+    // 1) Yarı Saydam Koyu Havacılık Telemetri Paneli
+    FCanvasTileItem BgTile(FVector2D(BoxX, BoxY), FVector2D(BoxW, BoxH), FLinearColor(0.02f, 0.03f, 0.06f, 0.90f));
+    BgTile.BlendMode = SE_BLEND_Translucent;
+    Canvas->DrawItem(BgTile);
+
+    // Mavi İnce Çerçeve
+    FCanvasBoxItem Border(FVector2D(BoxX, BoxY), FVector2D(BoxW, BoxH));
+    Border.SetColor(FLinearColor(0.1f, 0.55f, 0.85f, 0.9f));
+    Canvas->DrawItem(Border);
+
+    UFont* Font = GEngine->GetSmallFont();
+    if (!Font) return;
+
+    // 2) Başlık
+    FString TitleStr = TEXT("✈️ PiSim AERODİNAMİK UÇUŞ TESTİ TELEMETRİSİ (KUVVETLER & CoG MOMENTLERİ)");
+    FCanvasTextItem TitleItem(FVector2D(BoxX + 16.0f, BoxY + 7.0f), FText::FromString(TitleStr), Font, FLinearColor(0.0f, 0.95f, 1.0f));
+    Canvas->DrawItem(TitleItem);
+
+    // 3) Tablo Başlık Satırı
+    float HeaderY = BoxY + 26.0f;
+    FString HeaderStr = TEXT("KAYNAK             Fx (İleri)      Fy (Yan)        Fz (Dikey)    │  Mx (Roll)       My (Pitch)      Mz (Yaw)");
+    FCanvasTextItem HeaderItem(FVector2D(BoxX + 16.0f, HeaderY), FText::FromString(HeaderStr), Font, FLinearColor(0.7f, 0.75f, 0.85f));
+    Canvas->DrawItem(HeaderItem);
+
+    auto DrawRow = [&](float RowY, const FString& Label, const FVector& Force, const FVector& Moment, const FLinearColor& Color)
+    {
+        FString LineStr = FString::Printf(
+            TEXT("%-14s   %+7.1f N     %+7.1f N     %+7.1f N   │ %+7.2f N·m   %+7.2f N·m   %+7.2f N·m"),
+            *Label,
+            Force.X, Force.Y, Force.Z,
+            Moment.X, Moment.Y, Moment.Z
+        );
+        FCanvasTextItem RowItem(FVector2D(BoxX + 16.0f, RowY), FText::FromString(LineStr), Font, Color);
+        Canvas->DrawItem(RowItem);
+    };
+
+    // Renk Kodlu Kuvvet Satırları:
+    // 🟢 Lift (Kaldırma): Neon Yeşil
+    DrawRow(BoxY + 45.0f, TEXT("🟢 LİFT"), Tel.LiftForceBodyN, Tel.LiftMomentBodyNm, FLinearColor(0.1f, 1.0f, 0.45f));
+    // 🟠 Drag (Direnç): Parlak Turuncu
+    DrawRow(BoxY + 63.0f, TEXT("🟠 DRAG"), Tel.DragForceBodyN, Tel.DragMomentBodyNm, FLinearColor(1.0f, 0.55f, 0.05f));
+    // 🟣 İtki (Pervane): Parlak Mor
+    DrawRow(BoxY + 81.0f, TEXT("🟣 İTKİ"), Tel.ThrustForceBodyN, Tel.ThrustMomentBodyNm, FLinearColor(0.9f, 0.3f, 1.0f));
+    // 🔴 Yerçekimi: Parlak Kırmızı (Yerçekimi CoG'de olduğu için dönme momenti = 0)
+    DrawRow(BoxY + 99.0f, TEXT("🔴 YERÇEKİMİ"), Tel.GravityForceBodyN, FVector::ZeroVector, FLinearColor(1.0f, 0.25f, 0.25f));
+
+    // Ayırıcı Çizgi
+    FCanvasLineItem DivLine(FVector2D(BoxX + 12.0f, BoxY + 118.0f), FVector2D(BoxX + BoxW - 12.0f, BoxY + 118.0f));
+    DivLine.SetColor(FLinearColor(0.35f, 0.45f, 0.65f, 0.8f));
+    Canvas->DrawItem(DivLine);
+
+    // ⚪ Toplam Net Kuvvet ve Moment
+    DrawRow(BoxY + 122.0f, TEXT("⚪ TOPLAM NET"), Tel.NetForceBodyN, Tel.NetMomentBodyNm, FLinearColor::White);
+
+    // 4) Alt Durum Satırı (Hız, AoA, L/D, CoG, Lift Çarpanı)
+    float FooterY = BoxY + 144.0f;
+    FString FooterStr = FString::Printf(
+        TEXT("Hız: %.1f km/h  │  AoA: %+.1f°  │  L/D: %.1f  │  CoG: %+.1f cm [O/P]  │  Lift Çarpanı: %.2fx [L/K]"),
+        Tel.AirspeedKmh, Tel.AlphaDeg, Tel.LiftDragRatio, Tel.CoGForwardCm, Tel.LiftScale
+    );
+    FCanvasTextItem FooterItem(FVector2D(BoxX + 16.0f, FooterY), FText::FromString(FooterStr), Font, FLinearColor(0.95f, 0.85f, 0.2f));
+    Canvas->DrawItem(FooterItem);
 }
 
 

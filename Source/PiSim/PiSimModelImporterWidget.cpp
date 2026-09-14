@@ -60,6 +60,97 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
             ];
     };
 
+    auto MakeAeroRow = [&](const FString& LabelStr, const FLinearColor& RowColor, FAeroHudRowCells& OutCells, bool bBold) -> TSharedRef<SWidget>
+    {
+        FSlateFontInfo CellFont = bBold ? FCoreStyle::GetDefaultFontStyle("Bold", 9) : FCoreStyle::GetDefaultFontStyle("Regular", 9);
+
+        return SNew(SHorizontalBox)
+            // Sütun 1: Renk Rozeti + Etiket (110px)
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+            [
+                SNew(SBox).WidthOverride(110.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(FMargin(0.0f, 0.0f, 6.0f, 0.0f))
+                    [
+                        SNew(SBox).WidthOverride(9.0f).HeightOverride(9.0f)
+                        [
+                            SNew(SBorder).BorderBackgroundColor(RowColor)
+                        ]
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [
+                        SNew(STextBlock).Text(FText::FromString(LabelStr))
+                        .Font(CellFont)
+                        .ColorAndOpacity(RowColor)
+                    ]
+                ]
+            ]
+            // Sütun 2: Fx (75px)
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+            [
+                SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
+                [
+                    SAssignNew(OutCells.Fx, STextBlock).Text(FText::FromString(TEXT("+0.0 N")))
+                    .Font(CellFont).ColorAndOpacity(RowColor)
+                ]
+            ]
+            // Sütun 3: Fy (75px)
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+            [
+                SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
+                [
+                    SAssignNew(OutCells.Fy, STextBlock).Text(FText::FromString(TEXT("+0.0 N")))
+                    .Font(CellFont).ColorAndOpacity(RowColor)
+                ]
+            ]
+            // Sütun 4: Fz (75px)
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+            [
+                SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
+                [
+                    SAssignNew(OutCells.Fz, STextBlock).Text(FText::FromString(TEXT("+0.0 N")))
+                    .Font(CellFont).ColorAndOpacity(RowColor)
+                ]
+            ]
+            // Sütun 5: Ayırıcı │ (20px)
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+            [
+                SNew(SBox).WidthOverride(20.0f).HAlign(HAlign_Center)
+                [
+                    SNew(STextBlock).Text(FText::FromString(TEXT("│")))
+                    .Font(CellFont).ColorAndOpacity(FLinearColor(0.35f, 0.45f, 0.6f, 0.8f))
+                ]
+            ]
+            // Sütun 6: Mx (85px)
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+            [
+                SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
+                [
+                    SAssignNew(OutCells.Mx, STextBlock).Text(FText::FromString(TEXT("+0.00 N·m")))
+                    .Font(CellFont).ColorAndOpacity(RowColor)
+                ]
+            ]
+            // Sütun 7: My (85px)
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+            [
+                SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
+                [
+                    SAssignNew(OutCells.My, STextBlock).Text(FText::FromString(TEXT("+0.00 N·m")))
+                    .Font(CellFont).ColorAndOpacity(RowColor)
+                ]
+            ]
+            // Sütun 8: Mz (85px)
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+            [
+                SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
+                [
+                    SAssignNew(OutCells.Mz, STextBlock).Text(FText::FromString(TEXT("+0.00 N·m")))
+                    .Font(CellFont).ColorAndOpacity(RowColor)
+                ]
+            ];
+    };
+
     return SNew(SOverlay)
         // ---------------------------------------------------------------------
         // 1) TOP HEADER BAR: TITLE, STATUS & GLOBAL CONTROLS
@@ -251,6 +342,156 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                         .Font(TabFont)
                         .ColorAndOpacity(FLinearColor(0.8f, 0.9f, 1.0f, 1.0f))
                     ]
+                ]
+            ]
+        ]
+
+        // ---------------------------------------------------------------------
+        // 2) TOP-CENTER FLIGHT TEST TELEMETRY (KUVVETLER & CoG MOMENTLERİ)
+        // ---------------------------------------------------------------------
+        + SOverlay::Slot()
+        .HAlign(HAlign_Center)
+        .VAlign(VAlign_Top)
+        .Padding(FMargin(0.0f, 48.0f, 0.0f, 0.0f))
+        [
+            SNew(SBorder)
+            .BorderBackgroundColor(FLinearColor(0.012f, 0.02f, 0.04f, 0.94f))
+            .Padding(FMargin(14.0f, 8.0f))
+            [
+                SNew(SVerticalBox)
+
+                // Panel Başlığı
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 4.0f)
+                [
+                    SNew(STextBlock)
+                    .Text(FText::FromString(TEXT("⚡ PiSim AERODİNAMİK UÇUŞ TESTİ TELEMETRİSİ (KUVVETLER & CoG MOMENTLERİ)")))
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+                    .ColorAndOpacity(FLinearColor(0.0f, 0.92f, 1.0f, 1.0f))
+                ]
+
+                // Tablo Başlık Satırı (Sabit Sütun Genişlikleri)
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 0.0f, 0.0f, 3.0f)
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [
+                        SNew(SBox).WidthOverride(110.0f)
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT("KAYNAK")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                        ]
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [
+                        SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT("Fx (İleri)")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                        ]
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [
+                        SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT("Fy (Yan)")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                        ]
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [
+                        SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT("Fz (Dikey)")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                        ]
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [
+                        SNew(SBox).WidthOverride(20.0f).HAlign(HAlign_Center)
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT("│")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                            .ColorAndOpacity(FLinearColor(0.35f, 0.45f, 0.6f, 0.8f))
+                        ]
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [
+                        SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT("Mx (Roll)")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                        ]
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [
+                        SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT("My (Pitch)")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                        ]
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [
+                        SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT("Mz (Yaw)")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                        ]
+                    ]
+                ]
+
+                // Sütunlu Satırlar
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                [
+                    MakeAeroRow(TEXT("LİFT"), FLinearColor(0.1f, 1.0f, 0.45f), AeroHudLiftCells, false)
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                [
+                    MakeAeroRow(TEXT("DRAG"), FLinearColor(1.0f, 0.55f, 0.05f), AeroHudDragCells, false)
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                [
+                    MakeAeroRow(TEXT("İTKİ"), FLinearColor(0.9f, 0.3f, 1.0f), AeroHudThrustCells, false)
+                ]
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                [
+                    MakeAeroRow(TEXT("YERÇEKİMİ"), FLinearColor(1.0f, 0.25f, 0.25f), AeroHudGravCells, false)
+                ]
+
+                // İnce Ayırıcı Çizgi
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f)
+                [
+                    SNew(SBorder)
+                    .BorderBackgroundColor(FLinearColor(0.25f, 0.35f, 0.5f, 0.7f))
+                    .Padding(FMargin(0.0f, 0.5f))
+                ]
+
+                // TOPLAM NET Satırı
+                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                [
+                    MakeAeroRow(TEXT("TOPLAM NET"), FLinearColor::White, AeroHudTotalCells, true)
+                ]
+
+                // Alt Durum Çubuğu (Hız, AoA, L/D, CoG, Lift Çarpanı)
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .Padding(0.0f, 3.0f, 0.0f, 0.0f)
+                [
+                    SAssignNew(AeroHudFooterText, STextBlock)
+                    .Text(FText::FromString(TEXT("Hız: 0.0 km/h   │   AoA: +0.0°   │   L/D: 0.0   │   CoG: +0.0 cm [O/P]   │   Lift Çarpanı: 1.00x [L/K]")))
+                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                    .ColorAndOpacity(FLinearColor(0.95f, 0.85f, 0.2f, 1.0f))
                 ]
             ]
         ]
@@ -539,6 +780,36 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                             })
                                             .ContentPadding(FMargin(4.0f, 3.0f))
                                             [ SNew(STextBlock).Text(FText::FromString(TEXT("⬆ 10x"))).Font(BadgeFont).ColorAndOpacity(FLinearColor(0.5f, 0.7f, 1.0f, 1.0f)).Justification(ETextJustify::Center) ]
+                                        ]
+                                    ]
+
+                                    // Dinamik Lift Çarpanı Adım Butonları (-0.2x / +0.2x)
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 2.0f, 0.0f, 4.0f)
+                                    [
+                                        SNew(SHorizontalBox)
+                                        + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 2.0f, 0.0f)
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.35f, 0.15f, 0.05f, 1.0f))
+                                            .OnClicked_Lambda([this]() -> FReply {
+                                                if (TargetImporter) TargetImporter->DecreaseLiftScale();
+                                                return FReply::Handled();
+                                            })
+                                            .ContentPadding(FMargin(4.0f, 3.0f))
+                                            [ SNew(STextBlock).Text(FText::FromString(TEXT("➖ Lift -0.2x (K)"))).Font(BadgeFont).ColorAndOpacity(FLinearColor::White).Justification(ETextJustify::Center) ]
+                                        ]
+                                        + SHorizontalBox::Slot().FillWidth(1.0f).Padding(2.0f, 0.0f, 0.0f, 0.0f)
+                                        [
+                                            SNew(SButton)
+                                            .ButtonColorAndOpacity(FLinearColor(0.05f, 0.35f, 0.3f, 1.0f))
+                                            .OnClicked_Lambda([this]() -> FReply {
+                                                if (TargetImporter) TargetImporter->IncreaseLiftScale();
+                                                return FReply::Handled();
+                                            })
+                                            .ContentPadding(FMargin(4.0f, 3.0f))
+                                            [ SNew(STextBlock).Text(FText::FromString(TEXT("➕ Lift +0.2x (L)"))).Font(BadgeFont).ColorAndOpacity(FLinearColor::White).Justification(ETextJustify::Center) ]
                                         ]
                                     ]
 
@@ -1185,6 +1456,36 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
     {
         FString ShortName = TargetImporter->ActiveModelFileName.Contains(TEXT("test1")) ? TEXT(" 📦 MODEL: test1.fbx ") : TEXT(" 📦 MODEL: test.fbx ");
         ModelButtonText->SetText(FText::FromString(ShortName));
+    }
+
+    // 1.5) Update Top-Center Aero Telemetry Table (Always Visible)
+    if (TargetImporter)
+    {
+        const FPiSimFlightTelemetry& Tel = TargetImporter->FlightTelemetry;
+
+        auto UpdateCells = [](FAeroHudRowCells& Cells, const FVector& F, const FVector& M)
+        {
+            if (Cells.Fx.IsValid()) Cells.Fx->SetText(FText::FromString(FString::Printf(TEXT("%+.1f N"), F.X)));
+            if (Cells.Fy.IsValid()) Cells.Fy->SetText(FText::FromString(FString::Printf(TEXT("%+.1f N"), F.Y)));
+            if (Cells.Fz.IsValid()) Cells.Fz->SetText(FText::FromString(FString::Printf(TEXT("%+.1f N"), F.Z)));
+            if (Cells.Mx.IsValid()) Cells.Mx->SetText(FText::FromString(FString::Printf(TEXT("%+.2f N·m"), M.X)));
+            if (Cells.My.IsValid()) Cells.My->SetText(FText::FromString(FString::Printf(TEXT("%+.2f N·m"), M.Y)));
+            if (Cells.Mz.IsValid()) Cells.Mz->SetText(FText::FromString(FString::Printf(TEXT("%+.2f N·m"), M.Z)));
+        };
+
+        UpdateCells(AeroHudLiftCells, Tel.LiftForceBodyN, Tel.LiftMomentBodyNm);
+        UpdateCells(AeroHudDragCells, Tel.DragForceBodyN, Tel.DragMomentBodyNm);
+        UpdateCells(AeroHudThrustCells, Tel.ThrustForceBodyN, Tel.ThrustMomentBodyNm);
+        UpdateCells(AeroHudGravCells, Tel.GravityForceBodyN, FVector::ZeroVector);
+        UpdateCells(AeroHudTotalCells, Tel.NetForceBodyN, Tel.NetMomentBodyNm);
+
+        if (AeroHudFooterText.IsValid())
+        {
+            FString FootStr = FString::Printf(
+                TEXT("Hız: %.1f km/h   │   AoA: %+.1f°   │   L/D: %.1f   │   CoG: %+.1f cm [O/P]   │   Lift Çarpanı: %.2fx [L/K]"),
+                Tel.AirspeedKmh, Tel.AlphaDeg, Tel.LiftDragRatio, Tel.CoGForwardCm, Tel.LiftScale);
+            AeroHudFooterText->SetText(FText::FromString(FootStr));
+        }
     }
 
     // 2) Active Tab Navigation Visuals

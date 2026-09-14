@@ -129,6 +129,24 @@ private:
     TSharedPtr<class STextBlock> FlightTelemetryLiveText;
     TSharedPtr<class STextBlock> AeroGizmoToggleText;
 
+    // Top-Center Aero Telemetry Slate Columnar Overlay
+    struct FAeroHudRowCells
+    {
+        TSharedPtr<class STextBlock> Fx;
+        TSharedPtr<class STextBlock> Fy;
+        TSharedPtr<class STextBlock> Fz;
+        TSharedPtr<class STextBlock> Mx;
+        TSharedPtr<class STextBlock> My;
+        TSharedPtr<class STextBlock> Mz;
+    };
+
+    FAeroHudRowCells AeroHudLiftCells;
+    FAeroHudRowCells AeroHudDragCells;
+    FAeroHudRowCells AeroHudThrustCells;
+    FAeroHudRowCells AeroHudGravCells;
+    FAeroHudRowCells AeroHudTotalCells;
+    TSharedPtr<class STextBlock> AeroHudFooterText;
+
     // Motor Editable Controls
     TSharedPtr<class SEditableTextBox> MotorMaxRpmInput;
     TSharedPtr<class SEditableTextBox> MotorMaxTorqueInput;

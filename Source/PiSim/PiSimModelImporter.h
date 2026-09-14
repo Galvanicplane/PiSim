@@ -157,7 +157,7 @@ struct FImporterMeshSection
 
     // Physics & Joint properties
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
-    float MassKg = 2.5f;
+    float MassKg = 2.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
     float Friction = 0.85f;
@@ -180,25 +180,25 @@ struct FImporterMeshSection
     bool bEnableAerodynamics = true;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float WingArea = 0.25f;
+    float WingArea = 0.26f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float Wingspan = 1.0f;
+    float Wingspan = 1.15f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float CL0 = 0.20f;
+    float CL0 = 0.18f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float CLAlpha = 4.5f;
+    float CLAlpha = 5.5f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float CD0 = 0.025f;
+    float CD0 = 0.020f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float StallAngleDeg = 16.0f;
+    float StallAngleDeg = 15.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float ElevonEffectiveness = 0.5f;
+    float ElevonEffectiveness = 0.50f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
     float CoGForwardCm = 20.0f;
@@ -234,29 +234,29 @@ struct FPiSimAerodynamicsConfig
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
     bool bEnableAerodynamics = true;
 
-    /** Kanat Alanı (m^2) - 1 metre uçan kanat için genelde 0.20 - 0.30 m^2 */
+    /** Kanat Alanı (m^2) - 1.15m uçan kanat için genelde 0.25 - 0.28 m^2 */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float WingArea = 0.25f;
+    float WingArea = 0.26f;
 
     /** Kanat Açıklığı (m) - Uçtan uca mesafe */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float Wingspan = 1.0f;
+    float Wingspan = 1.15f;
 
-    /** Sıfır hücum açısındaki taşıma katsayısı (C_L0) */
+    /** Sıfır hücum açısındaki taşıma katsayısı (C_L0 - Reflex profili) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float CL0 = 0.20f;
+    float CL0 = 0.18f;
 
-    /** Taşıma eğimi (C_L_alpha, radyan başına genelde 4.0 - 5.5) */
+    /** Taşıma eğimi (C_L_alpha, radyan başına genelde 5.0 - 6.28) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float CLAlpha = 4.5f;
+    float CLAlpha = 5.5f;
 
     /** Parazit sürtünme katsayısı (C_D0) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float CD0 = 0.025f;
+    float CD0 = 0.020f;
 
     /** Stall / Perdövites Açısı (Derece) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float StallAngleDeg = 16.0f;
+    float StallAngleDeg = 15.0f;
 
     /** Deniz seviyesi hava yoğunluğu (kg/m^3) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
@@ -264,7 +264,7 @@ struct FPiSimAerodynamicsConfig
 
     /** Elevon kanatçık sapmasının hücum açısına etkinlik çarpanı (tau, 0.4 - 0.7) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
-    float ElevonEffectiveness = 0.5f;
+    float ElevonEffectiveness = 0.50f;
 
     /** CoL (Taşıma Merkezi) Şasi merkezine göre ileri ofseti (cm) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
@@ -311,6 +311,55 @@ struct FPiSimAerodynamicsConfig
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Aero")
     float CurrentDragNewtons = 0.0f;
+};
+
+/** Havacılık uçuş testlerinde gövde eksenlerine etki eden kuvvet ve moment telemetrisi */
+USTRUCT(BlueprintType)
+struct FPiSimFlightTelemetry
+{
+    GENERATED_BODY()
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector LiftForceBodyN = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector DragForceBodyN = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector ThrustForceBodyN = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector GravityForceBodyN = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector NetForceBodyN = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector LiftMomentBodyNm = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector DragMomentBodyNm = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector ThrustMomentBodyNm = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FVector NetMomentBodyNm = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float AirspeedKmh = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float AlphaDeg = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float LiftDragRatio = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float CoGForwardCm = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float LiftScale = 1.0f;
 };
 
 UCLASS()
@@ -396,9 +445,9 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Physics")
     TMap<int32, UPhysicsConstraintComponent*> SectionConstraintMap;
 
-    // Ana gövde kütlesi (kg) - Rover: ~30kg, 4-motorlu Drone: ~1.5 - 2.5kg, Sabit Kanat: ~1.0 - 1.5kg
+    // Ana gövde kütlesi (kg) - Sabit Kanat / Uçan Kanat: ~2.0kg, Rover: ~30kg
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
-    float ChassisMassKg = 30.0f;
+    float ChassisMassKg = 2.0f;
 
     // Steer Bone Components (Kinematik Mafsal Kemikleri - SetSimulatePhysics(false), 1-Eksen Yaw Dönüşü)
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Steer")
@@ -505,6 +554,10 @@ public:
     // Aerodinamik Lift & Drag Konfigürasyonu (Uçaklar ve Uçan Kanatlar İçin)
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
     FPiSimAerodynamicsConfig AeroConfig;
+
+    // Canlı Uçuş Testi Kuvvet ve Moment Telemetrisi (Gövde Eksenlerinde)
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Aero")
+    FPiSimFlightTelemetry FlightTelemetry;
 
     void AddConnectionDebugLog(const FString& LogMsg);
 
@@ -635,11 +688,27 @@ public:
     void IncreaseWheelRpm();
     void DecreaseWheelRpm();
 
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Aero")
+    void IncreaseLiftScale();
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Aero")
+    void DecreaseLiftScale();
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Aero")
+    void NudgeCoGForward();
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Aero")
+    void NudgeCoGBackward();
+
 private:
     void ClearSpawnedComponents();
 
     bool bIsLeftMouseDown = false;
     bool bIsRightMouseDown = false;
+    bool bWasLDown = false;
+    bool bWasKDown = false;
+    bool bWasODown = false;
+    bool bWasPDown = false;
 
     TUniquePtr<class FPiSimUDPManager> UDPManager;
     FVector PreviousLinearVelocityUE5 = FVector::ZeroVector;

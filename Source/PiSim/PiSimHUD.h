@@ -48,6 +48,9 @@ public:
 
     void DrawInteractiveNumberBox(const FString& LabelText, const FString& UnitsText, float& Value, float MinVal, float MaxVal, float DragSensitivity, float BoxX, float BoxY, float BoxW, float BoxH, int32 BoxID, float MouseX, float MouseY, bool bJustPressed, class APlayerController* PC);
     void DrawInteractiveNumberBox(const FString& LabelText, const FString& UnitsText, double& Value, float MinVal, float MaxVal, float DragSensitivity, float BoxX, float BoxY, float BoxW, float BoxH, int32 BoxID, float MouseX, float MouseY, bool bJustPressed, class APlayerController* PC);
+
+    /** Ekranın üst-orta kısmında bağımsız canlı havacılık kuvvet & moment telemetrisi çizer */
+    void DrawAeroTelemetryHUD(class APiSimModelImporter* Importer);
 };
 
 
