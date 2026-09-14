@@ -21,6 +21,7 @@ enum class EPiSimParamId : uint8
     AeroElevonEffect,
     AeroCoLForward,
     AeroCoGForward,
+    AeroInertiaTensorScale,
     ChassisMass,
     MotorMaxRpm,
     MotorMaxTorque,
@@ -45,9 +46,8 @@ private:
     FReply OnTabMotorsClicked();
     FReply OnTabTelemetryClicked();
     FReply OnTabSensorsClicked();
-    FReply OnScale01Clicked();
-    FReply OnScale10Clicked();
-    FReply OnScale100Clicked();
+    FReply OnMultiplyScale01Clicked();
+    FReply OnMultiplyScale10Clicked();
     FReply OnReimportClicked();
     FReply OnTogglePhysicsClicked();
     FReply OnToggleModelClicked();
@@ -124,6 +124,7 @@ private:
     TSharedPtr<class SEditableTextBox> AeroElevonEffectInput;
     TSharedPtr<class SEditableTextBox> AeroCoLForwardInput;
     TSharedPtr<class SEditableTextBox> AeroCoGForwardInput;
+    TSharedPtr<class SEditableTextBox> AeroInertiaTensorScaleInput;
     TSharedPtr<class SEditableTextBox> ChassisMassInput;
     TSharedPtr<class STextBlock> FlightTelemetryLiveText;
     TSharedPtr<class STextBlock> AeroGizmoToggleText;

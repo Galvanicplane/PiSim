@@ -286,6 +286,20 @@ struct FPiSimAerodynamicsConfig
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero")
     float AeroForceScale = 1.0f;
 
+    /**
+     * Eylemsizlik Momenti (Moment of Inertia) Ölçeği.
+     * Chaos, MOI'yi collision mesh boyutundan otomatik hesaplar.
+     * Model fiziksel olarak küçükse (örn. 50cm kanat açıklığı), MOI de küçük çıkar ve
+     * uçak çok kolay döner. Bu değeri artırarak MOI'yi manuel büyütebilirsin.
+     * - 1.0  = Chaos'un hesapladığı değer (varsayılan)
+     * - 2-5  = Küçük modeller için tipik düzeltme aralığı
+     * - 10+  = Çok büyük sabitlik istiyorsan
+     * Fiziği açtıktan sonra etkin olur (SetPhysicsSimulationActive içinde uygulanır).
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Aero", meta = (ClampMin = "0.1", ClampMax = "100.0"))
+    float InertiaTensorScale = 2.5f;
+
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Aero")
     float CurrentAirspeedKmh = 0.0f;
 
@@ -555,13 +569,10 @@ public:
     void ImportAndSpawnRobot();
 
     UFUNCTION(CallInEditor, Category = "PiSim|Actions")
-    void SetScale_0_1X();
+    void MultiplyScale_0_1X();
 
     UFUNCTION(CallInEditor, Category = "PiSim|Actions")
-    void SetScale_1_0X();
-
-    UFUNCTION(CallInEditor, Category = "PiSim|Actions")
-    void SetScale_10_0X();
+    void MultiplyScale_10_0X();
 
     UFUNCTION(CallInEditor, Category = "PiSim|Actions")
     void TogglePhysicsSimulation();
@@ -594,6 +605,9 @@ public:
 
     /** Activates or disables live Chaos physics simulation and gravity */
     void SetPhysicsSimulationActive(bool bActive);
+
+    /** Chaos fizik motorundaki gerçek ağırlık merkezini (COMNudge) AeroConfig.CoGForwardCm konumuna kilitler */
+    void ApplyCenterOfMass();
 
     /** Configures degree of freedom (DOF) and angular drives for a constraint based on role */
     void ConfigureConstraintDof(UPhysicsConstraintComponent* Constraint, int32 SectionIndex);

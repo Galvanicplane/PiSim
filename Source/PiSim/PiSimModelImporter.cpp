@@ -35,8 +35,10 @@ APiSimModelImporter::APiSimModelImporter()
     OrbitSpringArm->SetRelativeRotation(FRotator(-20.0f, 45.0f, 0.0f));
     OrbitSpringArm->bUsePawnControlRotation = false;
     OrbitSpringArm->bDoCollisionTest = false;
-    OrbitSpringArm->bEnableCameraLag = true;
-    OrbitSpringArm->CameraLagSpeed = 12.0f;
+    OrbitSpringArm->bEnableCameraLag = false;
+    OrbitSpringArm->bEnableCameraRotationLag = false;
+    OrbitSpringArm->CameraLagSpeed = 0.0f;
+    OrbitSpringArm->CameraRotationLagSpeed = 0.0f;
 
     OrbitCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("OrbitCamera"));
     OrbitCamera->SetupAttachment(OrbitSpringArm, USpringArmComponent::SocketName);
@@ -744,9 +746,10 @@ void APiSimModelImporter::Tick(float DeltaTime)
         FVector ChassisRoot = VisualMeshComponents[0]->GetComponentLocation();
         FVector CoLWorld = ChassisRoot + (WorldForward * AeroConfig.CoLForwardCm);
 
-        // Kuvvetleri CoL noktasından tatbik et (AeroForceScale ile ölçeklendirilmiş):
-        FVector LiftForceVec = LiftDir * (LiftN * 100.0f * AeroConfig.AeroForceScale);
-        FVector DragForceVec = DragDir * (DragN * 100.0f * AeroConfig.AeroForceScale);
+        // Kuvvetleri CoL noktasından tatbik et.
+        // ⚠️ AddForce/AddForceAtLocation → Newton (N) bekler. *100 veya *cm çarpanı YANLIŞ!
+        FVector LiftForceVec = LiftDir * (LiftN * AeroConfig.AeroForceScale);
+        FVector DragForceVec = DragDir * (DragN * AeroConfig.AeroForceScale);
         VisualMeshComponents[0]->AddForceAtLocation(LiftForceVec + DragForceVec, CoLWorld);
 
         // Yunuslama Sönümlemesi (Pitch Damping)
@@ -759,7 +762,8 @@ void APiSimModelImporter::Tick(float DeltaTime)
         float TotalPitchTorqueNm = ElevonPitchTorqueNm + PitchDampingTorqueNm;
         if (FMath::Abs(TotalPitchTorqueNm) > 0.001f)
         {
-            VisualMeshComponents[0]->AddTorqueInRadians(WorldRight * (TotalPitchTorqueNm * 10000.0f * AeroConfig.AeroForceScale));
+            // ⚠️ AddTorqueInRadians → N·m bekler. *10000 YANLIŞ!
+            VisualMeshComponents[0]->AddTorqueInRadians(WorldRight * (TotalPitchTorqueNm * AeroConfig.AeroForceScale));
         }
 
         // Roll Torku
@@ -768,7 +772,7 @@ void APiSimModelImporter::Tick(float DeltaTime)
             float RollMomentArm = AeroConfig.Wingspan * 0.35f;
             float DeltaLiftN = Q * (AeroConfig.WingArea * 0.25f) * (AeroConfig.CLAlpha * FMath::DegreesToRadians(FMath::Abs(RollDeflection)));
             float RollTorqueNm = (RollDeflection > 0.0f ? 1.0f : -1.0f) * DeltaLiftN * RollMomentArm;
-            VisualMeshComponents[0]->AddTorqueInRadians(WorldForward * (RollTorqueNm * 10000.0f * AeroConfig.AeroForceScale));
+            VisualMeshComponents[0]->AddTorqueInRadians(WorldForward * (RollTorqueNm * AeroConfig.AeroForceScale));
         }
     }
     else
@@ -834,8 +838,11 @@ void APiSimModelImporter::Tick(float DeltaTime)
     // 4) Kamerayı gövdenin dünya konumuna kilitle (Araç hareket ettikçe kamera tam arkasında kalsın)
     if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0] && OrbitSpringArm)
     {
-        FVector ChassisLoc = VisualMeshComponents[0]->GetComponentLocation();
-        OrbitSpringArm->SetWorldLocation(ChassisLoc + FVector(0.0f, 0.0f, 60.0f));
+        if (OrbitSpringArm->GetAttachParent() != VisualMeshComponents[0])
+        {
+            FVector ChassisLoc = VisualMeshComponents[0]->GetComponentLocation();
+            OrbitSpringArm->SetWorldLocation(ChassisLoc + FVector(0.0f, 0.0f, 60.0f));
+        }
     }
 
     // 5) FPV Canlı Kamera Yayını (UDP Port 5000)
@@ -955,21 +962,15 @@ void APiSimModelImporter::ImportAndSpawnRobot()
     BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
 }
 
-void APiSimModelImporter::SetScale_0_1X()
+void APiSimModelImporter::MultiplyScale_0_1X()
 {
-    ImportScaleMultiplier = 0.1f;
+    ImportScaleMultiplier *= 0.1f;
     BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
 }
 
-void APiSimModelImporter::SetScale_1_0X()
+void APiSimModelImporter::MultiplyScale_10_0X()
 {
-    ImportScaleMultiplier = 1.0f;
-    BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
-}
-
-void APiSimModelImporter::SetScale_10_0X()
-{
-    ImportScaleMultiplier = 10.0f;
+    ImportScaleMultiplier *= 10.0f;
     BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
 }
 
@@ -2034,6 +2035,10 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         OrbitSpringArm->bInheritPitch = false;
         OrbitSpringArm->bInheritRoll = false;
         OrbitSpringArm->bInheritYaw = true;
+        OrbitSpringArm->bEnableCameraLag = false;
+        OrbitSpringArm->bEnableCameraRotationLag = false;
+        OrbitSpringArm->CameraLagSpeed = 0.0f;
+        OrbitSpringArm->CameraRotationLagSpeed = 0.0f;
     }
 
     // 8) DİNAMİK SENSÖR YERLEŞTİRME (S_Cam_..., S_Camera_..., vb.)
@@ -2327,8 +2332,36 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         VisComp->SetSimulatePhysics(true);
         VisComp->SetEnableGravity(true);
         VisComp->SetMassOverrideInKg(NAME_None, Mass, true);
-        VisComp->SetLinearDamping(0.8f);
-        VisComp->SetAngularDamping(1.5f);
+
+        // Damping: Uçak ve kara araç için farklı değerler
+        bool bIsAircraft = !ConfiguredMotors.ContainsByPredicate([](const FPiSimMotorItem& M){
+            return M.Role == EPiSimMotorRole::DriveWheel || M.Role == EPiSimMotorRole::SteeredWheel;
+        });
+        if (i == 0 && bIsAircraft)
+        {
+            // Uçak gövdesi: Düşük linear damping (rüzgar direnci), orta angular damping
+            VisComp->SetLinearDamping(0.05f);
+            VisComp->SetAngularDamping(0.5f);
+        }
+        else
+        {
+            // Kara aracı / tekerlek: Orijinal değerler
+            VisComp->SetLinearDamping(0.8f);
+            VisComp->SetAngularDamping(1.5f);
+        }
+
+        // Eylemsizlik Momenti (MOI) ölçeği — model küçükse veya kararlılık için artır
+        if (i == 0)
+        {
+            FBodyInstance* BI = VisComp->GetBodyInstance();
+            if (BI)
+            {
+                BI->InertiaTensorScale = FVector(AeroConfig.InertiaTensorScale);
+                BI->UpdateMassProperties();
+            }
+            ApplyCenterOfMass();
+        }
+
         VisComp->WakeRigidBody();
 
         UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' bileşenine CANLI DİNAMİK FİZİK verildi | Kütle: %.1f kg | Yerçekimi: AÇIK"),
@@ -2739,6 +2772,37 @@ void APiSimModelImporter::UpdateVisualMaterials()
     }
 }
 
+void APiSimModelImporter::ApplyCenterOfMass()
+{
+    if (!VisualMeshComponents.IsValidIndex(0) || !VisualMeshComponents[0]) return;
+
+    UPrimitiveComponent* VisComp = VisualMeshComponents[0];
+    FBodyInstance* BI = VisComp->GetBodyInstance();
+    if (!BI) return;
+
+    // Gövde eksenleri: +Y İleri (Fuselage Forward)
+    FVector ForwardDirWorld = VisComp->GetComponentTransform().TransformVectorNoScale(FVector(0.0f, 1.0f, 0.0f)).GetSafeNormal();
+    if (ForwardDirWorld.IsNearlyZero()) ForwardDirWorld = VisComp->GetForwardVector();
+
+    // Kullanıcının belirlediği fiziksel ağırlık merkezi (CoG): Şasi kökünden +Y yönünde CoGForwardCm kadar ileri
+    FVector DesiredCoGWorld = VisComp->GetComponentLocation() + (ForwardDirWorld * AeroConfig.CoGForwardCm);
+
+    // Chaos motorunun hesapladığı saf geometrik merkezi bulmak için mevcut COMNudge'ı hesaptan düş
+    FVector CurrentCoMWorld = VisComp->GetCenterOfMass();
+    FVector CurrentNudgeWorld = VisComp->GetComponentTransform().TransformVector(BI->COMNudge);
+    FVector RawGeometricCoMWorld = CurrentCoMWorld - CurrentNudgeWorld;
+
+    // İstenen CoG noktasına ulaşmak için gereken ofseti hesapla ve yerel bileşen eksenine dönüştür:
+    FVector RequiredWorldOffset = DesiredCoGWorld - RawGeometricCoMWorld;
+    FVector LocalNudge = VisComp->GetComponentTransform().InverseTransformVector(RequiredWorldOffset);
+
+    BI->COMNudge = LocalNudge;
+    BI->UpdateMassProperties();
+
+    UE_LOG(LogTemp, Warning, TEXT("⚖️ [FİZİK CoG UYGULANDI] Chaos CoM -> İleri: %.1f cm (CoGForwardCm) | COMNudge: (%.1f, %.1f, %.1f)"),
+        AeroConfig.CoGForwardCm, LocalNudge.X, LocalNudge.Y, LocalNudge.Z);
+}
+
 void APiSimModelImporter::SetCoGToBoneEnd()
 {
     float BoneLen = AeroConfig.ChassisBoneLengthCm;
@@ -2751,18 +2815,27 @@ void APiSimModelImporter::SetCoGToBoneEnd()
     {
         VisualSections[0].CoGForwardCm = BoneLen;
     }
+    ApplyCenterOfMass();
 }
 
 void APiSimModelImporter::SetCoGToCenterOfMass()
 {
     if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
     {
-        FVector ChassisRoot = VisualMeshComponents[0]->GetComponentLocation();
-        FVector CoMLoc = VisualMeshComponents[0]->GetCenterOfMass();
+        UPrimitiveComponent* VisComp = VisualMeshComponents[0];
+        FBodyInstance* BI = VisComp->GetBodyInstance();
+        if (BI)
+        {
+            BI->COMNudge = FVector::ZeroVector;
+            BI->UpdateMassProperties();
+        }
+
+        FVector ChassisRoot = VisComp->GetComponentLocation();
+        FVector CoMLoc = VisComp->GetCenterOfMass();
         FVector Diff = CoMLoc - ChassisRoot;
 
-        FVector ForwardDirWorld = VisualMeshComponents[0]->GetComponentTransform().TransformVectorNoScale(FVector(0.0f, 1.0f, 0.0f)).GetSafeNormal();
-        if (ForwardDirWorld.IsNearlyZero()) ForwardDirWorld = VisualMeshComponents[0]->GetForwardVector();
+        FVector ForwardDirWorld = VisComp->GetComponentTransform().TransformVectorNoScale(FVector(0.0f, 1.0f, 0.0f)).GetSafeNormal();
+        if (ForwardDirWorld.IsNearlyZero()) ForwardDirWorld = VisComp->GetForwardVector();
 
         float ForwardProj = Diff | ForwardDirWorld;
         AeroConfig.CoGForwardCm = ForwardProj;

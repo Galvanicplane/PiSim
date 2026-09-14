@@ -104,42 +104,31 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
 
                 + SHorizontalBox::Slot().FillWidth(1.0f) // Spacer
 
-                // Scale 0.1X
+                // Scale Multiply * 0.1
                 + SHorizontalBox::Slot()
                 .AutoWidth()
                 .Padding(FMargin(2.0f, 0.0f))
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.08f, 0.16f, 0.28f, 1.0f))
-                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnScale01Clicked))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnMultiplyScale01Clicked))
+                    .ToolTipText(FText::FromString(TEXT("Modelin import ölçeğini 0.1 ile çarp (* 0.1)")))
                     [
-                        SNew(STextBlock).Text(FText::FromString(TEXT(" 0.1X "))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
+                        SNew(STextBlock).Text(FText::FromString(TEXT(" × 0.1 "))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
                     ]
                 ]
 
-                // Scale 1.0X
+                // Scale Multiply * 10
                 + SHorizontalBox::Slot()
                 .AutoWidth()
                 .Padding(FMargin(2.0f, 0.0f))
                 [
                     SNew(SButton)
                     .ButtonColorAndOpacity(FLinearColor(0.0f, 0.45f, 0.75f, 1.0f))
-                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnScale10Clicked))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnMultiplyScale10Clicked))
+                    .ToolTipText(FText::FromString(TEXT("Modelin import ölçeğini 10 ile çarp (* 10)")))
                     [
-                        SNew(STextBlock).Text(FText::FromString(TEXT(" 1.0X "))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
-                    ]
-                ]
-
-                // Scale 10.0X
-                + SHorizontalBox::Slot()
-                .AutoWidth()
-                .Padding(FMargin(2.0f, 0.0f))
-                [
-                    SNew(SButton)
-                    .ButtonColorAndOpacity(FLinearColor(0.08f, 0.16f, 0.28f, 1.0f))
-                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnScale100Clicked))
-                    [
-                        SNew(STextBlock).Text(FText::FromString(TEXT(" 10.0X "))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
+                        SNew(STextBlock).Text(FText::FromString(TEXT(" × 10 "))).Font(ButtonFont).ColorAndOpacity(FLinearColor::White)
                     ]
                 ]
 
@@ -453,6 +442,8 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                     [ MakeParamRow(TEXT("CoL İleri (Lift Noktası) [cm]"), AeroCoLForwardInput, EPiSimParamId::AeroCoLForward) ]
                                     + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
                                     [ MakeParamRow(TEXT("CoG İleri (Ağırlık Merk.) [cm]"), AeroCoGForwardInput, EPiSimParamId::AeroCoGForward) ]
+                                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                                    [ MakeParamRow(TEXT("Eylemsizlik (Inertia Scale)"), AeroInertiaTensorScaleInput, EPiSimParamId::AeroInertiaTensorScale) ]
                                     + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
                                     [ MakeParamRow(TEXT("Şasi Kütlesi (Mass) [kg]"), ChassisMassInput, EPiSimParamId::ChassisMass) ]
 
@@ -1229,6 +1220,7 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
             if (AeroElevonEffectInput.IsValid()) AeroElevonEffectInput->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), TargetImporter->AeroConfig.ElevonEffectiveness)));
             if (AeroCoLForwardInput.IsValid()) AeroCoLForwardInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), TargetImporter->AeroConfig.CoLForwardCm)));
             if (AeroCoGForwardInput.IsValid()) AeroCoGForwardInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), TargetImporter->AeroConfig.CoGForwardCm)));
+            if (AeroInertiaTensorScaleInput.IsValid()) AeroInertiaTensorScaleInput->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), TargetImporter->AeroConfig.InertiaTensorScale)));
             if (ChassisMassInput.IsValid())
                 ChassisMassInput->SetText(FText::FromString(FString::Printf(TEXT("%.1f"), TargetImporter->ChassisMassKg)));
         }
@@ -1821,21 +1813,15 @@ FReply UPiSimModelImporterWidget::OnAddVirtualSensorClicked(uint8 SensorTypeEnum
     return FReply::Handled();
 }
 
-FReply UPiSimModelImporterWidget::OnScale01Clicked()
+FReply UPiSimModelImporterWidget::OnMultiplyScale01Clicked()
 {
-    if (TargetImporter) TargetImporter->SetScale_0_1X();
+    if (TargetImporter) TargetImporter->MultiplyScale_0_1X();
     return FReply::Handled();
 }
 
-FReply UPiSimModelImporterWidget::OnScale10Clicked()
+FReply UPiSimModelImporterWidget::OnMultiplyScale10Clicked()
 {
-    if (TargetImporter) TargetImporter->SetScale_1_0X();
-    return FReply::Handled();
-}
-
-FReply UPiSimModelImporterWidget::OnScale100Clicked()
-{
-    if (TargetImporter) TargetImporter->SetScale_10_0X();
+    if (TargetImporter) TargetImporter->MultiplyScale_10_0X();
     return FReply::Handled();
 }
 
@@ -1900,6 +1886,19 @@ void UPiSimModelImporterWidget::OnParamTextCommitted(const FText& NewText, EText
         case EPiSimParamId::AeroCoGForward:
             TargetImporter->AeroConfig.CoGForwardCm = Val;
             if (TargetImporter->VisualSections.Num() > 0) TargetImporter->VisualSections[0].CoGForwardCm = Val;
+            TargetImporter->ApplyCenterOfMass();
+            break;
+        case EPiSimParamId::AeroInertiaTensorScale:
+            TargetImporter->AeroConfig.InertiaTensorScale = FMath::Clamp(Val, 0.1f, 100.0f);
+            if (TargetImporter->VisualMeshComponents.IsValidIndex(0) && TargetImporter->VisualMeshComponents[0])
+            {
+                FBodyInstance* BI = TargetImporter->VisualMeshComponents[0]->GetBodyInstance();
+                if (BI)
+                {
+                    BI->InertiaTensorScale = FVector(TargetImporter->AeroConfig.InertiaTensorScale);
+                    BI->UpdateMassProperties();
+                }
+            }
             break;
         case EPiSimParamId::ChassisMass:
             TargetImporter->ChassisMassKg = FMath::Max(0.1f, Val);
