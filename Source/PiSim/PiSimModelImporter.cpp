@@ -3,9 +3,18 @@
 
 #include "PiSimModelImporter.h"
 #include "PiSimModelImporterWidget.h"
+#include "PiSimModelImporterBase.h"
+#include "PiSimActuatorComponent.h"
+#include "PiSimAeroWingComponent.h"
+#include "PiSimAirImporter.h"
+#include "PiSimLandImporter.h"
+#include "PiSimSeaImporter.h"
 #include "PiSimGarageRobot.h"
 #include "PiSimHUD.h"
 #include "PiSimUDPManager.h"
+#include "PiSimVirtualSensorSuite.h"
+#include "PiSimAutopilotManager.h"
+#include "PiSimAutopilotBridge.h"
 #include "ROS2MessageTypes.h"
 #include "ROS2UE5Converter.h"
 #include "Misc/Paths.h"
@@ -63,6 +72,9 @@ APiSimModelImporter::APiSimModelImporter()
     AeroConfig.CoGForwardCm = 20.0f;
     AeroConfig.InertiaTensorScale = 2.5f;
     ChassisMassKg = 2.0f;
+
+    VirtualSensors = CreateDefaultSubobject<UPiSimVirtualSensorSuite>(TEXT("VirtualSensors"));
+    AutopilotManager = CreateDefaultSubobject<UPiSimAutopilotManager>(TEXT("AutopilotManager"));
 }
 
 
@@ -162,6 +174,21 @@ void APiSimModelImporter::BeginPlay()
         }
     }
 
+    // Initialize Virtual Sensor Suite
+    if (!VirtualSensors)
+    {
+        VirtualSensors = NewObject<UPiSimVirtualSensorSuite>(this, TEXT("VirtualSensors"));
+        VirtualSensors->RegisterComponent();
+    }
+
+    // Initialize Autopilot Bridge (ArduPilot SITL / PX4 SITL / MAVLink)
+    if (!AutopilotBridge)
+    {
+        AutopilotBridge = NewObject<UPiSimAutopilotBridge>(this, TEXT("AutopilotBridge"));
+        AutopilotBridge->RegisterComponent();
+        AutopilotBridge->OnAutopilotCommandReceived.AddDynamic(this, &APiSimModelImporter::OnAutopilotCommandReceived);
+    }
+
     // Auto-spawn model from Saved/Robots/Cache/robot_import_test.fbx at startup
     BuildAndSpawnRobotHierarchy(ImportScaleMultiplier);
 }
@@ -180,6 +207,11 @@ void APiSimModelImporter::AddConnectionDebugLog(const FString& LogMsg)
 
 void APiSimModelImporter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    if (AutopilotBridge)
+    {
+        AutopilotBridge->Shutdown();
+    }
+
     if (UDPManager)
     {
         UDPManager->OnControlPacketReceived.RemoveAll(this);
@@ -324,6 +356,150 @@ void APiSimModelImporter::ZoomOut()
     }
 }
 
+void APiSimModelImporter::ApplyMotorTestValue(int32 MotorIndex, float NormalizedValue)
+{
+    if (ConfiguredMotors.IsValidIndex(MotorIndex))
+    {
+        ConfiguredMotors[MotorIndex].CurrentTestValue = FMath::Clamp(NormalizedValue, -1.0f, 1.0f);
+    }
+}
+
+void APiSimModelImporter::SetAutopilotControlMode(EAutopilotControlMode NewMode)
+{
+    ControlMode = NewMode;
+    if (ControlMode == EAutopilotControlMode::ArduPilotSITL)
+    {
+        if (AutopilotBridge)
+        {
+            AutopilotBridge->StartArduPilotSitl(9002);
+            AddConnectionDebugLog(TEXT("✈️ [Otopilot] ArduPilot SITL Modu Aktif (UDP Port 9002 Dinleniyor)"));
+        }
+    }
+    else if (ControlMode == EAutopilotControlMode::PX4SITL)
+    {
+        if (AutopilotBridge)
+        {
+            AutopilotBridge->StartPx4Sitl(14560);
+            AddConnectionDebugLog(TEXT("🛸 [Otopilot] PX4 SITL / MAVLink Modu Aktif (UDP Port 14560 Dinleniyor)"));
+        }
+    }
+    else
+    {
+        if (AutopilotBridge)
+        {
+            AutopilotBridge->Shutdown();
+        }
+        AddConnectionDebugLog(TEXT("🎮 [Otopilot] Direkt ROS 2 Modu Aktif (UDP Port 7400)"));
+    }
+}
+
+void APiSimModelImporter::CycleAutopilotControlMode()
+{
+    uint8 Next = ((uint8)ControlMode + 1) % 3;
+    SetAutopilotControlMode((EAutopilotControlMode)Next);
+}
+
+bool APiSimModelImporter::IsAutopilotDriving() const
+{
+    if (AutopilotManager && AutopilotManager->ShouldDriveActuators())
+    {
+        return true;
+    }
+    if (ControlMode != EAutopilotControlMode::DirectROS2 && AutopilotBridge && AutopilotBridge->bIsConnected)
+    {
+        return true;
+    }
+    return false;
+}
+
+void APiSimModelImporter::ApplyAutopilotMixer(float Roll, float Pitch, float Yaw, float Throttle, const uint16* Pwm, const float* RawControls)
+{
+    TargetLinearX = Throttle;
+    TargetAngularZ = Yaw;
+
+    // Route commands to AttachedActuators (Modular Components)
+    for (UPiSimActuatorComponent* Act : AttachedActuators)
+    {
+        if (!Act) continue;
+        if (Act->Role == EPiSimMotorRole::Thruster)
+        {
+            Act->SetNormalizedCommand(FMath::Clamp(Throttle, 0.0f, 1.0f));
+        }
+        else if (Act->Role == EPiSimMotorRole::ServoJoint)
+        {
+            FString ActName = Act->ActuatorName.ToLower();
+            if (ActName.Contains(TEXT("elevon_l")) || ActName.Contains(TEXT("aileron_l")))
+            {
+                // Sol Elevon = Pitch + Roll
+                float AngleL = (Pitch + Roll) * 20.0f;
+                Act->SetTargetAngle(AngleL);
+            }
+            else if (ActName.Contains(TEXT("elevon_r")) || ActName.Contains(TEXT("aileron_r")))
+            {
+                // Sağ Elevon = Pitch - Roll
+                float AngleR = (Pitch - Roll) * 20.0f;
+                Act->SetTargetAngle(AngleR);
+            }
+            else if (ActName.Contains(TEXT("rudder")) || ActName.Contains(TEXT("steer")))
+            {
+                float RudderAngle = Yaw * 25.0f;
+                Act->SetTargetAngle(RudderAngle);
+            }
+            else if (ActName.Contains(TEXT("elevator")))
+            {
+                float ElevatorAngle = Pitch * 20.0f;
+                Act->SetTargetAngle(ElevatorAngle);
+            }
+        }
+        else if (Act->Role == EPiSimMotorRole::DriveWheel)
+        {
+            FVector RelLoc = Act->GetRelativeLocation();
+            float WheelRpm = (RelLoc.Y < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
+            Act->SetTargetVelocity(WheelRpm);
+        }
+    }
+
+    // Also update ConfiguredMotors for visual meshes and HUD sliders
+    for (int32 m = 0; m < ConfiguredMotors.Num(); ++m)
+    {
+        FPiSimMotorItem& Motor = ConfiguredMotors[m];
+        if (Motor.Role == EPiSimMotorRole::Thruster)
+        {
+            Motor.CurrentTestValue = Throttle;
+        }
+        else if (Motor.Role == EPiSimMotorRole::ServoJoint)
+        {
+            FString LowerName = Motor.BoneName.ToLower();
+            if (LowerName.Contains(TEXT("elevon_l")) || LowerName.Contains(TEXT("aileron_l")))
+            {
+                Motor.CurrentTestValue = FMath::Clamp(Pitch + Roll, -1.0f, 1.0f);
+            }
+            else if (LowerName.Contains(TEXT("elevon_r")) || LowerName.Contains(TEXT("aileron_r")))
+            {
+                Motor.CurrentTestValue = FMath::Clamp(Pitch - Roll, -1.0f, 1.0f);
+            }
+            else if (LowerName.Contains(TEXT("rudder")) || LowerName.Contains(TEXT("steer")))
+            {
+                Motor.CurrentTestValue = FMath::Clamp(Yaw, -1.0f, 1.0f);
+            }
+            else if (LowerName.Contains(TEXT("elevator")))
+            {
+                Motor.CurrentTestValue = FMath::Clamp(Pitch, -1.0f, 1.0f);
+            }
+        }
+    }
+}
+
+void APiSimModelImporter::OnAutopilotCommandReceived(float Throttle, float Roll, float Pitch, float Yaw, const TArray<float>& RawChannels)
+{
+    if (ControlMode == EAutopilotControlMode::DirectROS2)
+    {
+        return; // Direkt ROS 2 modundaysa SITL komutlarını işletme
+    }
+
+    ApplyAutopilotMixer(Roll, Pitch, Yaw, Throttle, nullptr, RawChannels.Num() > 0 ? RawChannels.GetData() : nullptr);
+}
+
 void APiSimModelImporter::OnControlPacketReceived(const TArray<uint8>& PacketData, const FString& SenderIP)
 {
     bool bWasConnected = bIsPiConnected;
@@ -367,6 +543,73 @@ void APiSimModelImporter::OnControlPacketReceived(const TArray<uint8>& PacketDat
         // Convert linear speed (m/s) to RPM: RPM = (V / (2 * PI * R)) * 60
         LeftWheelsRpm = (V_Left / (2.0f * PI * WheelRadius)) * 60.0f;
         RightWheelsRpm = (V_Right / (2.0f * PI * WheelRadius)) * 60.0f;
+
+        const bool bAutopilotOwnsActuators = IsAutopilotDriving();
+
+        // Route ROS Twist commands to AttachedActuators (Modular Components)
+        if (!bAutopilotOwnsActuators)
+        {
+        for (UPiSimActuatorComponent* Act : AttachedActuators)
+        {
+            if (!Act) continue;
+            if (Act->Role == EPiSimMotorRole::Thruster)
+            {
+                // Gaz Kolu / İtki: Linear.X normalize değeri
+                Act->SetNormalizedCommand(FMath::Clamp(TargetLinearX, -1.0f, 1.0f));
+            }
+            else if (Act->Role == EPiSimMotorRole::ServoJoint)
+            {
+                FString ActName = Act->ActuatorName.ToLower();
+                if (ActName.Contains(TEXT("elevon_l")) || ActName.Contains(TEXT("aileron_l")))
+                {
+                    float ElevonL = (TwistMsg.Angular.Y + TwistMsg.Angular.Z) * 15.0f;
+                    Act->SetTargetAngle(ElevonL);
+                }
+                else if (ActName.Contains(TEXT("elevon_r")) || ActName.Contains(TEXT("aileron_r")))
+                {
+                    float ElevonR = (TwistMsg.Angular.Y - TwistMsg.Angular.Z) * 15.0f;
+                    Act->SetTargetAngle(ElevonR);
+                }
+                else if (ActName.Contains(TEXT("rudder")) || ActName.Contains(TEXT("steer")))
+                {
+                    float RudderAngle = TwistMsg.Angular.Z * 20.0f;
+                    Act->SetTargetAngle(RudderAngle);
+                }
+            }
+            else if (Act->Role == EPiSimMotorRole::DriveWheel)
+            {
+                FVector RelLoc = Act->GetRelativeLocation();
+                float WheelRpm = (RelLoc.Y < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
+                Act->SetTargetVelocity(WheelRpm);
+            }
+        }
+
+        // Sync ConfiguredMotors with ROS Twist for both HUD animation and vehicle actuation
+        for (int32 m = 0; m < ConfiguredMotors.Num(); ++m)
+        {
+            FPiSimMotorItem& Motor = ConfiguredMotors[m];
+            if (Motor.Role == EPiSimMotorRole::Thruster)
+            {
+                Motor.CurrentTestValue = FMath::Clamp(TargetLinearX, -1.0f, 1.0f);
+            }
+            else if (Motor.Role == EPiSimMotorRole::ServoJoint)
+            {
+                FString LowerName = Motor.BoneName.ToLower();
+                if (LowerName.Contains(TEXT("elevon_l")) || LowerName.Contains(TEXT("aileron_l")))
+                {
+                    Motor.CurrentTestValue = FMath::Clamp(TwistMsg.Angular.Y + TwistMsg.Angular.Z, -1.0f, 1.0f);
+                }
+                else if (LowerName.Contains(TEXT("elevon_r")) || LowerName.Contains(TEXT("aileron_r")))
+                {
+                    Motor.CurrentTestValue = FMath::Clamp(TwistMsg.Angular.Y - TwistMsg.Angular.Z, -1.0f, 1.0f);
+                }
+                else if (LowerName.Contains(TEXT("rudder")) || LowerName.Contains(TEXT("steer")))
+                {
+                    Motor.CurrentTestValue = FMath::Clamp(TwistMsg.Angular.Z, -1.0f, 1.0f);
+                }
+            }
+        }
+        }
 
         TotalPacketsReceived++;
         RxCountInWindow++;
@@ -439,6 +682,34 @@ void APiSimModelImporter::PublishImuTelemetry(float DeltaTime)
         {
             AddConnectionDebugLog(FString::Printf(TEXT("📡 TX Telemetri #%d -> %s:7401 (Hız: %.1f km/h, 80 Bayt)"),
                 TotalPacketsSent, *PrimaryIP, CurrentForwardSpeedKmh));
+        }
+    }
+
+    // 4) Update Virtual Sensors & Feed Autopilot Bridge (ArduPilot SITL / PX4 SITL)
+    if (VirtualSensors && Chassis)
+    {
+        VirtualSensors->UpdateSensors(DeltaTime, Chassis->GetComponentLocation(), CurrentLinearVelUE5, CurrentLinearAccel, AngularVelUE5, OrientationUE5, CurrentForwardSpeedKmh);
+
+        if (AutopilotBridge && AutopilotBridge->IsSocketOpen())
+        {
+            if (ControlMode == EAutopilotControlMode::ArduPilotSITL)
+            {
+                // ArduPilot JSON SITL protocol: simulator MUST send state first (before ArduPilot sends servo commands).
+                // We send proactively to ArduPilot's state-listen port (--sim-port-in), default 9003.
+                // Once ArduPilot receives state, it will start sending servo commands back (bIsConnected → true).
+                double WorldTimeSec = (GetWorld()) ? GetWorld()->GetTimeSeconds() : 0.0;
+                FString SitlJson = VirtualSensors->BuildArduPilotJsonPayload(WorldTimeSec);
+                FString ArduIp = AutopilotBridge->bIsConnected ? AutopilotBridge->ConnectedIP : TEXT("127.0.0.1");
+                // ArduPilot listens for state on --sim-port-in (9003). Do NOT use ConnectedPort (ephemeral sender port).
+                AutopilotBridge->SendArduPilotStateJson(SitlJson, ArduIp, AutopilotBridge->ArduPilotStatePort);
+            }
+            else if (ControlMode == EAutopilotControlMode::PX4SITL)
+            {
+                if (AutopilotBridge->bIsConnected)
+                {
+                    AutopilotBridge->SendPx4Sensors(VirtualSensors->ImuData, VirtualSensors->BaroData, VirtualSensors->GpsData, AutopilotBridge->ConnectedIP, 14560);
+                }
+            }
         }
     }
 }
@@ -587,6 +858,12 @@ void APiSimModelImporter::Tick(float DeltaTime)
         TelemetryTimer = 0.0f;
     }
 
+    // =========================================================================================
+    // 🔒 [DO NOT MODIFY - WHEEL PHYSICS & STEER LOCK]
+    // 🛑 KESİNLİKLE DEĞİŞTİRİLEMEZ: DİREKSİYONLU TEKERLEK KONTROL VE HİZALAMA BLOĞU!
+    // Bu blok hem AI hem de insan geliştiriciler için KİLİTLİDİR. Hava aracı, deniz aracı veya
+    // başka hiçbir özellik için bu mantık ve rotasyon formülleri ASLA değiştirilemez!
+    // =========================================================================================
     // 3) Canlı Direksiyon Açısını Her Tick Koru (Hedef Açıya Kilitle)
     for (int32 m = 0; m < ConfiguredMotors.Num(); ++m)
     {
@@ -624,6 +901,8 @@ void APiSimModelImporter::Tick(float DeltaTime)
             }
         }
     }
+    // 🔒 [END OF WHEEL STEER LOCK]
+    // =========================================================================================
 
     // 4) Canlı Tekerlek ve Pervane İtki Fiziği
     FVector AppliedThrustVecWorld = FVector::ZeroVector;
@@ -636,6 +915,12 @@ void APiSimModelImporter::Tick(float DeltaTime)
             if (VisualMeshComponents[i] && ConfiguredMotors.IsValidIndex(i))
             {
                 const FPiSimMotorItem& Motor = ConfiguredMotors[i];
+                // =========================================================================================
+                // 🔒 [DO NOT MODIFY - WHEEL DRIVE ANGULAR VELOCITY LOCK]
+                // 🛑 KESİNLİKLE DEĞİŞTİRİLEMEZ: SÜRÜŞ TEKERLEĞİ VE PALET DÖNÜŞ VE HIZ HESAPLAMA BLOĞU!
+                // Yerel aks LocalAxle = FVector(1,0,0) (Roll) olup, Yaw eksenini bozmadan sadece Roll
+                // açısal hızı güncellenir. Bu hesaplama kesinlikle sabittir ve değiştirilemez!
+                // =========================================================================================
                 if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::TrackPad)
                 {
                     FVector RelLoc = VisualMeshComponents[i]->GetRelativeLocation();
@@ -656,6 +941,8 @@ void APiSimModelImporter::Tick(float DeltaTime)
                         VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
                     }
                 }
+                // 🔒 [END OF WHEEL DRIVE LOCK]
+                // =========================================================================================
                 else if (Motor.Role == EPiSimMotorRole::Thruster)
                 {
                     // Kemiğin uzandığı doğrultu (FBX TransformLink matrisinden çıkarılan birim vektör)
@@ -1259,6 +1546,18 @@ void APiSimModelImporter::ClearSpawnedComponents()
     }
     SteerBoneComponents.Empty();
     WheelToSteerBoneMap.Empty();
+
+    for (UPiSimActuatorComponent* Actuator : AttachedActuators)
+    {
+        if (Actuator) Actuator->DestroyComponent();
+    }
+    AttachedActuators.Empty();
+
+    for (UPiSimAeroWingComponent* Wing : AttachedWingBodies)
+    {
+        if (Wing) Wing->DestroyComponent();
+    }
+    AttachedWingBodies.Empty();
 
     VisualSections.Empty();
     UCXSections.Empty();
@@ -2008,6 +2307,40 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
     UMaterialInterface* DefaultMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 
     // -----------------------------------------------------------------------------------------
+    // [KÖK KEMİK DİSPATCHER] CHASSIS -> LAND, AIRFRAME -> AIR, HULL -> SEA
+    // -----------------------------------------------------------------------------------------
+    FString RootBoneName = (VisualSections.Num() > 0) ? VisualSections[0].MeshName : TEXT("");
+    VehicleDomain = APiSimModelImporterBase::DetectVehicleDomain(RootBoneName);
+
+    if (VehicleDomain == EVehicleDomain::Air)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("✈️ [PISIM DISPATCHER] Kök Kemik: '%s' -> HAVA ARACI (Air Importer)"), *RootBoneName);
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(777, 8.0f, FColor::Cyan,
+                FString::Printf(TEXT("✈️ [PISIM DISPATCHER] Kök Kemik: '%s' -> HAVA ARACI (Air Importer & Soket Mimarisi)"), *RootBoneName));
+        }
+    }
+    else if (VehicleDomain == EVehicleDomain::Sea)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("⚓ [PISIM DISPATCHER] Kök Kemik: '%s' -> DENİZ ARACI (Sea Importer / hull)"), *RootBoneName);
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(777, 8.0f, FColor::Emerald,
+                FString::Printf(TEXT("⚓ [PISIM DISPATCHER] Kök Kemik: '%s' -> DENİZ ARACI (Sea Importer / hull)"), *RootBoneName));
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("🚗 [PISIM DISPATCHER] Kök Kemik: '%s' -> KARA ARACI (Land Importer / chassis)"), *RootBoneName);
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(777, 8.0f, FColor::Yellow,
+                FString::Printf(TEXT("🚗 [PISIM DISPATCHER] Kök Kemik: '%s' -> KARA ARACI (Land Importer / chassis)"), *RootBoneName));
+        }
+    }
+
+    // -----------------------------------------------------------------------------------------
     // 1) HER PARÇA İÇİN GÖRSEL RENDER VE UCX COLLISION'I TEK BİR DİNAMİK GÖVDEDE BİRLEŞTİR
     // -----------------------------------------------------------------------------------------
     for (int32 i = 0; i < VisualSections.Num(); ++i)
@@ -2534,13 +2867,113 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
                 TEXT("ℹ️ [PiSim Sensör] Modelde 'S_Cam_...' sensörü bulunamadı (Kamera yok)"));
         }
     }
-    else
+    // -----------------------------------------------------------------------------------------
+    // 10) SOKET TABANLI MODÜLER BİLEŞENLER (WINGS, BLDC THRUSTER, ELEVON SERVOS)
+    // Kullanıcı Talimatı: "Pawn sınıfına fiziksel ve görsel modeli ekleyecek, ondan sonra soket ekler
+    // gibi motorları, kuvvet gövdelerini (kanat/tekne), kontrol yüzeylerini ve sensörlerini ekleyecek"
+    // -----------------------------------------------------------------------------------------
+    if (VehicleDomain == EVehicleDomain::Air && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
     {
-        if (GEngine)
+        UPrimitiveComponent* AirframeBody = VisualMeshComponents[0];
+
+        // 1) Kanat Kaldırma Gövdelerini (Aero Wing Components) Soket Noktalarına Tak
+        FVector LeftWingLoc = G_FbxBoneWorldLocations.Contains(TEXT("B_Wing_L")) ? 
+            (G_FbxBoneWorldLocations[TEXT("B_Wing_L")] - VisualSections[0].PivotPoint) : FVector(0.0f, -AeroConfig.Wingspan * 25.0f, 0.0f);
+        FVector RightWingLoc = G_FbxBoneWorldLocations.Contains(TEXT("B_Wing_R")) ? 
+            (G_FbxBoneWorldLocations[TEXT("B_Wing_R")] - VisualSections[0].PivotPoint) : FVector(0.0f, AeroConfig.Wingspan * 25.0f, 0.0f);
+
+        UPiSimAeroWingComponent* LeftWingComp = NewObject<UPiSimAeroWingComponent>(this, TEXT("ModularSocket_LeftWing"));
+        LeftWingComp->WingName = TEXT("LeftWing");
+        LeftWingComp->bIsRightWing = false;
+        LeftWingComp->WingArea = AeroConfig.WingArea * 0.5f;
+        LeftWingComp->Wingspan = AeroConfig.Wingspan * 0.5f;
+        LeftWingComp->CL0 = AeroConfig.CL0;
+        LeftWingComp->CLAlpha = AeroConfig.CLAlpha;
+        LeftWingComp->CD0 = AeroConfig.CD0;
+        LeftWingComp->StallAngleDeg = AeroConfig.StallAngleDeg;
+        LeftWingComp->ElevonEffectiveness = AeroConfig.ElevonEffectiveness;
+        LeftWingComp->SetupAttachment(AirframeBody);
+        LeftWingComp->SetRelativeLocation(LeftWingLoc);
+        LeftWingComp->RegisterComponent();
+        AttachedWingBodies.Add(LeftWingComp);
+
+        UPiSimAeroWingComponent* RightWingComp = NewObject<UPiSimAeroWingComponent>(this, TEXT("ModularSocket_RightWing"));
+        RightWingComp->WingName = TEXT("RightWing");
+        RightWingComp->bIsRightWing = true;
+        RightWingComp->WingArea = AeroConfig.WingArea * 0.5f;
+        RightWingComp->Wingspan = AeroConfig.Wingspan * 0.5f;
+        RightWingComp->CL0 = AeroConfig.CL0;
+        RightWingComp->CLAlpha = AeroConfig.CLAlpha;
+        RightWingComp->CD0 = AeroConfig.CD0;
+        RightWingComp->StallAngleDeg = AeroConfig.StallAngleDeg;
+        RightWingComp->ElevonEffectiveness = AeroConfig.ElevonEffectiveness;
+        RightWingComp->SetupAttachment(AirframeBody);
+        RightWingComp->SetRelativeLocation(RightWingLoc);
+        RightWingComp->RegisterComponent();
+        AttachedWingBodies.Add(RightWingComp);
+
+        // 2) Aktüatörleri Tak (Thruster/BLDC ESC ve Elevon Servoları)
+        for (int32 m = 0; m < ConfiguredMotors.Num(); ++m)
         {
-            GEngine->AddOnScreenDebugMessage(555, 8.0f, FColor::Green,
-                FString::Printf(TEXT("📷 [PiSim Sensör] %d adet S_Cam kamerası model koordinatlarına yerleştirildi!"), DiscoveredCameras));
+            const FPiSimMotorItem& MItem = ConfiguredMotors[m];
+            if (MItem.Role == EPiSimMotorRole::Thruster)
+            {
+                FName ThrusterName = *FString::Printf(TEXT("ModularSocket_Thruster_%d"), m);
+                UPiSimActuatorComponent* ThrusterAct = NewObject<UPiSimActuatorComponent>(this, ThrusterName);
+                ThrusterAct->BoneIndex = m;
+                ThrusterAct->ActuatorName = MItem.BoneName;
+                ThrusterAct->Role = EPiSimMotorRole::Thruster;
+                ThrusterAct->MotorType = EPiSimMotorType::BLDC_ESC;
+                ThrusterAct->Ros2Topic = TEXT("/actuator/thrust_cmd");
+                ThrusterAct->BoneDirection = MItem.BoneDirection;
+                ThrusterAct->MaxTorqueNm = (MItem.MaxTorqueNm > 0.1f) ? MItem.MaxTorqueNm : 18.0f;
+                ThrusterAct->MaxVelocityRPM = MItem.MaxVelocityRPM;
+                ThrusterAct->bReverseDirection = MItem.bReverseThrust;
+
+                int32 VisIdx = FindVisualSectionForBone(m);
+                if (VisIdx > 0 && VisualMeshComponents.IsValidIndex(VisIdx))
+                {
+                    ThrusterAct->LinkedVisualMesh = VisualMeshComponents[VisIdx];
+                }
+
+                FVector PropOffset = G_FbxBoneWorldLocations.Contains(MItem.BoneName) ?
+                    (G_FbxBoneWorldLocations[MItem.BoneName] - VisualSections[0].PivotPoint) :
+                    ((VisIdx > 0 && VisualSections.IsValidIndex(VisIdx)) ? (VisualSections[VisIdx].PivotPoint - VisualSections[0].PivotPoint) : FVector::ZeroVector);
+
+                ThrusterAct->SetupAttachment(AirframeBody);
+                ThrusterAct->SetRelativeLocation(PropOffset);
+                ThrusterAct->RegisterComponent();
+                AttachedActuators.Add(ThrusterAct);
+            }
+            else if (MItem.Role == EPiSimMotorRole::ServoJoint && !WheelToSteerBoneMap.Contains(m))
+            {
+                FName ElevonName = *FString::Printf(TEXT("ModularSocket_Servo_%d"), m);
+                UPiSimActuatorComponent* ServoAct = NewObject<UPiSimActuatorComponent>(this, ElevonName);
+                ServoAct->BoneIndex = m;
+                ServoAct->ActuatorName = MItem.BoneName;
+                ServoAct->Role = EPiSimMotorRole::ServoJoint;
+                ServoAct->MotorType = EPiSimMotorType::Servo_Position;
+                ServoAct->MinLimitDeg = MItem.MinLimitDeg;
+                ServoAct->MaxLimitDeg = MItem.MaxLimitDeg;
+
+                int32 VisIdx = FindVisualSectionForBone(m);
+                if (VisIdx > 0 && VisualMeshComponents.IsValidIndex(VisIdx))
+                {
+                    ServoAct->LinkedVisualMesh = VisualMeshComponents[VisIdx];
+                }
+
+                FVector ElevonOffset = (VisIdx > 0 && VisualSections.IsValidIndex(VisIdx)) ?
+                    (VisualSections[VisIdx].PivotPoint - VisualSections[0].PivotPoint) : FVector::ZeroVector;
+
+                ServoAct->SetupAttachment(AirframeBody);
+                ServoAct->SetRelativeLocation(ElevonOffset);
+                ServoAct->RegisterComponent();
+                AttachedActuators.Add(ServoAct);
+            }
         }
+
+        UE_LOG(LogTemp, Warning, TEXT("✈️ [PISIM MODÜLER SOKET SİSTEMİ] %d Kanat Gövdesi ve %d Aktüatör Hava Aracına Bağlandı!"),
+            AttachedWingBodies.Num(), AttachedActuators.Num());
     }
 }
 
@@ -2741,6 +3174,13 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' bileşenine CANLI DİNAMİK FİZİK verildi | Kütle: %.1f kg | Yerçekimi: AÇIK"),
             *VisualSections[i].MeshName, Mass);
 
+        // =========================================================================================
+        // 🔒 [DO NOT MODIFY - WHEEL PHYSICS CONSTRAINT CREATION LOCK]
+        // 🛑 KESİNLİKLE DEĞİŞTİRİLEMEZ: TEKERLEK EKLEM KISITLAMASI (CONSTRAINT) BLOĞU!
+        // Tekerlekler sadece şasiye (VisualMeshComponents[0]) 1-DOF Roll olarak bağlanır.
+        // PivotPoint ofseti VisualSections[i].PivotPoint - VisualSections[0].PivotPoint olarak
+        // tam vertex-centroid merkezine kilitlidir. Bu hiyerarşiyi ve ofseti ASLA DEĞİŞTİRMEYİN!
+        // =========================================================================================
         // 4) SADECE Tekerlekler için şasi ile fiziksel eklem (Constraint) bağla
         if (i > 0 && bIsWheel && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
         {
@@ -2773,6 +3213,8 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             JointConstraints.Add(Constraint);
             SectionConstraintMap.Add(i, Constraint);
         }
+        // 🔒 [END OF WHEEL CONSTRAINT CREATION LOCK]
+        // =========================================================================================
     }
 
     // Ekran Bildirimleri
@@ -2860,6 +3302,12 @@ UPhysicsConstraintComponent* APiSimModelImporter::FindConstraintForSection(int32
     return nullptr;
 }
 
+// =========================================================================================
+// 🔒 [DO NOT MODIFY - WHEEL CONSTRAINT 1-DOF DEGREE OF FREEDOM LOCK]
+// 🛑 KESİNLİKLE DEĞİŞTİRİLEMEZ: TEKERLEK SERBESTLİK DERECESİ (DOF) AYARLARI!
+// Tekerlekler 3-DOF Linear Locked + Angular Twist (Roll) Free + Swing1/2 Locked standardındadır.
+// Bu ayarlar aracın zeminde düzgün yuvarlanması, patlamaması ve devrilmemesi için sabittir!
+// =========================================================================================
 void APiSimModelImporter::ConfigureConstraintDof(UPhysicsConstraintComponent* Constraint, int32 SectionIndex)
 {
     if (!Constraint || !VisualSections.IsValidIndex(SectionIndex)) return;
@@ -2880,6 +3328,8 @@ void APiSimModelImporter::ConfigureConstraintDof(UPhysicsConstraintComponent* Co
     Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
     Constraint->SetOrientationDriveTwistAndSwing(false, false);
 }
+// 🔒 [END OF WHEEL CONSTRAINT DOF LOCK]
+// =========================================================================================
 
 void APiSimModelImporter::UpdateAllConstraintDofs()
 {

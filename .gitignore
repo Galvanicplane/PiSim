@@ -15,3 +15,4 @@ Build/
 *.VC.opendb
 *.tmp
 *.log
+scratch/

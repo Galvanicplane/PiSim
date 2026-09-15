@@ -51,8 +51,16 @@ private:
     FReply OnReimportClicked();
     FReply OnTogglePhysicsClicked();
     FReply OnToggleModelClicked();
+    FReply OnCycleControlModeClicked();
+    FReply OnToggleAutopilotLinkClicked();
+    FReply OnCycleSerialPortClicked();
 
     TSharedPtr<class STextBlock> ModelButtonText;
+    TSharedPtr<class STextBlock> ControlModeButtonText;
+    TSharedPtr<class STextBlock> AutopilotLinkButtonText;
+    TSharedPtr<class STextBlock> SerialPortButtonText;
+    TSharedPtr<class STextBlock> ControlModeBadgeText;
+    TSharedPtr<class SBorder> ControlModeBadgeBorder;
 
     // Motor Tab Actions
     FReply OnToggleDisplayModeClicked();
@@ -87,6 +95,11 @@ private:
     TSharedPtr<class SBox> AssignMotorBox;
     TSharedPtr<class SBox> ExistingMotorBox;
 
+    // Domain and ROS Live Badges
+    TSharedPtr<class SBorder> ImporterDomainBadgeBorder;
+    TSharedPtr<class STextBlock> ImporterDomainBadgeText;
+    TSharedPtr<class STextBlock> RosControlLiveBannerText;
+
     // Telemetry Tab Widgets
     TSharedPtr<class STextBlock> ConnectionBadgeText;
     TSharedPtr<class SBorder> ConnectionBadgeBorder;
@@ -94,6 +107,7 @@ private:
     TSharedPtr<class STextBlock> IncomingDataText;
     TSharedPtr<class STextBlock> OutgoingTelemetryText;
     TSharedPtr<class STextBlock> ModelCadStatusText;
+    TSharedPtr<class STextBlock> ModularComponentsDebugText;
     TSharedPtr<class STextBlock> ConnectionDebugLogText;
     TSharedPtr<class STextBlock> PhysicsButtonText;
     TSharedPtr<class SBorder> PhysicsButtonBorder;

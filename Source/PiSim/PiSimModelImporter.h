@@ -14,6 +14,11 @@
 class UPiSimModelImporterWidget;
 class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
+class UPiSimActuatorComponent;
+class UPiSimAeroWingComponent;
+class UPiSimVirtualSensorSuite;
+class UPiSimAutopilotManager;
+class UPiSimAutopilotBridge;
 
 UENUM(BlueprintType)
 enum class EPiSimActiveTab : uint8
@@ -26,6 +31,7 @@ enum class EPiSimActiveTab : uint8
 UENUM(BlueprintType)
 enum class EPiSimMotorRole : uint8
 {
+    // 🔒 [LOCKED WHEEL ROLES - DO NOT REMOVE OR RENAME]
     DriveWheel     UMETA(DisplayName = "Sürüş Tekerleği (Drive Wheel)"),
     SteeredWheel   UMETA(DisplayName = "Direksiyonlu Tekerlek (Steered)"),
     FreeCaster     UMETA(DisplayName = "Serbest Sarhoş Tekerlek (Caster)"),
@@ -45,6 +51,23 @@ enum class EPiSimSensorType : uint8
     LiDAR          UMETA(DisplayName = "LiDAR"),
     Ultrasonic     UMETA(DisplayName = "Ultrasonik Mesafe"),
     Unknown        UMETA(DisplayName = "Bilinmeyen Sensör")
+};
+
+UENUM(BlueprintType)
+enum class EVehicleDomain : uint8
+{
+    Unknown UMETA(DisplayName = "Bilinmeyen Araç"),
+    Land    UMETA(DisplayName = "Kara Aracı (Chassis / Tekerlekli)"),
+    Air     UMETA(DisplayName = "Hava Aracı (Airframe / Sabit Kanat / Drone)"),
+    Sea     UMETA(DisplayName = "Deniz Aracı (Hull / Tekne / USV)")
+};
+
+UENUM(BlueprintType)
+enum class EAutopilotControlMode : uint8
+{
+    DirectROS2      UMETA(DisplayName = "Direkt ROS 2 (Port 7400)"),
+    ArduPilotSITL   UMETA(DisplayName = "ArduPilot SITL (JSON Port 9002)"),
+    PX4SITL         UMETA(DisplayName = "PX4 SITL / MAVLink (Port 14560)")
 };
 
 USTRUCT(BlueprintType)
@@ -437,6 +460,30 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
     TArray<UProceduralMeshComponent*> SensorMarkerComponents;
 
+    // 4) Vehicle Domain (Land, Air, Sea)
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Domain")
+    EVehicleDomain VehicleDomain = EVehicleDomain::Unknown;
+
+    // 5) Modular Sockets: Attached Actuators (Thrusters, Servos, Motors)
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Actuators")
+    TArray<UPiSimActuatorComponent*> AttachedActuators;
+
+    // 5) Modular Sockets: Attached Lifting Surface Force Bodies (Wings)
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Aero")
+    TArray<UPiSimAeroWingComponent*> AttachedWingBodies;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
+    UPiSimVirtualSensorSuite* VirtualSensors = nullptr;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Autopilot")
+    UPiSimAutopilotManager* AutopilotManager = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Autopilot")
+    EAutopilotControlMode ControlMode = EAutopilotControlMode::DirectROS2;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Autopilot")
+    UPiSimAutopilotBridge* AutopilotBridge = nullptr;
+
     // Joint physics constraints between Chassis and Wheels
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Physics")
     TArray<UPhysicsConstraintComponent*> JointConstraints;
@@ -674,6 +721,11 @@ public:
     /** Publishes live IMU & kinematics telemetry to Raspberry Pi 5 over UDP 7401 */
     void PublishImuTelemetry(float DeltaTime);
 
+    /** Apply ArduPilot / PX4 mixer outputs onto thrusters, elevons, and (if selected) rover wheels */
+    void ApplyAutopilotMixer(float Roll, float Pitch, float Yaw, float Throttle, const uint16* Pwm, const float* RawControls);
+
+    bool IsAutopilotDriving() const;
+
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
     // =========================================================================
@@ -687,6 +739,18 @@ public:
     void ZoomOut();
     void IncreaseWheelRpm();
     void DecreaseWheelRpm();
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Control")
+    void ApplyMotorTestValue(int32 MotorIndex, float NormalizedValue);
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Autopilot")
+    void SetAutopilotControlMode(EAutopilotControlMode NewMode);
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Autopilot")
+    void CycleAutopilotControlMode();
+
+    UFUNCTION()
+    void OnAutopilotCommandReceived(float Throttle, float Roll, float Pitch, float Yaw, const TArray<float>& RawChannels);
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Aero")
     void IncreaseLiftScale();

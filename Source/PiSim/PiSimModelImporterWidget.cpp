@@ -3,6 +3,10 @@
 
 #include "PiSimModelImporterWidget.h"
 #include "PiSimModelImporter.h"
+#include "PiSimActuatorComponent.h"
+#include "PiSimAeroWingComponent.h"
+#include "PiSimAutopilotManager.h"
+#include "PiSimVirtualSensorSuite.h"
 #include "Widgets/SOverlay.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Layout/SBorder.h"
@@ -193,7 +197,88 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                     ]
                 ]
 
+                // Live Active Importer Domain Badge (Land, Air, Sea)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(FMargin(8.0f, 0.0f, 0.0f, 0.0f))
+                [
+                    SAssignNew(ImporterDomainBadgeBorder, SBorder)
+                    .BorderBackgroundColor(FLinearColor(0.02f, 0.2f, 0.35f, 0.95f))
+                    .Padding(FMargin(10.0f, 3.0f))
+                    [
+                        SAssignNew(ImporterDomainBadgeText, STextBlock)
+                        .Text(FText::FromString(TEXT("✈️ AIR IMPORTER")))
+                        .Font(BadgeFont)
+                        .ColorAndOpacity(FLinearColor(0.0f, 0.9f, 1.0f, 1.0f))
+                    ]
+                ]
+
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .VAlign(VAlign_Center)
+                .Padding(FMargin(8.0f, 0.0f, 0.0f, 0.0f))
+                [
+                    SAssignNew(ControlModeBadgeBorder, SBorder)
+                    .BorderBackgroundColor(FLinearColor(0.14f, 0.1f, 0.32f, 0.95f))
+                    .Padding(FMargin(10.0f, 3.0f))
+                    [
+                        SAssignNew(ControlModeBadgeText, STextBlock)
+                        .Text(FText::FromString(TEXT("🎮 MOD: Direkt ROS 2")))
+                        .Font(BadgeFont)
+                        .ColorAndOpacity(FLinearColor(0.8f, 0.75f, 1.0f, 1.0f))
+                    ]
+                ]
+
                 + SHorizontalBox::Slot().FillWidth(1.0f) // Spacer
+
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .Padding(FMargin(2.0f, 0.0f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(FLinearColor(0.18f, 0.08f, 0.34f, 1.0f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnCycleControlModeClicked))
+                    .ToolTipText(FText::FromString(TEXT("Kontrol modunu sırayla değiştir: Direkt ROS 2 / ArduPilot SITL / PX4 SITL / PX4 HITL")))
+                    [
+                        SAssignNew(ControlModeButtonText, STextBlock)
+                        .Text(FText::FromString(TEXT(" 🔁 MOD DEĞİŞTİR ")))
+                        .Font(ButtonFont)
+                        .ColorAndOpacity(FLinearColor::White)
+                    ]
+                ]
+
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .Padding(FMargin(2.0f, 0.0f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(FLinearColor(0.12f, 0.24f, 0.42f, 1.0f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnCycleSerialPortClicked))
+                    .ToolTipText(FText::FromString(TEXT("PX4 HITL için seri portu değiştir. SITL modlarında aktif uç nokta bilgisini gösterir.")))
+                    [
+                        SAssignNew(SerialPortButtonText, STextBlock)
+                        .Text(FText::FromString(TEXT(" COM3 ")))
+                        .Font(ButtonFont)
+                        .ColorAndOpacity(FLinearColor::White)
+                    ]
+                ]
+
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .Padding(FMargin(2.0f, 0.0f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(FLinearColor(0.06f, 0.4f, 0.22f, 1.0f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnToggleAutopilotLinkClicked))
+                    .ToolTipText(FText::FromString(TEXT("Seçili kontrol backend'ine bağlan veya bağlantıyı kes")))
+                    [
+                        SAssignNew(AutopilotLinkButtonText, STextBlock)
+                        .Text(FText::FromString(TEXT(" 🔌 BAĞLAN ")))
+                        .Font(ButtonFont)
+                        .ColorAndOpacity(FLinearColor::White)
+                    ]
+                ]
 
                 // Scale Multiply * 0.1
                 + SHorizontalBox::Slot()
@@ -562,9 +647,25 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                             // Separator
                             + SVerticalBox::Slot()
                             .AutoHeight()
-                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            .Padding(0.0f, 0.0f, 0.0f, 6.0f)
                             [
                                 SNew(SBorder).BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f)).Padding(FMargin(0.0f, 0.5f))
+                            ]
+
+                            // Live ROS 2 Actuator Feedback Banner
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                            [
+                                SNew(SBorder)
+                                .BorderBackgroundColor(FLinearColor(0.02f, 0.12f, 0.22f, 0.95f))
+                                .Padding(FMargin(8.0f, 5.0f))
+                                [
+                                    SAssignNew(RosControlLiveBannerText, STextBlock)
+                                    .Text(FText::FromString(TEXT("📡 CANLI ROS 2: Bekleniyor (/cmd_vel)...")))
+                                    .Font(ParamFont)
+                                    .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
+                                ]
                             ]
 
                             // Scrollable Bone List
@@ -1149,8 +1250,24 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                             ]
                             + SVerticalBox::Slot()
                             .AutoHeight()
+                            .Padding(0.0f, 0.0f, 0.0f, 6.0f)
                             [
                                 SAssignNew(ModelCadStatusText, STextBlock).Text(FText::FromString(TEXT("Yükleniyor..."))).Font(DataFont).ColorAndOpacity(FLinearColor(0.85f, 0.92f, 1.0f, 1.0f))
+                            ]
+
+                            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)[ SNew(SBorder).BorderBackgroundColor(FLinearColor(0.1f, 0.25f, 0.45f, 0.6f)).Padding(FMargin(0.0f, 0.5f)) ]
+
+                            // Card 3: Modular Sockets & Components Live Debug
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            .Padding(0.0f, 3.0f, 0.0f, 3.0f)
+                            [
+                                SNew(STextBlock).Text(FText::FromString(TEXT("🔌 MODÜLER SOKETLER & BİLEŞENLER (CANLI DEBUG)"))).Font(CardHeaderFont).ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot()
+                            .AutoHeight()
+                            [
+                                SAssignNew(ModularComponentsDebugText, STextBlock).Text(FText::FromString(TEXT("Bileşenler taranıyor..."))).Font(DataFont).ColorAndOpacity(FLinearColor(0.85f, 0.95f, 1.0f, 1.0f))
                             ]
                         ]
                     ]
@@ -1427,11 +1544,35 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
 
     FSlateFontInfo ButtonFont = FCoreStyle::GetDefaultFontStyle("Bold", 9);
     FSlateFontInfo BadgeFont = FCoreStyle::GetDefaultFontStyle("Bold", 9);
+    const UPiSimAutopilotManager* Autopilot = TargetImporter->AutopilotManager;
 
     // 1) Top Connection Badge & Colors
     if (ConnectionBadgeText.IsValid() && ConnectionBadgeBorder.IsValid())
     {
-        if (TargetImporter->bIsPiConnected)
+        const bool bDirectRosMode = !Autopilot || Autopilot->ControlMode == EPiSimControlMode::DirectROS2;
+        if (!bDirectRosMode && Autopilot)
+        {
+            const FPiSimAutopilotTelemetry& Tel = Autopilot->Telemetry;
+            if (Tel.bReceivingActuators)
+            {
+                ConnectionBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.02f, 0.32f, 0.12f, 0.95f));
+                ConnectionBadgeText->SetText(FText::FromString(FString::Printf(TEXT("🟢 OTOPİLOT AKTİF: %s"), *Tel.StatusLine)));
+                ConnectionBadgeText->SetColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.4f, 1.0f));
+            }
+            else if (Tel.bLinkUp)
+            {
+                ConnectionBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.18f, 0.22f, 0.02f, 0.95f));
+                ConnectionBadgeText->SetText(FText::FromString(FString::Printf(TEXT("🟡 OTOPİLOT BAĞLI: %s"), *Tel.StatusLine)));
+                ConnectionBadgeText->SetColorAndOpacity(FLinearColor(1.0f, 0.9f, 0.3f, 1.0f));
+            }
+            else
+            {
+                ConnectionBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.28f, 0.08f, 0.08f, 0.95f));
+                ConnectionBadgeText->SetText(FText::FromString(FString::Printf(TEXT("🔴 OTOPİLOT BEKLENİYOR: %s"), *Tel.StatusLine)));
+                ConnectionBadgeText->SetColorAndOpacity(FLinearColor(1.0f, 0.45f, 0.45f, 1.0f));
+            }
+        }
+        else if (TargetImporter->bIsPiConnected)
         {
             ConnectionBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.02f, 0.32f, 0.12f, 0.95f));
             ConnectionBadgeText->SetText(FText::FromString(FString::Printf(TEXT("🟢 BAĞLI: %s (Port 7400)"), *TargetImporter->ConnectedPiIP)));
@@ -1448,6 +1589,161 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
             ConnectionBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.28f, 0.18f, 0.02f, 0.95f));
             ConnectionBadgeText->SetText(FText::FromString(FString::Printf(TEXT("🟡 PI 5 BEKLENİYOR (Hedef: %s)"), *TargetImporter->BridgeTargetIP)));
             ConnectionBadgeText->SetColorAndOpacity(FLinearColor(1.0f, 0.85f, 0.2f, 1.0f));
+        }
+    }
+
+    if (ControlModeBadgeText.IsValid() && ControlModeBadgeBorder.IsValid())
+    {
+        FString ModeText = TEXT("🎮 MOD: Direkt ROS 2");
+        FLinearColor ModeBg(0.08f, 0.16f, 0.28f, 0.95f);
+        FLinearColor ModeFg(0.6f, 0.9f, 1.0f, 1.0f);
+
+        if (Autopilot)
+        {
+            switch (Autopilot->ControlMode)
+            {
+            case EPiSimControlMode::DirectROS2:
+                ModeText = TEXT("🎮 MOD: Direkt ROS 2");
+                ModeBg = FLinearColor(0.08f, 0.16f, 0.28f, 0.95f);
+                ModeFg = FLinearColor(0.6f, 0.9f, 1.0f, 1.0f);
+                break;
+            case EPiSimControlMode::ArduPilotSITL:
+                ModeText = TEXT("🎮 MOD: ArduPilot SITL");
+                ModeBg = FLinearColor(0.24f, 0.16f, 0.02f, 0.95f);
+                ModeFg = FLinearColor(1.0f, 0.85f, 0.35f, 1.0f);
+                break;
+            case EPiSimControlMode::PX4SITL:
+                ModeText = TEXT("🎮 MOD: PX4 SITL");
+                ModeBg = FLinearColor(0.16f, 0.08f, 0.30f, 0.95f);
+                ModeFg = FLinearColor(0.85f, 0.75f, 1.0f, 1.0f);
+                break;
+            case EPiSimControlMode::PX4HITL:
+                ModeText = TEXT("🎮 MOD: PX4 HITL");
+                ModeBg = FLinearColor(0.30f, 0.08f, 0.22f, 0.95f);
+                ModeFg = FLinearColor(1.0f, 0.70f, 0.92f, 1.0f);
+                break;
+            }
+        }
+
+        ControlModeBadgeBorder->SetBorderBackgroundColor(ModeBg);
+        ControlModeBadgeText->SetText(FText::FromString(ModeText));
+        ControlModeBadgeText->SetColorAndOpacity(ModeFg);
+    }
+
+    if (ControlModeButtonText.IsValid() && Autopilot)
+    {
+        ControlModeButtonText->SetText(FText::FromString(TEXT(" 🔁 MOD DEĞİŞTİR ")));
+    }
+
+    if (SerialPortButtonText.IsValid() && Autopilot)
+    {
+        FString PortLabel;
+        switch (Autopilot->ControlMode)
+        {
+        case EPiSimControlMode::DirectROS2:
+            PortLabel = FString::Printf(TEXT(" Pi5: %s "), *TargetImporter->BridgeTargetIP);
+            break;
+        case EPiSimControlMode::ArduPilotSITL:
+            PortLabel = FString::Printf(TEXT(" UDP:%d "), Autopilot->ArduPilotListenPort);
+            break;
+        case EPiSimControlMode::PX4SITL:
+            PortLabel = FString::Printf(TEXT(" TCP:%d / UDP:%d "), Autopilot->Px4SitlTcpPort, Autopilot->Px4SitlUdpPort);
+            break;
+        case EPiSimControlMode::PX4HITL:
+            PortLabel = FString::Printf(TEXT(" %s "), *Autopilot->SerialPortName);
+            break;
+        }
+        SerialPortButtonText->SetText(FText::FromString(PortLabel));
+    }
+
+    if (AutopilotLinkButtonText.IsValid() && Autopilot)
+    {
+        const bool bConnected = (Autopilot->ControlMode == EPiSimControlMode::DirectROS2)
+            ? TargetImporter->bIsPiConnected
+            : Autopilot->Telemetry.bLinkUp;
+        AutopilotLinkButtonText->SetText(FText::FromString(bConnected ? TEXT(" 🔌 BAĞLANTIYI KES ") : TEXT(" 🔌 BAĞLAN ")));
+    }
+
+    // Active Importer Domain Badge Update
+    if (ImporterDomainBadgeText.IsValid() && ImporterDomainBadgeBorder.IsValid())
+    {
+        switch (TargetImporter->VehicleDomain)
+        {
+            case EVehicleDomain::Air:
+                ImporterDomainBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.02f, 0.25f, 0.45f, 0.95f));
+                ImporterDomainBadgeText->SetText(FText::FromString(TEXT("✈️ AIR IMPORTER (Airframe)")));
+                ImporterDomainBadgeText->SetColorAndOpacity(FLinearColor(0.0f, 0.9f, 1.0f, 1.0f));
+                break;
+            case EVehicleDomain::Land:
+                ImporterDomainBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.35f, 0.25f, 0.02f, 0.95f));
+                ImporterDomainBadgeText->SetText(FText::FromString(TEXT("🚗 LAND IMPORTER (Chassis)")));
+                ImporterDomainBadgeText->SetColorAndOpacity(FLinearColor(1.0f, 0.85f, 0.2f, 1.0f));
+                break;
+            case EVehicleDomain::Sea:
+                ImporterDomainBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.02f, 0.3f, 0.2f, 0.95f));
+                ImporterDomainBadgeText->SetText(FText::FromString(TEXT("⚓ SEA IMPORTER (Hull)")));
+                ImporterDomainBadgeText->SetColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.6f, 1.0f));
+                break;
+            default:
+                ImporterDomainBadgeBorder->SetBorderBackgroundColor(FLinearColor(0.15f, 0.15f, 0.15f, 0.95f));
+                ImporterDomainBadgeText->SetText(FText::FromString(TEXT("⚙️ BASE IMPORTER")));
+                ImporterDomainBadgeText->SetColorAndOpacity(FLinearColor(0.8f, 0.8f, 0.8f, 1.0f));
+                break;
+        }
+    }
+
+    // Live ROS Control Banner Update (Tab 1)
+    if (RosControlLiveBannerText.IsValid())
+    {
+        const bool bDirectRosMode = !Autopilot || Autopilot->ControlMode == EPiSimControlMode::DirectROS2;
+        if (!bDirectRosMode && Autopilot)
+        {
+            const FPiSimAutopilotTelemetry& Tel = Autopilot->Telemetry;
+            const FString PhysStatus = TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ FİZİK AKTİF") : TEXT("⚠️ FİZİK KAPALI");
+            FString BannerText = FString::Printf(
+                TEXT("🧭 OTOPİLOT KONTROLÜ │ %s\n  • Sensör TX: %3.1f Hz | Aktüatör RX: %3.1f Hz | Armed: %s\n  • Komutlar : Roll=%+.2f Pitch=%+.2f Yaw=%+.2f Thr=%+.2f | %s"),
+                *Tel.StatusLine,
+                Tel.SensorTxHz,
+                Tel.ActuatorRxHz,
+                Tel.bArmed ? TEXT("EVET") : TEXT("HAYIR"),
+                Tel.RollCmd,
+                Tel.PitchCmd,
+                Tel.YawCmd,
+                Tel.ThrottleCmd,
+                *PhysStatus);
+            RosControlLiveBannerText->SetText(FText::FromString(BannerText));
+            RosControlLiveBannerText->SetColorAndOpacity(Tel.bReceivingActuators ? FLinearColor(0.3f, 1.0f, 0.45f, 1.0f) : FLinearColor(1.0f, 0.85f, 0.25f, 1.0f));
+        }
+        else if (TargetImporter->bIsPiConnected && TargetImporter->TotalPacketsReceived > 0)
+        {
+            FString RosStr = TEXT("");
+            FString PhysStatus = TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ FİZİK AKTİF") : TEXT("⚠️ FİZİK KAPALI (Fizik Simüle Et'e basın)");
+            if (TargetImporter->VehicleDomain == EVehicleDomain::Air)
+            {
+                float ThrPct = FMath::Clamp(TargetImporter->TargetLinearX * 100.0f, 0.0f, 100.0f);
+                float ElevonAngleL = (TargetImporter->LastRxAngularVel.Y + TargetImporter->LastRxAngularVel.Z) * 15.0f;
+                float ElevonAngleR = (TargetImporter->LastRxAngularVel.Y - TargetImporter->LastRxAngularVel.Z) * 15.0f;
+                RosStr = FString::Printf(TEXT("📡 CANLI ROS 2 [%3.1f Hz | Paket #%d] │ %s\n  • Girdi : LinX(Gaz)=%+.2f, AngZ(Dönüş)=%+.2f | Hız: %4.1f km/h\n  • Çıktı : İtki=%%%0.0f | Elevon Sol=%+.1f°, Sağ=%+.1f°"),
+                    TargetImporter->RxPacketRateHz, TargetImporter->TotalPacketsReceived, *PhysStatus,
+                    TargetImporter->TargetLinearX, TargetImporter->TargetAngularZ, TargetImporter->CurrentForwardSpeedKmh,
+                    ThrPct, ElevonAngleL, ElevonAngleR);
+            }
+            else
+            {
+                RosStr = FString::Printf(TEXT("📡 CANLI ROS 2 [%3.1f Hz | Paket #%d] │ %s\n  • Girdi : LinX=%+.2f m/s, AngZ=%+.2f rad/s | Hız: %4.1f km/h\n  • Çıktı : Sol=%+.0f RPM, Sağ=%+.0f RPM"),
+                    TargetImporter->RxPacketRateHz, TargetImporter->TotalPacketsReceived, *PhysStatus,
+                    TargetImporter->TargetLinearX, TargetImporter->TargetAngularZ, TargetImporter->CurrentForwardSpeedKmh,
+                    TargetImporter->LeftWheelsRpm, TargetImporter->RightWheelsRpm);
+            }
+            RosControlLiveBannerText->SetText(FText::FromString(RosStr));
+            RosControlLiveBannerText->SetColorAndOpacity(TargetImporter->bIsPhysicsSimulating ? FLinearColor(0.2f, 1.0f, 0.45f, 1.0f) : FLinearColor(1.0f, 0.85f, 0.2f, 1.0f));
+        }
+        else
+        {
+            FString PhysNotice = TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ Fizik Aktif") : TEXT("⚠️ Fizik Kapalı");
+            RosControlLiveBannerText->SetText(FText::FromString(FString::Printf(
+                TEXT("📡 CANLI ROS 2: Bekleniyor (Pi 5 -> Port 7400: /cmd_vel) │ %s\n  • Pi 5 / ROS 2'den Twist gönderildiğinde motorlar ve telemetri anlık akacaktır."), *PhysNotice)));
+            RosControlLiveBannerText->SetColorAndOpacity(FLinearColor(0.65f, 0.8f, 0.95f, 1.0f));
         }
     }
 
@@ -1742,6 +2038,11 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
                     }
                     MotorTestSliderValueText->SetText(FText::FromString(StatusText));
                 }
+
+                if (MotorTestSlider.IsValid() && TargetImporter->bIsPiConnected && TargetImporter->TotalPacketsReceived > 0)
+                {
+                    MotorTestSlider->SetValue(SelMotor.CurrentTestValue);
+                }
             }
             else
             {
@@ -1763,55 +2064,185 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
     // 5) TAB 2: TELEMETRY & CONNECTION TEXTS
     if (ConnectionStagesText.IsValid())
     {
-        FString SocketStatus = TargetImporter->bIsSocketBound ? TEXT("🟢 AÇIK (Dinliyor)") : TEXT("🔴 KAPALI / HATA");
-        FString Pi5Status = TargetImporter->bIsPiConnected ?
-            FString::Printf(TEXT("🟢 BAĞLANDI (IP: %s)"), *TargetImporter->ConnectedPiIP) :
-            (TargetImporter->ConnectionStage == 5 ? TEXT("🔴 KOPTU (Zaman Aşımı)") : TEXT("🟡 BEKLENİYOR..."));
+        FString StagesStr;
+        if (Autopilot && Autopilot->ControlMode != EPiSimControlMode::DirectROS2)
+        {
+            const FPiSimAutopilotTelemetry& Tel = Autopilot->Telemetry;
+            FString BackendStr = TEXT("Bilinmiyor");
+            FString EndpointStr = TEXT("-");
+            switch (Autopilot->ControlMode)
+            {
+            case EPiSimControlMode::ArduPilotSITL:
+                BackendStr = TEXT("ArduPilot SITL");
+                EndpointStr = FString::Printf(TEXT("UDP %d"), Autopilot->ArduPilotListenPort);
+                break;
+            case EPiSimControlMode::PX4SITL:
+                BackendStr = TEXT("PX4 SITL");
+                EndpointStr = FString::Printf(TEXT("TCP %d / UDP %d"), Autopilot->Px4SitlTcpPort, Autopilot->Px4SitlUdpPort);
+                break;
+            case EPiSimControlMode::PX4HITL:
+                BackendStr = TEXT("PX4 HITL");
+                EndpointStr = FString::Printf(TEXT("%s @ %d"), *Autopilot->SerialPortName, Autopilot->SerialBaudRate);
+                break;
+            default:
+                break;
+            }
 
-        FString StagesStr = FString::Printf(
-            TEXT("  • Aşama 1: UE5 Dinleme Soketi : 0.0.0.0:7400 [%s]\n"
-                 "  • Aşama 2: Telemetri Hedefleri: %s:7401 [🟢 HAZIR]\n"
-                 "  • Aşama 3: Pi 5 Handshake     : %s\n"
-                 "  • Aşama 4: Canlı Veri Akışı   : %5.1f Hz  (Toplam: %d Paket)"),
-            *SocketStatus, *TargetImporter->BridgeTargetIP, *Pi5Status, TargetImporter->RxPacketRateHz, TargetImporter->TotalPacketsReceived
-        );
+            StagesStr = FString::Printf(
+                TEXT("  • Seçili Backend   : %s\n"
+                     "  • Uç Nokta         : %s\n"
+                     "  • Bağlantı Durumu  : %s\n"
+                     "  • Sensör Yayını    : %5.1f Hz\n"
+                     "  • Aktüatör Geri D. : %5.1f Hz"),
+                *BackendStr,
+                *EndpointStr,
+                *Tel.StatusLine,
+                Tel.SensorTxHz,
+                Tel.ActuatorRxHz);
+        }
+        else
+        {
+            FString SocketStatus = TargetImporter->bIsSocketBound ? TEXT("🟢 AÇIK (Dinliyor)") : TEXT("🔴 KAPALI / HATA");
+            FString Pi5Status = TargetImporter->bIsPiConnected ?
+                FString::Printf(TEXT("🟢 BAĞLANDI (IP: %s)"), *TargetImporter->ConnectedPiIP) :
+                (TargetImporter->ConnectionStage == 5 ? TEXT("🔴 KOPTU (Zaman Aşımı)") : TEXT("🟡 BEKLENİYOR..."));
+
+            StagesStr = FString::Printf(
+                TEXT("  • Aşama 1: UE5 Dinleme Soketi : 0.0.0.0:7400 [%s]\n"
+                     "  • Aşama 2: Telemetri Hedefleri: %s:7401 [🟢 HAZIR]\n"
+                     "  • Aşama 3: Pi 5 Handshake     : %s\n"
+                     "  • Aşama 4: Canlı Veri Akışı   : %5.1f Hz  (Toplam: %d Paket)"),
+                *SocketStatus, *TargetImporter->BridgeTargetIP, *Pi5Status, TargetImporter->RxPacketRateHz, TargetImporter->TotalPacketsReceived
+            );
+        }
         ConnectionStagesText->SetText(FText::FromString(StagesStr));
     }
 
     if (IncomingDataText.IsValid())
     {
-        FString InDataStr = FString::Printf(
-            TEXT("  • Doğrusal Hız (X) : %+.2f m/s  (Y: %+.2f, Z: %+.2f)\n"
-                 "  • Açısal Hız (Yaw) : %+.2f rad/s\n"
-                 "  • Sol / Sağ RPM    : %+6.1f / %+6.1f RPM\n"
-                 "  • Uygulanan RPM    : %+.1f RPM (G / F Tuşları)"),
-            TargetImporter->TargetLinearX, TargetImporter->LastRxLinearVel.Y, TargetImporter->LastRxLinearVel.Z,
-            TargetImporter->TargetAngularZ, TargetImporter->LeftWheelsRpm, TargetImporter->RightWheelsRpm, TargetImporter->AppliedWheelRpm
-        );
+        FString InDataStr = TEXT("");
+        if (Autopilot && Autopilot->ControlMode != EPiSimControlMode::DirectROS2)
+        {
+            const FPiSimAutopilotTelemetry& Tel = Autopilot->Telemetry;
+            FString PwmLine = TEXT("  • PWM Çıkışları    : veri yok");
+            if (Tel.MotorPwmUs.Num() > 0)
+            {
+                FString PwmJoined;
+                const int32 ShowCount = FMath::Min(4, Tel.MotorPwmUs.Num());
+                for (int32 i = 0; i < ShowCount; ++i)
+                {
+                    if (!PwmJoined.IsEmpty())
+                    {
+                        PwmJoined += TEXT(" | ");
+                    }
+                    PwmJoined += FString::Printf(TEXT("M%d=%dµs"), i + 1, Tel.MotorPwmUs[i]);
+                }
+                PwmLine = FString::Printf(TEXT("  • PWM Çıkışları    : %s"), *PwmJoined);
+            }
+
+            InDataStr = FString::Printf(
+                TEXT("  • Roll / Pitch     : %+.2f / %+.2f\n"
+                     "  • Yaw / Throttle   : %+.2f / %+.2f\n"
+                     "  • Armed            : %s\n"
+                     "%s"),
+                Tel.RollCmd,
+                Tel.PitchCmd,
+                Tel.YawCmd,
+                Tel.ThrottleCmd,
+                Tel.bArmed ? TEXT("EVET") : TEXT("HAYIR"),
+                *PwmLine);
+        }
+        else if (TargetImporter->VehicleDomain == EVehicleDomain::Air)
+        {
+            float ThrottlePct = FMath::Clamp(TargetImporter->TargetLinearX * 100.0f, 0.0f, 100.0f);
+            float PitchDeg = FMath::Clamp(TargetImporter->TargetAngularZ * 10.0f, -20.0f, 20.0f);
+            float RollDeg = FMath::Clamp(TargetImporter->LastRxAngularVel.X * 10.0f, -20.0f, 20.0f);
+
+            InDataStr = FString::Printf(
+                TEXT("  • ROS Topic       : /cmd_vel (Hava Aracı Uçuş Kontrolü)\n"
+                     "  • İleri Gaz (Thr) : %%%.1f (Linear.X: %+.2f)\n"
+                     "  • Yunuslama(Pitch): %+.1f° (Angular.Y: %+.2f rad/s)\n"
+                     "  • Yatış (Roll)    : %+.1f° (Angular.X: %+.2f rad/s)\n"
+                     "  • Sapma (Yaw)     : %+.1f° (Angular.Z: %+.2f rad/s)\n"
+                     "  • Elevon Çıkışı   : Sol=%+.1f°, Sağ=%+.1f°"),
+                ThrottlePct, TargetImporter->TargetLinearX,
+                PitchDeg, TargetImporter->LastRxAngularVel.Y,
+                RollDeg, TargetImporter->LastRxAngularVel.X,
+                TargetImporter->TargetAngularZ * 10.0f, TargetImporter->TargetAngularZ,
+                PitchDeg + RollDeg, PitchDeg - RollDeg
+            );
+        }
+        else
+        {
+            InDataStr = FString::Printf(
+                TEXT("  • ROS Topic        : /cmd_vel (geometry_msgs/Twist)\n"
+                     "  • Doğrusal Hız (X) : %+.2f m/s (İleri/Geri)\n"
+                     "  • Açısal Hız (Yaw) : %+.2f rad/s (Dönüş)\n"
+                     "  • Sol / Sağ RPM    : %+6.1f / %+6.1f RPM\n"
+                     "  • Manuel Ofset     : %+.1f RPM (G / F Tuşları)"),
+                TargetImporter->TargetLinearX, TargetImporter->TargetAngularZ,
+                TargetImporter->LeftWheelsRpm, TargetImporter->RightWheelsRpm, TargetImporter->AppliedWheelRpm
+            );
+        }
         IncomingDataText->SetText(FText::FromString(InDataStr));
     }
 
     if (ConnectionDebugLogText.IsValid())
     {
-        if (TargetImporter->ConnectionDebugLogs.Num() > 0)
+        if (Autopilot && Autopilot->ControlMode != EPiSimControlMode::DirectROS2)
+        {
+            FString DebugText = FString::Printf(TEXT("  • Backend Durumu   : %s"), *Autopilot->Telemetry.StatusLine);
+            if (TargetImporter->ConnectionDebugLogs.Num() > 0)
+            {
+                DebugText += TEXT("\n");
+                DebugText += FString::Join(TargetImporter->ConnectionDebugLogs, TEXT("\n"));
+            }
+            ConnectionDebugLogText->SetText(FText::FromString(DebugText));
+        }
+        else if (TargetImporter->ConnectionDebugLogs.Num() > 0)
+        {
             ConnectionDebugLogText->SetText(FText::FromString(FString::Join(TargetImporter->ConnectionDebugLogs, TEXT("\n"))));
+        }
         else
+        {
             ConnectionDebugLogText->SetText(FText::FromString(TEXT("  Henüz bir bağlantı olayı kaydedilmedi.")));
+        }
     }
 
     if (OutgoingTelemetryText.IsValid())
     {
-        FString OutStr = FString::Printf(
-            TEXT("  • Telemetri Paketi : #%d (%5.1f Hz, %s:7401)\n"
-                 "  • Gövde Hızı       : %5.1f km/h\n"
-                 "  • İvmeölçer (Accel): X=%+5.2f, Y=%+5.2f, Z=%+5.2f m/s²\n"
-                 "  • Jiroskop (Gyro)  : X=%+5.2f, Y=%+5.2f, Z=%+5.2f deg/s\n"
-                 "  • Oryantasyon Quat : (X=%.3f, Y=%.3f, Z=%.3f, W=%.3f)"),
-            TargetImporter->TotalPacketsSent, TargetImporter->TxPacketRateHz, *TargetImporter->BridgeTargetIP,
-            TargetImporter->CurrentForwardSpeedKmh, TargetImporter->CurrentLinearAccel.X, TargetImporter->CurrentLinearAccel.Y,
-            TargetImporter->CurrentLinearAccel.Z, TargetImporter->LastTxGyro.X, TargetImporter->LastTxGyro.Y, TargetImporter->LastTxGyro.Z,
-            TargetImporter->LastTxQuat.X, TargetImporter->LastTxQuat.Y, TargetImporter->LastTxQuat.Z, TargetImporter->LastTxQuat.W
-        );
+        FString OutStr;
+        if (Autopilot && Autopilot->ControlMode != EPiSimControlMode::DirectROS2 && TargetImporter->VirtualSensors)
+        {
+            const FPiSimImuSensorData& Imu = TargetImporter->VirtualSensors->ImuData;
+            const FPiSimGpsSensorData& Gps = TargetImporter->VirtualSensors->GpsData;
+            const FPiSimBaroSensorData& Baro = TargetImporter->VirtualSensors->BaroData;
+            OutStr = FString::Printf(
+                TEXT("  • Sanal IMU        : A=(%+5.2f, %+5.2f, %+5.2f) m/s²\n"
+                     "  • Sanal Gyro       : G=(%+5.2f, %+5.2f, %+5.2f) rad/s\n"
+                     "  • GPS              : %.6f, %.6f | %.1f m\n"
+                     "  • Baro / Pitot     : %.1f hPa | %.2f hPa\n"
+                     "  • UE5 -> Pi 5 TX   : %5.1f Hz (%s:7401)"),
+                Imu.AccelNED.X, Imu.AccelNED.Y, Imu.AccelNED.Z,
+                Imu.GyroNED.X, Imu.GyroNED.Y, Imu.GyroNED.Z,
+                Gps.LatitudeDeg, Gps.LongitudeDeg, Gps.AltitudeAMSL,
+                Baro.AbsPressureHPa, Baro.DiffPressureHPa,
+                TargetImporter->TxPacketRateHz, *TargetImporter->BridgeTargetIP);
+        }
+        else
+        {
+            OutStr = FString::Printf(
+                TEXT("  • Telemetri Paketi : #%d (%5.1f Hz, %s:7401)\n"
+                     "  • Gövde Hızı       : %5.1f km/h\n"
+                     "  • İvmeölçer (Accel): X=%+5.2f, Y=%+5.2f, Z=%+5.2f m/s²\n"
+                     "  • Jiroskop (Gyro)  : X=%+5.2f, Y=%+5.2f, Z=%+5.2f deg/s\n"
+                     "  • Oryantasyon Quat : (X=%.3f, Y=%.3f, Z=%.3f, W=%.3f)"),
+                TargetImporter->TotalPacketsSent, TargetImporter->TxPacketRateHz, *TargetImporter->BridgeTargetIP,
+                TargetImporter->CurrentForwardSpeedKmh, TargetImporter->CurrentLinearAccel.X, TargetImporter->CurrentLinearAccel.Y,
+                TargetImporter->CurrentLinearAccel.Z, TargetImporter->LastTxGyro.X, TargetImporter->LastTxGyro.Y, TargetImporter->LastTxGyro.Z,
+                TargetImporter->LastTxQuat.X, TargetImporter->LastTxQuat.Y, TargetImporter->LastTxQuat.Z, TargetImporter->LastTxQuat.W
+            );
+        }
         OutgoingTelemetryText->SetText(FText::FromString(OutStr));
     }
 
@@ -1830,6 +2261,82 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
             TargetImporter->bIsPhysicsSimulating ? TEXT("⚡ AKTİF (Chaos Simülasyonu)") : TEXT("⏸️ STATİK (Garaj)"), *VideoStatus
         );
         ModelCadStatusText->SetText(FText::FromString(CadStr));
+    }
+
+    if (ModularComponentsDebugText.IsValid())
+    {
+        FString CompStr = TEXT("");
+
+        // 1) Araç Sınıfı (Domain)
+        FString DomainStr = TEXT("Bilinmeyen");
+        switch (TargetImporter->VehicleDomain)
+        {
+            case EVehicleDomain::Air: DomainStr = TEXT("✈️ HAVA ARACI (Airframe / Kanat & İtki)"); break;
+            case EVehicleDomain::Land: DomainStr = TEXT("🚗 KARA ARACI (Chassis / Tekerlekli)"); break;
+            case EVehicleDomain::Sea: DomainStr = TEXT("⚓ DENİZ ARACI (Hull / Tekne & USV)"); break;
+            default: DomainStr = TEXT("⚙️ GENEL MODEL"); break;
+        }
+        CompStr += FString::Printf(TEXT("  • Araç Sınıfı    : %s\n"), *DomainStr);
+
+        // 2) Aktüatörler
+        CompStr += FString::Printf(TEXT("  • Aktüatör Sayısı: %d Adet\n"), TargetImporter->AttachedActuators.Num());
+        if (TargetImporter->AttachedActuators.Num() == 0)
+        {
+            CompStr += TEXT("    (Henüz bağlı aktüatör yok)\n");
+        }
+        else
+        {
+            for (int32 a = 0; a < TargetImporter->AttachedActuators.Num(); ++a)
+            {
+                UPiSimActuatorComponent* Act = TargetImporter->AttachedActuators[a];
+                if (!Act) continue;
+
+                FString TypeStr = TEXT("DC");
+                switch (Act->MotorType)
+                {
+                    case EPiSimMotorType::BLDC_ESC: TypeStr = TEXT("BLDC [ESC]"); break;
+                    case EPiSimMotorType::Servo_Position: TypeStr = TEXT("Servo [Açı]"); break;
+                    case EPiSimMotorType::Stepper: TypeStr = TEXT("Step"); break;
+                    default: TypeStr = TEXT("DC"); break;
+                }
+
+                if (Act->Role == EPiSimMotorRole::Thruster)
+                {
+                    CompStr += FString::Printf(TEXT("    [%d] %s (%s): %%%.0f Gaz | %.1f N İtki (%s)\n"),
+                        a, *Act->ActuatorName, *TypeStr, Act->TargetNormalizedValue * 100.0f, Act->CurrentOutputForceOrTorque, *Act->Ros2Topic);
+                }
+                else if (Act->Role == EPiSimMotorRole::ServoJoint)
+                {
+                    CompStr += FString::Printf(TEXT("    [%d] %s (%s): %+.1f° Açı (Hedef: %+.1f°) (%s)\n"),
+                        a, *Act->ActuatorName, *TypeStr, Act->CurrentAngleDeg, Act->TargetAngleDeg, *Act->Ros2Topic);
+                }
+                else
+                {
+                    CompStr += FString::Printf(TEXT("    [%d] %s (%s): %.0f RPM | %.1f Nm\n"),
+                        a, *Act->ActuatorName, *TypeStr, Act->TargetRPM, Act->CurrentOutputForceOrTorque);
+                }
+            }
+        }
+
+        // 3) Kanat / Kaldırma Kuvveti Gövdeleri
+        CompStr += FString::Printf(TEXT("  • Kuvvet Gövdesi : %d Kanat\n"), TargetImporter->AttachedWingBodies.Num());
+        if (TargetImporter->AttachedWingBodies.Num() == 0)
+        {
+            CompStr += TEXT("    (Kanat gövdesi yok)\n");
+        }
+        else
+        {
+            for (int32 w = 0; w < TargetImporter->AttachedWingBodies.Num(); ++w)
+            {
+                UPiSimAeroWingComponent* Wing = TargetImporter->AttachedWingBodies[w];
+                if (!Wing) continue;
+
+                CompStr += FString::Printf(TEXT("    [%d] %s: V=%.1f km/h | AoA=%+.1f° | Elevon=%+.1f° | Lift=%+.1f N | Drag=%.1f N\n"),
+                    w, *Wing->WingName, Wing->AirspeedKmh, Wing->AngleOfAttackDeg, Wing->ControlSurfaceDeflectionDeg, Wing->CurrentLiftN, Wing->CurrentDragN);
+            }
+        }
+
+        ModularComponentsDebugText->SetText(FText::FromString(CompStr));
     }
 
     // 6) TAB 3: SENSORS LIST & INSPECTOR
@@ -2297,5 +2804,47 @@ FReply UPiSimModelImporterWidget::OnToggleReverseThrustClicked()
         *Motor.BoneName,
         Motor.bReverseThrust ? TEXT("TERS (Pusher)") : TEXT("NORMAL (Tractor)"));
 
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnCycleControlModeClicked()
+{
+    if (TargetImporter && TargetImporter->AutopilotManager)
+    {
+        uint8 Next = ((uint8)TargetImporter->AutopilotManager->ControlMode + 1) % 4;
+        TargetImporter->AutopilotManager->SetControlMode((EPiSimControlMode)Next);
+    }
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnCycleSerialPortClicked()
+{
+    if (TargetImporter && TargetImporter->AutopilotManager)
+    {
+        TargetImporter->AutopilotManager->CycleSerialPort();
+    }
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnToggleAutopilotLinkClicked()
+{
+    if (TargetImporter && TargetImporter->AutopilotManager)
+    {
+        if (TargetImporter->AutopilotManager->ControlMode == EPiSimControlMode::DirectROS2)
+        {
+            TargetImporter->AddConnectionDebugLog(TEXT("Direct ROS 2"));
+        }
+        else
+        {
+            if (TargetImporter->AutopilotManager->Telemetry.bLinkUp)
+            {
+                TargetImporter->AutopilotManager->Disconnect();
+            }
+            else
+            {
+                TargetImporter->AutopilotManager->Connect();
+            }
+        }
+    }
     return FReply::Handled();
 }
