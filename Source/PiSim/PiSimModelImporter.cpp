@@ -2057,30 +2057,68 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         VisComp->SetHiddenInGame(false);
 
         // İLGİLİ UCX CONVEX HULL'UNU BUL VE PARÇAYA ZIRH OLARAK GİYDİR
+        // İLGİLİ UCX CONVEX HULL'UNU BUL VE PARÇAYA ZIRH OLARAK GİYDİR
         VisComp->ClearCollisionConvexMeshes();
-        bool bFoundUCX = false;
+        bool bHasCollision = false;
+
+        // 1) Bu görsel parçayla doğrudan eşleşen UCX'leri ekle
         for (int32 j = 0; j < UCXSections.Num(); ++j)
         {
             if (UCXSections[j].MeshName.Contains(VisualSections[i].MeshName, ESearchCase::IgnoreCase))
             {
                 VisComp->AddCollisionConvexMesh(UCXSections[j].Vertices);
-                bFoundUCX = true;
-                break;
+                bHasCollision = true;
             }
         }
-        if (!bFoundUCX)
+
+        // 2) Eğer bu ana gövde (i == 0) ise ve ayrı alt görsel parçalara atanmamış kanat/gövde UCX'leri varsa (örn. UCX_B_Wing_R, UCX_B_Wing_L):
+        // Bunları ana şasiye göre ofsetleyerek ana fizik gövdesine ekle!
+        if (i == 0 && UCXSections.Num() > 0)
         {
-            VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
+            for (int32 j = 0; j < UCXSections.Num(); ++j)
+            {
+                bool bBelongsToOtherVisual = false;
+                for (int32 other = 1; other < VisualSections.Num(); ++other)
+                {
+                    if (UCXSections[j].MeshName.Contains(VisualSections[other].MeshName, ESearchCase::IgnoreCase))
+                    {
+                        bBelongsToOtherVisual = true;
+                        break;
+                    }
+                }
+
+                if (!bBelongsToOtherVisual)
+                {
+                    FVector Offset = UCXSections[j].PivotPoint - VisualSections[0].PivotPoint;
+                    TArray<FVector> OffsetVerts = UCXSections[j].Vertices;
+                    for (FVector& V : OffsetVerts)
+                    {
+                        V += Offset;
+                    }
+                    VisComp->AddCollisionConvexMesh(OffsetVerts);
+                    bHasCollision = true;
+                    UE_LOG(LogTemp, Warning, TEXT("🛡️ [UCX ZIRHI ŞASİYE MONTE EDİLDİ] '%s' şasiye eklendi (Ofset: %s, Verts: %d)"),
+                        *UCXSections[j].MeshName, *Offset.ToString(), OffsetVerts.Num());
+                }
+            }
         }
 
-        // STATİK HALDE DE SOLID ÇARPIŞMA %100 AKTİF!
-        VisComp->bUseComplexAsSimpleCollision = false;
-        VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-        VisComp->SetCollisionObjectType(ECC_WorldDynamic);
-        VisComp->SetCollisionResponseToAllChannels(ECR_Block);
-        VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zemini bloklar
-        VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-        VisComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+        // Çarpışma durumu: SADECE UCX varsa collision aktif, UCX yoksa NO COLLISION!
+        if (bHasCollision)
+        {
+            VisComp->bUseComplexAsSimpleCollision = false;
+            VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+            VisComp->SetCollisionObjectType(ECC_WorldDynamic);
+            VisComp->SetCollisionResponseToAllChannels(ECR_Block);
+            VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zemini bloklar
+            VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+            VisComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+        }
+        else
+        {
+            // UCX'i olmayan parçalar saf görsel kalır, asla otomatik collision almaz!
+            VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        }
         VisComp->RecreatePhysicsState();
         VisComp->UpdateBounds();
 
@@ -2633,29 +2671,62 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             }
         }
 
-        // İlgili UCX Convex Hull'unu aktar (veya kendi geometrisi)
+        // İlgili UCX Convex Hull'unu aktar (UCX yoksa asla collision verilmez!)
         VisComp->ClearCollisionConvexMeshes();
-        bool bFoundUCX = false;
+        bool bHasCollision = false;
+
         for (const FImporterMeshSection& UcxSec : UCXSections)
         {
             if (UcxSec.MeshName.Contains(VisualSections[i].MeshName, ESearchCase::IgnoreCase))
             {
                 VisComp->AddCollisionConvexMesh(UcxSec.Vertices);
-                bFoundUCX = true;
-                break;
+                bHasCollision = true;
             }
         }
-        if (!bFoundUCX)
+
+        // Kök gövde (i == 0) ise diğer parçalara atanmamış kanat/gövde UCX'lerini ofsetleyerek ekle
+        if (i == 0 && UCXSections.Num() > 0)
         {
-            VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
+            for (const FImporterMeshSection& UcxSec : UCXSections)
+            {
+                bool bBelongsToOtherVisual = false;
+                for (int32 other = 1; other < VisualSections.Num(); ++other)
+                {
+                    if (UcxSec.MeshName.Contains(VisualSections[other].MeshName, ESearchCase::IgnoreCase))
+                    {
+                        bBelongsToOtherVisual = true;
+                        break;
+                    }
+                }
+
+                if (!bBelongsToOtherVisual)
+                {
+                    FVector Offset = UcxSec.PivotPoint - VisualSections[0].PivotPoint;
+                    TArray<FVector> OffsetVerts = UcxSec.Vertices;
+                    for (FVector& V : OffsetVerts)
+                    {
+                        V += Offset;
+                    }
+                    VisComp->AddCollisionConvexMesh(OffsetVerts);
+                    bHasCollision = true;
+                }
+            }
         }
 
-        VisComp->bUseComplexAsSimpleCollision = false;
-        VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-        VisComp->SetCollisionObjectType(ECC_WorldDynamic);
-        VisComp->SetCollisionResponseToAllChannels(ECR_Block);
-        VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zeminle çarpış
-        VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+        if (bHasCollision)
+        {
+            VisComp->bUseComplexAsSimpleCollision = false;
+            VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+            VisComp->SetCollisionObjectType(ECC_WorldDynamic);
+            VisComp->SetCollisionResponseToAllChannels(ECR_Block);
+            VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zeminle çarpış
+            VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+        }
+        else
+        {
+            // UCX yoksa NO COLLISION!
+            VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+        }
         VisComp->RecreatePhysicsState();
 
         // Dinamik Fiziği Aç
