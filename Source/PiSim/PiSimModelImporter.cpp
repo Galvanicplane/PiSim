@@ -1768,14 +1768,10 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                                                      MeshLabel.StartsWith(TEXT("Sensor_"), ESearchCase::IgnoreCase) ||
                                                      bIsSensorMesh;
 
-                                // 1) Calculate Exact Pivot Point (Prefer exact bone position from FBX TransformLink, fallback to Centroid)
-                                FVector Pivot = SubDef->bHasBonePosition ? SubDef->BonePosition : FVector::ZeroVector;
-                                if (!SubDef->bHasBonePosition)
-                                {
-                                    FVector Center = FVector::ZeroVector;
-                                    for (const FVector& V : SubVerts) Center += V;
-                                    Pivot = Center / (float)SubVerts.Num();
-                                }
+                                // 1) Calculate Exact Pivot Point (Centroid in World Space)
+                                FVector Center = FVector::ZeroVector;
+                                for (const FVector& V : SubVerts) Center += V;
+                                FVector Pivot = Center / (float)SubVerts.Num();
 
                                 if (bBoneIsSensor)
                                 {
@@ -2062,75 +2058,29 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
 
         // İLGİLİ UCX CONVEX HULL'UNU BUL VE PARÇAYA ZIRH OLARAK GİYDİR
         VisComp->ClearCollisionConvexMeshes();
-        bool bHasCollision = false;
-
-        // 1) Bu görsel parçayla doğrudan eşleşen UCX'leri ekle
+        bool bFoundUCX = false;
         for (int32 j = 0; j < UCXSections.Num(); ++j)
         {
             if (UCXSections[j].MeshName.Contains(VisualSections[i].MeshName, ESearchCase::IgnoreCase))
             {
                 VisComp->AddCollisionConvexMesh(UCXSections[j].Vertices);
-                bHasCollision = true;
+                bFoundUCX = true;
+                break;
             }
         }
-
-        // 2) Eğer bu ana gövde (i == 0) ise ve ayrı alt görsel parçalara atanmamış kanat/gövde UCX'leri varsa (örn. UCX_B_Wing_R, UCX_B_Wing_L):
-        // Bunları ana şasiye göre ofsetleyerek ana fizik gövdesine ekle!
-        if (i == 0 && UCXSections.Num() > 0)
-        {
-            for (int32 j = 0; j < UCXSections.Num(); ++j)
-            {
-                bool bBelongsToOtherVisual = false;
-                for (int32 other = 1; other < VisualSections.Num(); ++other)
-                {
-                    if (UCXSections[j].MeshName.Contains(VisualSections[other].MeshName, ESearchCase::IgnoreCase))
-                    {
-                        bBelongsToOtherVisual = true;
-                        break;
-                    }
-                }
-
-                if (!bBelongsToOtherVisual)
-                {
-                    FVector Offset = UCXSections[j].PivotPoint - VisualSections[0].PivotPoint;
-                    TArray<FVector> OffsetVerts = UCXSections[j].Vertices;
-                    for (FVector& V : OffsetVerts)
-                    {
-                        V += Offset;
-                    }
-                    VisComp->AddCollisionConvexMesh(OffsetVerts);
-                    bHasCollision = true;
-                    UE_LOG(LogTemp, Warning, TEXT("🛡️ [UCX ZIRHI ŞASİYE MONTE EDİLDİ] '%s' şasiye eklendi (Ofset: %s, Verts: %d)"),
-                        *UCXSections[j].MeshName, *Offset.ToString(), OffsetVerts.Num());
-                }
-            }
-        }
-
-        // ⚠️ KULLANICI KURALI: UCX bulunamazsa ASLA görsel mesh'i (VisualSections[i].Vertices) otomatik convex yapma!
-        // Sadece modelde HİÇ UCX yoksa (UCXSections.Num() == 0) ve kök parçaysa (i == 0) acil durum fallback'i uygula.
-        if (!bHasCollision && UCXSections.Num() == 0 && i == 0)
+        if (!bFoundUCX)
         {
             VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
-            bHasCollision = true;
         }
 
-        // Çarpışma durumu
-        if (bHasCollision)
-        {
-            VisComp->bUseComplexAsSimpleCollision = false;
-            VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-            VisComp->SetCollisionObjectType(ECC_WorldDynamic);
-            VisComp->SetCollisionResponseToAllChannels(ECR_Block);
-            VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zemini bloklar
-            VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-            VisComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-        }
-        else
-        {
-            // UCX'i olmayan parçalar saf görsel kalır, gereksiz şişkin çarpışma kutusu oluşturmaz
-            VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        }
-
+        // STATİK HALDE DE SOLID ÇARPIŞMA %100 AKTİF!
+        VisComp->bUseComplexAsSimpleCollision = false;
+        VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+        VisComp->SetCollisionObjectType(ECC_WorldDynamic);
+        VisComp->SetCollisionResponseToAllChannels(ECR_Block);
+        VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zemini bloklar
+        VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
+        VisComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
         VisComp->RecreatePhysicsState();
         VisComp->UpdateBounds();
 
@@ -2683,69 +2633,29 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
             }
         }
 
-        // İlgili UCX Convex Hull'unu aktar
+        // İlgili UCX Convex Hull'unu aktar (veya kendi geometrisi)
         VisComp->ClearCollisionConvexMeshes();
-        bool bHasCollision = false;
-
+        bool bFoundUCX = false;
         for (const FImporterMeshSection& UcxSec : UCXSections)
         {
             if (UcxSec.MeshName.Contains(VisualSections[i].MeshName, ESearchCase::IgnoreCase))
             {
                 VisComp->AddCollisionConvexMesh(UcxSec.Vertices);
-                bHasCollision = true;
+                bFoundUCX = true;
+                break;
             }
         }
-
-        // Kök gövde (i == 0) ise diğer parçalara atanmamış kanat/gövde UCX'lerini ofsetleyerek ekle
-        if (i == 0 && UCXSections.Num() > 0)
-        {
-            for (const FImporterMeshSection& UcxSec : UCXSections)
-            {
-                bool bBelongsToOtherVisual = false;
-                for (int32 other = 1; other < VisualSections.Num(); ++other)
-                {
-                    if (UcxSec.MeshName.Contains(VisualSections[other].MeshName, ESearchCase::IgnoreCase))
-                    {
-                        bBelongsToOtherVisual = true;
-                        break;
-                    }
-                }
-
-                if (!bBelongsToOtherVisual)
-                {
-                    FVector Offset = UcxSec.PivotPoint - VisualSections[0].PivotPoint;
-                    TArray<FVector> OffsetVerts = UcxSec.Vertices;
-                    for (FVector& V : OffsetVerts)
-                    {
-                        V += Offset;
-                    }
-                    VisComp->AddCollisionConvexMesh(OffsetVerts);
-                    bHasCollision = true;
-                }
-            }
-        }
-
-        // ⚠️ KULLANICI KURALI: UCX bulunamazsa ASLA görsel mesh'i (VisualSections[i].Vertices) otomatik convex yapma!
-        if (!bHasCollision && UCXSections.Num() == 0 && i == 0)
+        if (!bFoundUCX)
         {
             VisComp->AddCollisionConvexMesh(VisualSections[i].Vertices);
-            bHasCollision = true;
         }
 
-        if (bHasCollision)
-        {
-            VisComp->bUseComplexAsSimpleCollision = false;
-            VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-            VisComp->SetCollisionObjectType(ECC_WorldDynamic);
-            VisComp->SetCollisionResponseToAllChannels(ECR_Block);
-            VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zeminle çarpış
-            VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-        }
-        else
-        {
-            VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        }
-
+        VisComp->bUseComplexAsSimpleCollision = false;
+        VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+        VisComp->SetCollisionObjectType(ECC_WorldDynamic);
+        VisComp->SetCollisionResponseToAllChannels(ECR_Block);
+        VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zeminle çarpış
+        VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
         VisComp->RecreatePhysicsState();
 
         // Dinamik Fiziği Aç
@@ -2753,36 +2663,8 @@ void APiSimModelImporter::SetPhysicsSimulationActive(bool bActive)
         VisComp->SetSimulatePhysics(true);
         VisComp->SetEnableGravity(true);
         VisComp->SetMassOverrideInKg(NAME_None, Mass, true);
-
-        // Damping: Uçak ve kara araç için farklı değerler
-        bool bIsAircraft = !ConfiguredMotors.ContainsByPredicate([](const FPiSimMotorItem& M){
-            return M.Role == EPiSimMotorRole::DriveWheel || M.Role == EPiSimMotorRole::SteeredWheel;
-        });
-        if (i == 0 && bIsAircraft)
-        {
-            // Uçak gövdesi: Düşük linear damping (rüzgar direnci), orta angular damping
-            VisComp->SetLinearDamping(0.05f);
-            VisComp->SetAngularDamping(0.5f);
-        }
-        else
-        {
-            // Kara aracı / tekerlek: Orijinal değerler
-            VisComp->SetLinearDamping(0.8f);
-            VisComp->SetAngularDamping(1.5f);
-        }
-
-        // Eylemsizlik Momenti (MOI) ölçeği — model küçükse veya kararlılık için artır
-        if (i == 0)
-        {
-            FBodyInstance* BI = VisComp->GetBodyInstance();
-            if (BI)
-            {
-                BI->InertiaTensorScale = FVector(AeroConfig.InertiaTensorScale);
-                BI->UpdateMassProperties();
-            }
-            ApplyCenterOfMass();
-        }
-
+        VisComp->SetLinearDamping(0.8f);
+        VisComp->SetAngularDamping(1.5f);
         VisComp->WakeRigidBody();
 
         UE_LOG(LogTemp, Warning, TEXT("[FİZİK LOG] '%s' bileşenine CANLI DİNAMİK FİZİK verildi | Kütle: %.1f kg | Yerçekimi: AÇIK"),
