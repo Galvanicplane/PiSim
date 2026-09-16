@@ -280,6 +280,22 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                     ]
                 ]
 
+                + SHorizontalBox::Slot()
+                .AutoWidth()
+                .Padding(FMargin(2.0f, 0.0f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(FLinearColor(0.85f, 0.45f, 0.05f, 1.0f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnExportArduPilotConfigClicked))
+                    .ToolTipText(FText::FromString(TEXT("Modelin fiziksel boyut ve aerodinamik özelliklerine göre ArduPilot SITL .param ve başlatıcı .bat dosyasını oluşturur")))
+                    [
+                        SNew(STextBlock)
+                        .Text(FText::FromString(TEXT(" ✈️ ARDUPILOT'A TANIT ")))
+                        .Font(ButtonFont)
+                        .ColorAndOpacity(FLinearColor::White)
+                    ]
+                ]
+
                 // Scale Multiply * 0.1
                 + SHorizontalBox::Slot()
                 .AutoWidth()
@@ -1004,6 +1020,24 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                                         .MinValue(-1.0f)
                                         .MaxValue(1.0f)
                                         .OnValueChanged(FOnFloatValueChanged::CreateUObject(this, &UPiSimModelImporterWidget::OnMotorTestSliderChanged))
+                                    ]
+
+                                    // Reset Test / Otomatik Kontrole Bırak Butonu
+                                    + SVerticalBox::Slot()
+                                    .AutoHeight()
+                                    .Padding(0.0f, 0.0f, 0.0f, 8.0f)
+                                    [
+                                        SNew(SButton)
+                                        .ButtonColorAndOpacity(FLinearColor(0.10f, 0.20f, 0.15f, 1.0f))
+                                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnResetMotorTestClicked))
+                                        .ContentPadding(FMargin(8.0f, 4.0f))
+                                        [
+                                            SNew(STextBlock)
+                                            .Text(FText::FromString(TEXT("🔄 OTOMATİK KONTROLE BIRAK (RESET)")))
+                                            .Font(ButtonFont)
+                                            .ColorAndOpacity(FLinearColor(0.4f, 1.0f, 0.7f, 1.0f))
+                                            .Justification(ETextJustify::Center)
+                                        ]
                                     ]
 
                                     // Thruster-only: İtki Yönü Toggle Butonu
@@ -2028,20 +2062,29 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
                 if (MotorTestSliderValueText.IsValid())
                 {
                     FString StatusText;
-                    if (FMath::Abs(SelMotor.CurrentTestValue) < 0.02f)
+                    if (SelMotor.bManualOverride)
+                    {
+                        StatusText = FString::Printf(TEXT("%+5.1f%% 🛠️ (MANUEL TEST)"), SelMotor.CurrentTestValue * 100.0f);
+                    }
+                    else if (FMath::Abs(SelMotor.CurrentTestValue) < 0.02f)
                     {
                         StatusText = TEXT("0.0% (DURUYOR)");
                     }
                     else
                     {
-                        StatusText = FString::Printf(TEXT("%+5.1f%% (GÜÇ VERİLDİ)"), SelMotor.CurrentTestValue * 100.0f);
+                        FString SourceName = TargetImporter->IsAutopilotDriving() ? TEXT("ARDUPILOT") : (TargetImporter->bIsPiConnected ? TEXT("PI 5 ROS") : TEXT("GÜÇ VERİLDİ"));
+                        StatusText = FString::Printf(TEXT("%+5.1f%% (%s)"), SelMotor.CurrentTestValue * 100.0f, *SourceName);
                     }
                     MotorTestSliderValueText->SetText(FText::FromString(StatusText));
                 }
 
-                if (MotorTestSlider.IsValid() && TargetImporter->bIsPiConnected && TargetImporter->TotalPacketsReceived > 0)
+                if (MotorTestSlider.IsValid() && !SelMotor.bManualOverride)
                 {
-                    MotorTestSlider->SetValue(SelMotor.CurrentTestValue);
+                    bool bNetworkDriving = (TargetImporter->bIsPiConnected && TargetImporter->TotalPacketsReceived > 0) || TargetImporter->IsAutopilotDriving();
+                    if (bNetworkDriving)
+                    {
+                        MotorTestSlider->SetValue(SelMotor.CurrentTestValue);
+                    }
                 }
             }
             else
@@ -2556,7 +2599,14 @@ FReply UPiSimModelImporterWidget::OnToggleAdvancedModeClicked()
 
 FReply UPiSimModelImporterWidget::OnSelectBoneClicked(int32 BoneIdx)
 {
-    if (TargetImporter) TargetImporter->SelectBone(BoneIdx);
+    if (TargetImporter)
+    {
+        TargetImporter->SelectBone(BoneIdx);
+        if (MotorTestSlider.IsValid() && TargetImporter->ConfiguredMotors.IsValidIndex(BoneIdx))
+        {
+            MotorTestSlider->SetValue(TargetImporter->ConfiguredMotors[BoneIdx].CurrentTestValue);
+        }
+    }
     return FReply::Handled();
 }
 
@@ -2584,6 +2634,19 @@ void UPiSimModelImporterWidget::OnMotorTestSliderChanged(float NewValue)
     {
         TargetImporter->SetMotorTestValue(TargetImporter->SelectedBoneIndex, NewValue);
     }
+}
+
+FReply UPiSimModelImporterWidget::OnResetMotorTestClicked()
+{
+    if (TargetImporter && TargetImporter->SelectedBoneIndex >= 0)
+    {
+        TargetImporter->ResetMotorManualOverride(TargetImporter->SelectedBoneIndex);
+        if (MotorTestSlider.IsValid())
+        {
+            MotorTestSlider->SetValue(0.0f);
+        }
+    }
+    return FReply::Handled();
 }
 
 FReply UPiSimModelImporterWidget::OnToggleSensorMarkersClicked()
@@ -2844,6 +2907,20 @@ FReply UPiSimModelImporterWidget::OnToggleAutopilotLinkClicked()
             {
                 TargetImporter->AutopilotManager->Connect();
             }
+        }
+    }
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnExportArduPilotConfigClicked()
+{
+    if (TargetImporter)
+    {
+        FString OutBatch;
+        FString ParamPath = TargetImporter->ExportArduPilotConfiguration(OutBatch);
+        if (!ParamPath.IsEmpty())
+        {
+            TargetImporter->AddConnectionDebugLog(FString::Printf(TEXT("✅ ArduPilot Parametreleri Hazır: %s"), *ParamPath));
         }
     }
     return FReply::Handled();

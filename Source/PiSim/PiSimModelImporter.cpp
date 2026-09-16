@@ -417,6 +417,16 @@ void APiSimModelImporter::ApplyAutopilotMixer(float Roll, float Pitch, float Yaw
     TargetLinearX = Throttle;
     TargetAngularZ = Yaw;
 
+    // ArduPilot / PX4 kara araçları ve taksi diferansiyel sürüş modeli:
+    float TrackWidth = 0.35f;
+    float WheelRadius = 0.08f;
+    float GroundLinearSpeed = Throttle * 5.0f; // m/s
+    float GroundYawSpeed = Yaw * 2.5f;
+    float V_Left = GroundLinearSpeed - (GroundYawSpeed * TrackWidth * 0.5f);
+    float V_Right = GroundLinearSpeed + (GroundYawSpeed * TrackWidth * 0.5f);
+    LeftWheelsRpm = (V_Left / (2.0f * PI * WheelRadius)) * 60.0f;
+    RightWheelsRpm = (V_Right / (2.0f * PI * WheelRadius)) * 60.0f;
+
     // Route commands to AttachedActuators (Modular Components)
     for (UPiSimActuatorComponent* Act : AttachedActuators)
     {
@@ -463,9 +473,22 @@ void APiSimModelImporter::ApplyAutopilotMixer(float Roll, float Pitch, float Yaw
     for (int32 m = 0; m < ConfiguredMotors.Num(); ++m)
     {
         FPiSimMotorItem& Motor = ConfiguredMotors[m];
+        if (Motor.bManualOverride)
+        {
+            continue; // Kullanıcı bu motoru UI slider ile manuel test ediyorsa otopilot üzerine yazmaz!
+        }
+
         if (Motor.Role == EPiSimMotorRole::Thruster)
         {
             Motor.CurrentTestValue = Throttle;
+        }
+        else if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::TrackPad)
+        {
+            int32 TargetSection = FindVisualSectionForBone(m);
+            float SectionY = (TargetSection > 0 && VisualMeshComponents.IsValidIndex(TargetSection) && VisualMeshComponents[TargetSection]) 
+                ? VisualMeshComponents[TargetSection]->GetRelativeLocation().Y : 0.0f;
+            float WheelRpm = (SectionY < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
+            Motor.CurrentTestValue = (Motor.MaxVelocityRPM > 1.0f) ? FMath::Clamp(WheelRpm / Motor.MaxVelocityRPM, -1.0f, 1.0f) : 0.0f;
         }
         else if (Motor.Role == EPiSimMotorRole::ServoJoint)
         {
@@ -588,9 +611,22 @@ void APiSimModelImporter::OnControlPacketReceived(const TArray<uint8>& PacketDat
         for (int32 m = 0; m < ConfiguredMotors.Num(); ++m)
         {
             FPiSimMotorItem& Motor = ConfiguredMotors[m];
+            if (Motor.bManualOverride)
+            {
+                continue; // Kullanıcı bu motoru UI slider ile manuel test ediyorsa ROS 2 üzerine yazmaz!
+            }
+
             if (Motor.Role == EPiSimMotorRole::Thruster)
             {
                 Motor.CurrentTestValue = FMath::Clamp(TargetLinearX, -1.0f, 1.0f);
+            }
+            else if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::TrackPad)
+            {
+                int32 TargetSection = FindVisualSectionForBone(m);
+                float SectionY = (TargetSection > 0 && VisualMeshComponents.IsValidIndex(TargetSection) && VisualMeshComponents[TargetSection]) 
+                    ? VisualMeshComponents[TargetSection]->GetRelativeLocation().Y : 0.0f;
+                float WheelRpm = (SectionY < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
+                Motor.CurrentTestValue = (Motor.MaxVelocityRPM > 1.0f) ? FMath::Clamp(WheelRpm / Motor.MaxVelocityRPM, -1.0f, 1.0f) : 0.0f;
             }
             else if (Motor.Role == EPiSimMotorRole::ServoJoint)
             {
@@ -694,14 +730,14 @@ void APiSimModelImporter::PublishImuTelemetry(float DeltaTime)
         {
             if (ControlMode == EAutopilotControlMode::ArduPilotSITL)
             {
-                // ArduPilot JSON SITL protocol: simulator MUST send state first (before ArduPilot sends servo commands).
-                // We send proactively to ArduPilot's state-listen port (--sim-port-in), default 9003.
-                // Once ArduPilot receives state, it will start sending servo commands back (bIsConnected → true).
-                double WorldTimeSec = (GetWorld()) ? GetWorld()->GetTimeSeconds() : 0.0;
-                FString SitlJson = VirtualSensors->BuildArduPilotJsonPayload(WorldTimeSec);
-                FString ArduIp = AutopilotBridge->bIsConnected ? AutopilotBridge->ConnectedIP : TEXT("127.0.0.1");
-                // ArduPilot listens for state on --sim-port-in (9003). Do NOT use ConnectedPort (ephemeral sender port).
-                AutopilotBridge->SendArduPilotStateJson(SitlJson, ArduIp, AutopilotBridge->ArduPilotStatePort);
+                // Only send via AutopilotBridge if AutopilotManager is not already handling ArduPilot SITL
+                if (!AutopilotManager || AutopilotManager->ControlMode != EPiSimControlMode::ArduPilotSITL)
+                {
+                    double WorldTimeSec = (GetWorld()) ? GetWorld()->GetTimeSeconds() : 0.0;
+                    FString SitlJson = VirtualSensors->BuildArduPilotJsonPayload(WorldTimeSec);
+                    FString ArduIp = AutopilotBridge->bIsConnected ? AutopilotBridge->ConnectedIP : TEXT("127.0.0.1");
+                    AutopilotBridge->SendArduPilotStateJson(SitlJson, ArduIp, AutopilotBridge->ArduPilotStatePort);
+                }
             }
             else if (ControlMode == EAutopilotControlMode::PX4SITL)
             {
@@ -926,7 +962,7 @@ void APiSimModelImporter::Tick(float DeltaTime)
                     FVector RelLoc = VisualMeshComponents[i]->GetRelativeLocation();
                     float BaseRpm = (RelLoc.Y < 0.0f) ? LeftWheelsRpm : RightWheelsRpm;
                     float IndividualTestRpm = Motor.CurrentTestValue * Motor.MaxVelocityRPM;
-                    float TotalRpm = BaseRpm + IndividualTestRpm;
+                    float TotalRpm = Motor.bManualOverride ? IndividualTestRpm : (BaseRpm + IndividualTestRpm);
 
                     if (FMath::Abs(TotalRpm) > 0.001f)
                     {
@@ -996,6 +1032,47 @@ void APiSimModelImporter::Tick(float DeltaTime)
                 else if (Motor.Role == EPiSimMotorRole::ServoJoint && !WheelToSteerBoneMap.Contains(i))
                 {
                     // Uçan Kanat Kontrol Yüzeyleri (Elevon / Aileron) Canlı Görsel Sapması
+                    float TargetAngle = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
+                    FQuat HingeQuat(FVector(1.0f, 0.0f, 0.0f), FMath::DegreesToRadians(TargetAngle));
+                    VisualMeshComponents[i]->SetRelativeRotation(FRotator(HingeQuat));
+                }
+            }
+        }
+    }
+    else
+    {
+        // =====================================================================================
+        // STATİK / ÖNİZLEME MODUNDA KESİNTİSİZ MOTOR VE PERVANE DÖNÜŞÜ
+        // =====================================================================================
+        for (int32 i = 1; i < VisualMeshComponents.Num(); ++i)
+        {
+            if (VisualMeshComponents[i] && ConfiguredMotors.IsValidIndex(i))
+            {
+                const FPiSimMotorItem& Motor = ConfiguredMotors[i];
+                if (Motor.Role == EPiSimMotorRole::Thruster)
+                {
+                    float PropRpm = Motor.CurrentTestValue * Motor.MaxVelocityRPM;
+                    if (FMath::Abs(PropRpm) > 0.001f)
+                    {
+                        FVector LocalThrustAxis = VisualSections.IsValidIndex(i) ? VisualSections[i].BoneDirection : Motor.BoneDirection;
+                        if (LocalThrustAxis.IsNearlyZero()) LocalThrustAxis = FVector(0.0f, 1.0f, 0.0f);
+
+                        float AngularSpeedDegPerSec = PropRpm * 6.0f;
+                        FQuat SpinQuat(LocalThrustAxis, FMath::DegreesToRadians(AngularSpeedDegPerSec * DeltaTime));
+                        VisualMeshComponents[i]->AddLocalRotation(SpinQuat);
+                    }
+                }
+                else if (Motor.Role == EPiSimMotorRole::DriveWheel || Motor.Role == EPiSimMotorRole::TrackPad)
+                {
+                    float WheelRpm = Motor.CurrentTestValue * Motor.MaxVelocityRPM;
+                    if (FMath::Abs(WheelRpm) > 0.001f)
+                    {
+                        float AngularSpeedDegPerSec = WheelRpm * 6.0f;
+                        VisualMeshComponents[i]->AddLocalRotation(FRotator(AngularSpeedDegPerSec * DeltaTime, 0.0f, 0.0f));
+                    }
+                }
+                else if (Motor.Role == EPiSimMotorRole::ServoJoint && !WheelToSteerBoneMap.Contains(i))
+                {
                     float TargetAngle = FMath::Lerp(Motor.MinLimitDeg, Motor.MaxLimitDeg, (Motor.CurrentTestValue + 1.0f) * 0.5f);
                     FQuat HingeQuat(FVector(1.0f, 0.0f, 0.0f), FMath::DegreesToRadians(TargetAngle));
                     VisualMeshComponents[i]->SetRelativeRotation(FRotator(HingeQuat));
@@ -3376,16 +3453,38 @@ void APiSimModelImporter::SelectSensor(int32 Index)
 void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
 {
     if (BoneIndex <= 0 || !ConfiguredMotors.IsValidIndex(BoneIndex)) return; // Gövdeye motor atanamaz
-    ConfiguredMotors[BoneIndex].CurrentTestValue = Value;
+
+    // Slider değeri sıfıra yakınsa manuel override kaldırılır, otopilot / Pi 5 kontrolüne geri döner
+    if (FMath::Abs(Value) <= 0.01f)
+    {
+        ConfiguredMotors[BoneIndex].bManualOverride = false;
+        ConfiguredMotors[BoneIndex].CurrentTestValue = 0.0f;
+    }
+    else
+    {
+        ConfiguredMotors[BoneIndex].bManualOverride = true;
+        ConfiguredMotors[BoneIndex].CurrentTestValue = FMath::Clamp(Value, -1.0f, 1.0f);
+    }
+
+    float EffectiveValue = ConfiguredMotors[BoneIndex].CurrentTestValue;
+
+    // Modüler aktüatör bileşenlerini senkronize et
+    for (UPiSimActuatorComponent* Act : AttachedActuators)
+    {
+        if (Act && Act->BoneIndex == BoneIndex)
+        {
+            Act->SetNormalizedCommand(EffectiveValue);
+        }
+    }
 
     int32 TargetSection = FindVisualSectionForBone(BoneIndex);
-
     EPiSimMotorRole MotorRole = ConfiguredMotors[BoneIndex].Role;
-    if (MotorRole == EPiSimMotorRole::DriveWheel || MotorRole == EPiSimMotorRole::Thruster || MotorRole == EPiSimMotorRole::TrackPad)
+
+    if (MotorRole == EPiSimMotorRole::DriveWheel || MotorRole == EPiSimMotorRole::TrackPad)
     {
         if (TargetSection > 0 && VisualMeshComponents.IsValidIndex(TargetSection) && VisualMeshComponents[TargetSection])
         {
-            float IndividualRpm = Value * ConfiguredMotors[BoneIndex].MaxVelocityRPM;
+            float IndividualRpm = EffectiveValue * ConfiguredMotors[BoneIndex].MaxVelocityRPM;
             if (bIsPhysicsSimulating)
             {
                 float AngularSpeedDegPerSec = IndividualRpm * 6.0f;
@@ -3396,15 +3495,11 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
                 FVector DesiredRollVel = WorldAxle * AngularSpeedDegPerSec;
                 VisualMeshComponents[TargetSection]->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
             }
-            else
-            {
-                VisualMeshComponents[TargetSection]->AddLocalRotation(FRotator(Value * 15.0f, 0.0f, 0.0f));
-            }
         }
     }
     else if (MotorRole == EPiSimMotorRole::SteeredWheel || MotorRole == EPiSimMotorRole::ServoJoint)
     {
-        float TargetAngle = FMath::Lerp(ConfiguredMotors[BoneIndex].MinLimitDeg, ConfiguredMotors[BoneIndex].MaxLimitDeg, (Value + 1.0f) * 0.5f);
+        float TargetAngle = FMath::Lerp(ConfiguredMotors[BoneIndex].MinLimitDeg, ConfiguredMotors[BoneIndex].MaxLimitDeg, (EffectiveValue + 1.0f) * 0.5f);
         
         bool bIsSteerJoint = SteerBoneComponents.Contains(ConfiguredMotors[BoneIndex].BoneName) || (MotorRole == EPiSimMotorRole::SteeredWheel);
 
@@ -3442,11 +3537,41 @@ void APiSimModelImporter::SetMotorTestValue(int32 BoneIndex, float Value)
     }
     else if (MotorRole == EPiSimMotorRole::LinearActuator)
     {
-        float Stroke = Value * ConfiguredMotors[BoneIndex].MaxLimitDeg; // cm
+        float Stroke = EffectiveValue * ConfiguredMotors[BoneIndex].MaxLimitDeg; // cm
         if (TargetSection > 0 && VisualSections.IsValidIndex(TargetSection) && VisualSections.IsValidIndex(0) && VisualMeshComponents.IsValidIndex(TargetSection) && VisualMeshComponents[TargetSection])
         {
             FVector BaseLoc = VisualSections[TargetSection].PivotPoint - VisualSections[0].PivotPoint;
             VisualMeshComponents[TargetSection]->SetRelativeLocation(BaseLoc + FVector(Stroke, 0.0f, 0.0f));
+        }
+    }
+}
+
+void APiSimModelImporter::ResetMotorManualOverride(int32 BoneIndex)
+{
+    if (BoneIndex <= 0 || !ConfiguredMotors.IsValidIndex(BoneIndex)) return;
+    ConfiguredMotors[BoneIndex].bManualOverride = false;
+    ConfiguredMotors[BoneIndex].CurrentTestValue = 0.0f;
+    for (UPiSimActuatorComponent* Act : AttachedActuators)
+    {
+        if (Act && Act->BoneIndex == BoneIndex)
+        {
+            Act->SetNormalizedCommand(0.0f);
+        }
+    }
+}
+
+void APiSimModelImporter::ResetAllMotorManualOverrides()
+{
+    for (int32 i = 0; i < ConfiguredMotors.Num(); ++i)
+    {
+        ConfiguredMotors[i].bManualOverride = false;
+        ConfiguredMotors[i].CurrentTestValue = 0.0f;
+    }
+    for (UPiSimActuatorComponent* Act : AttachedActuators)
+    {
+        if (Act)
+        {
+            Act->SetNormalizedCommand(0.0f);
         }
     }
 }
@@ -3680,4 +3805,57 @@ void APiSimModelImporter::ToggleAeroGizmos()
 {
     AeroConfig.bShowAeroGizmos = !AeroConfig.bShowAeroGizmos;
 }
+
+FString APiSimModelImporter::ExportArduPilotConfiguration(FString& OutBatchPath)
+{
+    if (!AutopilotBridge)
+    {
+        AutopilotBridge = NewObject<UPiSimAutopilotBridge>(this, TEXT("AutopilotBridge"));
+    }
+
+    float TotalMass = 1.8f;
+    if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+    {
+        float BodyMass = VisualMeshComponents[0]->GetMass();
+        if (BodyMass > 0.1f)
+        {
+            TotalMass = BodyMass;
+        }
+    }
+
+    float TotalWingArea = AeroConfig.WingArea;
+    float TotalWingspan = AeroConfig.Wingspan;
+
+    // Sum area across attached wing force bodies if populated
+    float SumWingArea = 0.0f;
+    for (UPiSimAeroWingComponent* Wing : AttachedWingBodies)
+    {
+        if (Wing)
+        {
+            SumWingArea += Wing->WingArea;
+        }
+    }
+    if (SumWingArea > 0.01f)
+    {
+        TotalWingArea = SumWingArea;
+    }
+
+    // Determine frame type: If elevon wings exist, choose plane-elevon
+    FString FrameType = TEXT("plane");
+    if (AttachedWingBodies.Num() == 2 && AttachedWingBodies[0] && AttachedWingBodies[0]->ElevonEffectiveness > 0.2f)
+    {
+        FrameType = TEXT("plane-elevon");
+    }
+
+    int32 MotorCount = FMath::Max(1, ConfiguredMotors.Num());
+
+    FString SavedParamPath = AutopilotBridge->GenerateArduPilotParamFile(
+        FrameType, TotalMass, TotalWingArea, TotalWingspan, MotorCount, OutBatchPath);
+
+    AddConnectionDebugLog(FString::Printf(TEXT("✈️ [ArduPilot] Parametre oluşturuldu: %s"), *SavedParamPath));
+    AddConnectionDebugLog(FString::Printf(TEXT("🚀 [ArduPilot] Başlatıcı script hazır: %s"), *OutBatchPath));
+
+    return SavedParamPath;
+}
+
 

@@ -99,6 +99,10 @@ struct FPiSimMotorItem
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
     float CurrentTestValue = 0.0f; // Live slider test value (-1.0 to +1.0 or target angle/RPM)
 
+    /** Kullanıcı UI slider ile bu motoru manuel olarak test ediyorsa ağ paketleri üzerine yazmaz */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
+    bool bManualOverride = false;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Motor")
     float Kp = 1000.0f;
 
@@ -642,6 +646,8 @@ public:
     void SelectBone(int32 Index);
     void SelectSensor(int32 Index);
     void SetMotorTestValue(int32 BoneIndex, float Value);
+    void ResetMotorManualOverride(int32 BoneIndex);
+    void ResetAllMotorManualOverrides();
     void RemoveMotorFromBone(int32 BoneIndex);
     void AssignMotorToBone(int32 BoneIndex, EPiSimMotorRole NewRole);
     void RemoveSensor(int32 SensorIndex);
@@ -725,6 +731,10 @@ public:
     void ApplyAutopilotMixer(float Roll, float Pitch, float Yaw, float Throttle, const uint16* Pwm, const float* RawControls);
 
     bool IsAutopilotDriving() const;
+
+    /** Automatically exports tailored ArduPilot .param and .bat files for this model */
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Autopilot")
+    FString ExportArduPilotConfiguration(FString& OutBatchPath);
 
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 

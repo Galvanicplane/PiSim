@@ -54,6 +54,7 @@ private:
     FReply OnCycleControlModeClicked();
     FReply OnToggleAutopilotLinkClicked();
     FReply OnCycleSerialPortClicked();
+    FReply OnExportArduPilotConfigClicked();
 
     TSharedPtr<class STextBlock> ModelButtonText;
     TSharedPtr<class STextBlock> ControlModeButtonText;
@@ -69,6 +70,7 @@ private:
     FReply OnRemoveMotorClicked();
     FReply OnAssignRoleClicked(uint8 RoleEnumVal);
     void OnMotorTestSliderChanged(float NewValue);
+    FReply OnResetMotorTestClicked();
 
     // Sensor Tab Actions
     FReply OnToggleSensorMarkersClicked();

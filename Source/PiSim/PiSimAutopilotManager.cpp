@@ -285,8 +285,8 @@ void UPiSimAutopilotManager::TickArduPilotSitl(float DeltaTime)
         APiSimModelImporter* OwnerPawn = Cast<APiSimModelImporter>(GetOwner());
         if (OwnerPawn && OwnerPawn->VirtualSensors)
         {
-            const double UnixSec = FDateTime::UtcNow().ToUnixTimestamp() + (FDateTime::UtcNow().GetMillisecond() / 1000.0);
-            const FString Json = OwnerPawn->VirtualSensors->BuildArduPilotJsonPayload(UnixSec);
+            const double SimTimeSec = (GetWorld()) ? GetWorld()->GetTimeSeconds() : 0.0;
+            const FString Json = OwnerPawn->VirtualSensors->BuildArduPilotJsonPayload(SimTimeSec);
             FTCHARToUTF8 Utf8(*Json);
             TArray<uint8> OutBytes;
             OutBytes.Append(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length());

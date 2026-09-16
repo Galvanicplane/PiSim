@@ -24,6 +24,9 @@ struct PISIM_API FPiSimImuSensorData
 
     UPROPERTY(BlueprintReadOnly, Category = "PiSim|Sensors")
     FQuat OrientationNED = FQuat::Identity; // World NED to Body NED
+
+    UPROPERTY(BlueprintReadOnly, Category = "PiSim|Sensors")
+    FVector AttitudeEulerRad = FVector::ZeroVector; // [Roll, Pitch, Yaw] in radians
 };
 
 USTRUCT(BlueprintType)
@@ -126,6 +129,16 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GPS")
     FVector WorldOriginLocationUE = FVector::ZeroVector;
+
+    // Aircraft Model Body Axes relative to Component (Default FBX: Nose=-Y, Right=+X, Up=+Z)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Axes")
+    FVector ModelForwardAxis = FVector(0.0f, -1.0f, 0.0f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Axes")
+    FVector ModelRightAxis = FVector(1.0f, 0.0f, 0.0f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Axes")
+    FVector ModelUpAxis = FVector(0.0f, 0.0f, 1.0f);
 
 private:
     float GpsUpdateTimer = 0.0f;

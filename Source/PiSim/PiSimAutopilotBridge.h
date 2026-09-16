@@ -63,6 +63,18 @@ public:
     /** Transmit simulated sensors to PX4 HITL / SITL via MAVLink over UDP */
     void SendPx4Sensors(const FPiSimImuSensorData& Imu, const FPiSimBaroSensorData& Baro, const FPiSimGpsSensorData& Gps, const FString& TargetIP = TEXT("127.0.0.1"), int32 TargetPort = 14560);
 
+    /** Generates an ArduPilot .param file tuned specifically for this model and saves to Saved/Robots/Config/pisim_plane.param */
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Autopilot")
+    FString GenerateArduPilotParamFile(
+        const FString& VehicleType,
+        float MassKg,
+        float WingAreaM2,
+        float WingspanM,
+        int32 NumMotors,
+        FString& OutBatchPath,
+        const FString& CustomSavePath = TEXT("")
+    );
+
     /** Shutdown active sockets and worker threads */
     UFUNCTION(BlueprintCallable, Category = "PiSim|Autopilot")
     void Shutdown();

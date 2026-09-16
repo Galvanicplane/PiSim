@@ -426,3 +426,162 @@ void UPiSimAutopilotBridge::SendPx4Sensors(const FPiSimImuSensorData& Imu, const
     SitlSocket->SendTo(Packet.GetData(), Packet.Num(), Sent, *TargetAddr);
     TotalPacketsSent++;
 }
+
+FString UPiSimAutopilotBridge::GenerateArduPilotParamFile(
+    const FString& VehicleType,
+    float MassKg,
+    float WingAreaM2,
+    float WingspanM,
+    int32 NumMotors,
+    FString& OutBatchPath,
+    const FString& CustomSavePath)
+{
+    float SafeMass = FMath::Max(0.2f, MassKg);
+    float SafeArea = FMath::Max(0.02f, WingAreaM2);
+    float SafeSpan = FMath::Max(0.2f, WingspanM);
+
+    // 1) Aerodynamic Stall & Cruise Speed Estimation (First-Principles physics)
+    // V_stall = sqrt( (2 * m * g) / (rho * S * CL_max) )
+    const float AirDensityRho = 1.225f; // kg/m³
+    const float CLMax = 1.35f;          // Maximum clean lift coefficient
+    const float Gravity = 9.80665f;
+    float VStall = FMath::Sqrt((2.0f * SafeMass * Gravity) / (AirDensityRho * SafeArea * CLMax));
+
+    float AirspeedMin = FMath::Clamp(VStall * 1.15f, 6.0f, 35.0f);
+    float AirspeedCruise = FMath::Clamp(VStall * 1.65f, 10.0f, 50.0f);
+    float AirspeedMax = FMath::Clamp(VStall * 2.60f, 15.0f, 80.0f);
+    float TrimArspdCm = AirspeedCruise * 100.0f;
+
+    // 2) Build ArduPilot Parameter Content
+    FString P;
+    P += TEXT("# =============================================================================\n");
+    P += FString::Printf(TEXT("# ArduPilot Parameter Defaults generated automatically by PiSim Studio\n"));
+    P += FString::Printf(TEXT("# Vehicle Type    : %s\n"), *VehicleType);
+    P += FString::Printf(TEXT("# Total Mass      : %.2f kg\n"), SafeMass);
+    P += FString::Printf(TEXT("# Wing Area (S)   : %.3f m2\n"), SafeArea);
+    P += FString::Printf(TEXT("# Wingspan  (b)   : %.2f m\n"), SafeSpan);
+    P += FString::Printf(TEXT("# Est. Stall Speed: %.1f m/s (%.1f km/h)\n"), VStall, VStall * 3.6f);
+    P += FString::Printf(TEXT("# Cruise Airspeed : %.1f m/s (%.1f km/h)\n"), AirspeedCruise, AirspeedCruise * 3.6f);
+    P += TEXT("# =============================================================================\n\n");
+
+    P += TEXT("# 1) Airspeed & Flight Envelope\n");
+    P += FString::Printf(TEXT("AIRSPEED_MIN    %.2f\n"), AirspeedMin);
+    P += FString::Printf(TEXT("AIRSPEED_CRUISE %.2f\n"), AirspeedCruise);
+    P += FString::Printf(TEXT("AIRSPEED_MAX    %.2f\n"), AirspeedMax);
+    P += FString::Printf(TEXT("TRIM_ARSPD_CM   %.0f\n"), TrimArspdCm);
+    P += TEXT("TRIM_THROTTLE   45\n");
+    P += TEXT("THR_MAX         100\n");
+    P += TEXT("PTCH_LIM_MIN_DEG -20.00\n");
+    P += TEXT("PTCH_LIM_MAX_DEG  25.00\n");
+    P += TEXT("ROLL_LIMIT_DEG    60.00\n");
+    P += TEXT("ARSPD_USE       1\n\n");
+
+    P += TEXT("# 2) Servo Output Channels & Mixer\n");
+    if (VehicleType.Equals(TEXT("plane-elevon"), ESearchCase::IgnoreCase))
+    {
+        P += TEXT("SERVO1_FUNCTION 77\n"); // Elevon Left
+        P += TEXT("SERVO1_MIN      1000\n");
+        P += TEXT("SERVO1_MAX      2000\n");
+        P += TEXT("SERVO1_TRIM     1500\n");
+        P += TEXT("SERVO2_FUNCTION 78\n"); // Elevon Right
+        P += TEXT("SERVO2_MIN      1000\n");
+        P += TEXT("SERVO2_MAX      2000\n");
+        P += TEXT("SERVO2_TRIM     1500\n");
+        P += TEXT("SERVO3_FUNCTION 70\n"); // Throttle
+        P += TEXT("SERVO3_MIN      1000\n");
+        P += TEXT("SERVO3_MAX      2000\n");
+        P += TEXT("SERVO3_TRIM     1000\n");
+        P += TEXT("SERVO4_FUNCTION 0\n");
+        P += TEXT("MIXING_TYPE     1\n\n");
+    }
+    else if (VehicleType.Equals(TEXT("plane-vtail"), ESearchCase::IgnoreCase))
+    {
+        P += TEXT("SERVO1_FUNCTION 4\n");  // Aileron
+        P += TEXT("SERVO1_MIN      1000\n");
+        P += TEXT("SERVO1_MAX      2000\n");
+        P += TEXT("SERVO1_TRIM     1500\n");
+        P += TEXT("SERVO2_FUNCTION 79\n"); // V-Tail Left
+        P += TEXT("SERVO2_MIN      1000\n");
+        P += TEXT("SERVO2_MAX      2000\n");
+        P += TEXT("SERVO2_TRIM     1500\n");
+        P += TEXT("SERVO3_FUNCTION 70\n"); // Throttle
+        P += TEXT("SERVO3_MIN      1000\n");
+        P += TEXT("SERVO3_MAX      2000\n");
+        P += TEXT("SERVO3_TRIM     1000\n");
+        P += TEXT("SERVO4_FUNCTION 80\n"); // V-Tail Right
+        P += TEXT("SERVO4_MIN      1000\n");
+        P += TEXT("SERVO4_MAX      2000\n");
+        P += TEXT("SERVO4_TRIM     1500\n");
+        P += TEXT("MIXING_TYPE     2\n\n");
+    }
+    else
+    {
+        // Standard 4-Channel Plane
+        P += TEXT("SERVO1_FUNCTION 4\n");  // Aileron
+        P += TEXT("SERVO1_MIN      1000\n");
+        P += TEXT("SERVO1_MAX      2000\n");
+        P += TEXT("SERVO1_TRIM     1500\n");
+        P += TEXT("SERVO2_FUNCTION 19\n"); // Elevator
+        P += TEXT("SERVO2_MIN      1000\n");
+        P += TEXT("SERVO2_MAX      2000\n");
+        P += TEXT("SERVO2_TRIM     1500\n");
+        P += TEXT("SERVO3_FUNCTION 70\n"); // Throttle
+        P += TEXT("SERVO3_MIN      1000\n");
+        P += TEXT("SERVO3_MAX      2000\n");
+        P += TEXT("SERVO3_TRIM     1000\n");
+        P += TEXT("SERVO4_FUNCTION 21\n"); // Rudder
+        P += TEXT("SERVO4_MIN      1000\n");
+        P += TEXT("SERVO4_MAX      2000\n");
+        P += TEXT("SERVO4_TRIM     1500\n");
+        P += TEXT("MIXING_TYPE     0\n\n");
+    }
+
+    P += TEXT("# 3) Safety, Telemetry & SITL Rates\n");
+    P += TEXT("ARMING_CHECK    0\n");
+    P += TEXT("FS_GCS_ENABL    0\n");
+    P += TEXT("FS_SHORT_ACTN   0\n");
+    P += TEXT("FS_LONG_ACTN    0\n");
+    P += TEXT("BATT_MONITOR    4\n");
+    P += TEXT("SIM_RATE_HZ     50\n");
+    P += TEXT("RLL2SRV_TCONST  0.25\n");
+    P += TEXT("PTCH2SRV_TCONST 0.25\n");
+    P += TEXT("AHRS_EKF_TYPE   10\n");
+    P += TEXT("EK3_ENABLE      0\n\n");
+
+    // 3) Determine Save Paths
+    FString FinalParamPath = CustomSavePath;
+    if (FinalParamPath.IsEmpty())
+    {
+        FinalParamPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("Robots/Config/pisim_plane.param"));
+    }
+    FPaths::NormalizeFilename(FinalParamPath);
+
+    FFileHelper::SaveStringToFile(P, *FinalParamPath);
+
+    // 4) Generate Launch Batch Script (.bat) in the same directory
+    FString ConfigDir = FPaths::GetPath(FinalParamPath);
+    OutBatchPath = ConfigDir / TEXT("launch_arduplane_pisim.bat");
+    FPaths::NormalizeFilename(OutBatchPath);
+
+    FString Bat;
+    Bat += TEXT("@echo off\n");
+    Bat += TEXT("echo ========================================================\n");
+    Bat += TEXT("echo   Starting ArduPilot SITL for PiSim Aircraft Model\n");
+    Bat += FString::Printf(TEXT("echo   Vehicle: %s - Mass: %.2f kg - S: %.3f m2\n"), *VehicleType, SafeMass, SafeArea);
+    Bat += TEXT("echo ========================================================\n\n");
+    Bat += TEXT("set ARDU_DIR=C:\\Users\\erena\\OneDrive\\Belgeler\\Mission Planner\\sitl\n");
+    Bat += TEXT("if not exist \"%ARDU_DIR%\\ArduPlane.exe\" (\n");
+    Bat += TEXT("    echo [HATA] ArduPlane.exe bulunamadi: %ARDU_DIR%\n");
+    Bat += TEXT("    pause\n");
+    Bat += TEXT("    exit /b 1\n");
+    Bat += TEXT(")\n\n");
+    Bat += TEXT("taskkill /F /IM ArduPlane.exe >nul 2>&1\n\n");
+    Bat += TEXT("cd /d \"%ARDU_DIR%\"\n");
+    Bat += FString::Printf(TEXT("ArduPlane.exe --model json:127.0.0.1 --defaults \"%s\" --home 41.1035,28.5539,120,0 --sim-port-in 9003 --sim-port-out 9002 --serial0 tcp:5760\n\n"), *FinalParamPath);
+    Bat += TEXT("pause\n");
+
+    FFileHelper::SaveStringToFile(Bat, *OutBatchPath);
+
+    return FinalParamPath;
+}
+
