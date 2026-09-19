@@ -1,0 +1,38 @@
+# =========================================================================================
+# PiSim Proje Geliştirme Kuralları ve Çalışma Protokolü (.cursorrules)
+# =========================================================================================
+
+### 1. Çalışma ve İletişim Protokolü (Zorunlu Kurallar)
+- **Modüler Geliştirme Prensibi (Component-First):**
+  - Projede monolitik veya God-Class mantığı kesinlikle uygulanmayacaktır.
+  - Yeni özellikler veya ayrıştırılan mekanikler bağımsız `UActorComponent` sınıfları, `UInterface` arayüzleri veya izole modüller olarak kurgulanacaktır.
+  - Sınıflar arası haberleşmede doğrudan sıkı bağımlılık (tight coupling / doğrudan Cast<T>) yerine Event/Delegate (`DECLARE_DYNAMIC_MULTICAST_DELEGATE`) veya Interface yapıları kullanılacaktır.
+  - UI bir "Otoparktır"; yalnızca boş slotları barındırır. Modüller kendilerini UI'a ve Pawn'a kendi içlerinden kaydettirir (Self-Registration).
+  
+- **Körlemesine Arama Yasaktır:**
+  - Proje genelinde bilinçsizce geniş dosya araması (grep/find) yapma.
+  - Önce mimari haritaya (`STRUCTURE.md`) bak, ardından doğrudan ilgili modülün `.h` (header) arayüzünü incele; gerekmedikçe `.cpp` gövdesini tarama.
+  
+- **Kapsam Sınırı (Scoping):**
+  - Yalnızca sana açıkça verilen veya üzerinde çalışılması istenen modülü/dosyayı düzenle.
+  - Başka bir dosyada değişiklik gerekirse KODU DEĞİŞTİRME; önce nedenini açıklayıp izin iste.
+  
+- **Fonksiyon Durum Yönetimi (State Tags):**
+  - Düzenlediğin her fonksiyonun başına `// @state: WIP - [Özet]` etiketini koy.
+  - Kullanıcı test edip "ONAYLANDI" diyene kadar o fonksiyon WIP statüsünde kalacaktır.
+  - Onaylanan fonksiyonları `// @state: LOCKED` olarak işaretle ve açıkça "kilidi aç" denmediği sürece o bloklara asla dokunma.
+  
+- **Taviz Vermeden Hata Çözümü (Zero-Compromise Debugging):**
+  - Bir özelliği belirli bir modüler yapıyla, mimariyle veya kütüphaneyle yapman istendiğinde derleme/çalışma hatası alırsan KESİNLİKLE TAVİZ VERME.
+  - İstenen mimariyi bir kenara bırakıp "alternatif/ilkel/kolay" bir yola kaçma, özellikleri budama veya istenen yöntemi silip geçici yamalar üretme.
+  - Hatanın kök nedenini (RCA) istenen mimari çerçevesinde açıkla ve o yapıyı bozmadan hatayı çöz.
+
+### 2. Klasör ve Modül Hiyerarşisi
+Source/PiSim/ altındaki tüm modüller şu klasörleme doktrinine uyar:
+1. `1_Vehicle/`         -> Araç Pawn omurgası (SkeletalMesh, kemik slotları, temel fizik).
+2. `2_Motors/`          -> Wheel, Servo, Propeller, LiftBody, Track, Actuator.
+3. `3_Sensors/`         -> Camera, GPS, IMU, Lidar (Ortak çıkış kapısına bağlanır).
+4. `4_Communication/`   -> TelemetryGateway (Ortak kapı), Pi5Bridge (2 Thread: Video + ROS2/JSON), AutopilotBridge (ArduPilot/PX4 SITL), SerialPort.
+5. `5_Configurators/`   -> FbxImporter, MotorConfigurator, Baker, SaveManager.
+6. `6_UI/`              -> HUD, GarageWidget (Otopark slot widget'ı), ImporterWidget.
+7. `7_Core/`            -> PiSim modül başlangıç ve ortak interface/tanımlar.
