@@ -37,8 +37,8 @@ Arayüzde sıfırdan çizim yapmak yerine havacılık endüstrisinde standartla�
   * **Altimeter:** Deniz seviyesi irtifa göstergesi (Feet / Metre).
   * **Turn Coordinator:** Dönüş koordinatörü ve kayış bilyesi.
   * **Variometer:** Dikey tırmanış/alçalış hızı göstergesi.
-* **GitHub Deposu:** [ignaciovr/flight-indicators-js](https://github.com/ignaciovr/flight-indicators-js)
-* **Canlı Demo:** [Flight Indicators Canlı Test](https://ignaciovr.github.io/flight-indicators-js/)
+* **GitHub Deposu:** [sebmatton/jQuery-Flight-Indicators](https://github.com/sebmatton/jQuery-Flight-Indicators)
+* **Canlı Test & İnteraktif Demo:** [https://sebmatton.github.io/flightindicators/](https://sebmatton.github.io/flightindicators/)
 
 ### 2. D3 / Canvas Havacılık Göstergeleri
 * **D3 Horizon Plugin:** Uçak pitch/roll yapay ufuk çizgisi ve HUD projeksiyonu.

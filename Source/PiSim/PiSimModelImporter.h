@@ -25,7 +25,8 @@ enum class EPiSimActiveTab : uint8
 {
     MotorsTab      UMETA(DisplayName = "1. Motorlar & Kontrol"),
     TelemetryTab   UMETA(DisplayName = "2. Telemetri & Pi 5"),
-    SensorsTab     UMETA(DisplayName = "3. Sensörler")
+    SensorsTab     UMETA(DisplayName = "3. Sensörler"),
+    DataTab        UMETA(DisplayName = "4. Veri Tablosu")
 };
 
 UENUM(BlueprintType)
@@ -160,6 +161,15 @@ struct FPiSimSensorItem
     bool bIsActive = true;
 };
 
+struct FImporterMaterialSlot
+{
+    FLinearColor Color = FLinearColor::White;
+    float Metallic = 0.0f;
+    float Roughness = 0.5f;
+    float Specular = 0.5f;
+    TArray<int32> Triangles;
+};
+
 USTRUCT(BlueprintType)
 struct FImporterMeshSection
 {
@@ -181,6 +191,14 @@ struct FImporterMeshSection
     TArray<FVector> Vertices;
     TArray<int32> Triangles;
     TArray<FVector> Normals;
+    TArray<FImporterMaterialSlot> MaterialSlots;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Mesh")
+    FLinearColor MaterialColor = FLinearColor::White;
+
+    float Metallic = 0.0f;
+    float Roughness = 0.5f;
+    float Specular = 0.5f;
 
     // Physics & Joint properties
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
@@ -656,10 +674,14 @@ public:
     void UpdateVisualMaterials();
 
     // =========================================================================
-    // CONTROLS & SETTINGS (Clean 1.0f 1:1 Scale by default)
+    // CONTROLS & SETTINGS (Default 100.0f scale for Blender metre -> Unreal cm)
     // =========================================================================
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Settings")
-    float ImportScaleMultiplier = 1.0f;
+    float ImportScaleMultiplier = 100.0f;
+
+    /** Özel görsel materyal (Atanırsa varsayılan beyaz malzeme yerine bu uygulanır) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Visual")
+    UMaterialInterface* CustomVisualMaterial = nullptr;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Settings")
     bool bIsPhysicsSimulating = false;

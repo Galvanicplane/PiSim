@@ -20,6 +20,7 @@
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/InputComponent.h"
 #include "Engine/Engine.h"
@@ -58,7 +59,7 @@ APiSimModelImporter::APiSimModelImporter()
 
     FpvCameraCapture = nullptr;
     bEnableVideoStream = false;
-    ImportScaleMultiplier = 1.0f; // Pure 1:1 scale by default
+    ImportScaleMultiplier = 100.0f; // Standart Blender metre -> Unreal cm dönüşümü (100x)
     bIsPhysicsSimulating = false;
 
     // Gerçekçi 1.15m Uçan Kanat İHA Başlangıç Değerleri
@@ -1716,6 +1717,7 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         FString Label;
         TArray<FVector> Vertices;
         TArray<int32> Polygons;
+        TArray<int32> TriangleMatSlots;
     };
 
     struct FRawFbxSubDef
@@ -1727,10 +1729,19 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         FVector BoneDirection = FVector(0.0f, 1.0f, 0.0f);
     };
 
+    struct FRawFbxMaterial
+    {
+        FLinearColor Color = FLinearColor::White;
+        float Metallic = 0.0f;
+        float Roughness = 0.5f;
+        float Specular = 0.5f;
+    };
+
     TMap<uint64, FString> ModelMap;
     TMap<uint64, FRawFbxGeom> GeomMap;
     TMap<uint64, FString> DeformerMap;
     TMap<uint64, FRawFbxSubDef> SubDeformerMap;
+    TMap<uint64, FRawFbxMaterial> MaterialMap;
 
     TMap<uint64, TArray<uint64>> ChildToParents;
     TMap<uint64, TArray<uint64>> ParentToChildren;
@@ -1840,6 +1851,8 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
         {
             FRawFbxGeom Geom;
             Geom.Label = LabelStr;
+            TArray<int32> RawPolyIndices;
+            TArray<int32> RawPolyMatIndices;
 
             int32 GP = OChildStart;
             while (GP + 13 < (int32)OEnd)
@@ -1923,32 +1936,84 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                     if (DataPtr && ArrayLen > 0)
                     {
                         const int32* PIndices = reinterpret_cast<const int32*>(DataPtr);
-                        TArray<int32> PolyLoop;
-                        for (uint32 idx = 0; idx < ArrayLen; ++idx)
-                        {
-                            int32 Val = PIndices[idx];
-                            bool bIsLast = (Val < 0);
-                            int32 RealIdx = bIsLast ? (-Val - 1) : Val;
-                            PolyLoop.Add(RealIdx);
+                        RawPolyIndices.Append(PIndices, ArrayLen);
+                    }
+                }
+                else if (GName.Equals(TEXT("LayerElementMaterial")))
+                {
+                    int32 LMP = GChildStart;
+                    while (LMP + 13 < (int32)GEnd)
+                    {
+                        uint32 LMEnd, LMNumProps, LMPropLen;
+                        FString LMName;
+                        int32 LMPropsStart, LMChildStart;
+                        if (!ParseNodeHeader(LMP, LMEnd, LMNumProps, LMPropLen, LMName, LMPropsStart, LMChildStart)) break;
 
-                            if (bIsLast)
+                        if (LMName.Equals(TEXT("Materials")) && LMPropLen > 12)
+                        {
+                            uint32 ArrayLen = *reinterpret_cast<const uint32*>(&FileBytes[LMPropsStart + 1]);
+                            uint32 Encoding = *reinterpret_cast<const uint32*>(&FileBytes[LMPropsStart + 5]);
+                            uint32 CompLen = *reinterpret_cast<const uint32*>(&FileBytes[LMPropsStart + 9]);
+                            int32 DataOffset = LMPropsStart + 13;
+
+                            int32 UncompSize = ArrayLen * 4;
+                            TArray<uint8> UncompBuf;
+                            const uint8* DataPtr = nullptr;
+
+                            if (Encoding == 0 && DataOffset + UncompSize <= (int32)LMEnd)
                             {
-                                if (PolyLoop.Num() >= 3)
+                                DataPtr = &FileBytes[DataOffset];
+                            }
+                            else if (Encoding == 1 && CompLen > 0 && DataOffset + (int32)CompLen <= (int32)LMEnd)
+                            {
+                                UncompBuf.AddUninitialized(UncompSize);
+                                if (FCompression::UncompressMemory(NAME_Zlib, (void*)UncompBuf.GetData(), (int64)UncompSize, (const void*)&FileBytes[DataOffset], (int64)CompLen))
                                 {
-                                    // Reverse winding order (0, p+1, p) because Y is inverted (-Y) for Unreal Engine!
-                                    for (int32 p = 1; p < PolyLoop.Num() - 1; ++p)
-                                    {
-                                        Geom.Polygons.Add(PolyLoop[0]);
-                                        Geom.Polygons.Add(PolyLoop[p + 1]);
-                                        Geom.Polygons.Add(PolyLoop[p]);
-                                    }
+                                    DataPtr = UncompBuf.GetData();
                                 }
-                                PolyLoop.Empty();
+                            }
+
+                            if (DataPtr && ArrayLen > 0)
+                            {
+                                const int32* MIndices = reinterpret_cast<const int32*>(DataPtr);
+                                RawPolyMatIndices.Append(MIndices, ArrayLen);
                             }
                         }
+                        LMP = (int32)LMEnd;
                     }
                 }
                 GP = (int32)GEnd;
+            }
+
+            // Triangulate polygons and attach material slot index per triangle
+            if (RawPolyIndices.Num() > 0)
+            {
+                TArray<int32> PolyLoop;
+                int32 CurrentPolyIndex = 0;
+                for (int32 Val : RawPolyIndices)
+                {
+                    bool bIsLast = (Val < 0);
+                    int32 RealIdx = bIsLast ? (-Val - 1) : Val;
+                    PolyLoop.Add(RealIdx);
+
+                    if (bIsLast)
+                    {
+                        int32 MatSlot = RawPolyMatIndices.IsValidIndex(CurrentPolyIndex) ? RawPolyMatIndices[CurrentPolyIndex] : 0;
+                        if (PolyLoop.Num() >= 3)
+                        {
+                            // Reverse winding order (0, p+1, p) because Y is inverted (-Y) for Unreal Engine!
+                            for (int32 p = 1; p < PolyLoop.Num() - 1; ++p)
+                            {
+                                Geom.Polygons.Add(PolyLoop[0]);
+                                Geom.Polygons.Add(PolyLoop[p + 1]);
+                                Geom.Polygons.Add(PolyLoop[p]);
+                                Geom.TriangleMatSlots.Add(MatSlot);
+                            }
+                        }
+                        PolyLoop.Empty();
+                        CurrentPolyIndex++;
+                    }
+                }
             }
             GeomMap.Add(ObjID, Geom);
         }
@@ -2062,6 +2127,106 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                 DeformerMap.Add(ObjID, LabelStr);
             }
         }
+        else if (OName.Equals(TEXT("Material")))
+        {
+            FRawFbxMaterial Mat;
+            int32 MP = OChildStart;
+            while (MP + 13 < (int32)OEnd)
+            {
+                uint32 MEnd, MNumProps, MPropLen;
+                FString MName;
+                int32 MPropsStart, MChildStart;
+                if (!ParseNodeHeader(MP, MEnd, MNumProps, MPropLen, MName, MPropsStart, MChildStart)) break;
+
+                if (MName.Equals(TEXT("Properties70")))
+                {
+                    int32 PropP = MChildStart;
+                    while (PropP + 13 < (int32)MEnd)
+                    {
+                        uint32 PEnd, PNumProps, PPropLen;
+                        FString PName;
+                        int32 PPropsStart, PChildStart;
+                        if (!ParseNodeHeader(PropP, PEnd, PNumProps, PPropLen, PName, PPropsStart, PChildStart)) break;
+
+                        if (PName.Equals(TEXT("P")) && PChildStart <= (int32)PEnd)
+                        {
+                            FString PropId = TEXT("");
+                            for (int32 off = PPropsStart; off + 5 < PChildStart && off < PPropsStart + 35; ++off)
+                            {
+                                if (FileBytes[off] == 'S')
+                                {
+                                    uint32 sLen = *reinterpret_cast<const uint32*>(&FileBytes[off + 1]);
+                                    if (off + 5 + (int32)sLen <= PChildStart)
+                                    {
+                                        PropId = FString(sLen, (const ANSICHAR*)&FileBytes[off + 5]);
+                                        int32 NullIdx;
+                                        if (PropId.FindChar('\0', NullIdx)) PropId = PropId.Left(NullIdx);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            TArray<double> PropDoubles;
+                            for (int32 b = PPropsStart; b + 9 <= (int32)PEnd; ++b)
+                            {
+                                if (FileBytes[b] == 'D')
+                                {
+                                    double Val = *reinterpret_cast<const double*>(&FileBytes[b + 1]);
+                                    PropDoubles.Add(Val);
+                                    b += 8;
+                                }
+                            }
+
+                            if (PropId.Equals(TEXT("DiffuseColor"), ESearchCase::IgnoreCase) || PropId.Equals(TEXT("BaseColor"), ESearchCase::IgnoreCase))
+                            {
+                                if (PropDoubles.Num() >= 3)
+                                {
+                                    Mat.Color = FLinearColor((float)PropDoubles[0], (float)PropDoubles[1], (float)PropDoubles[2], 1.0f);
+                                    UE_LOG(LogTemp, Warning, TEXT("🎨 [FBX MATERYAL] '%s' -> Renk: (R=%.2f, G=%.2f, B=%.2f)"), *LabelStr, Mat.Color.R, Mat.Color.G, Mat.Color.B);
+                                }
+                            }
+                            else if (PropId.Equals(TEXT("ReflectionFactor"), ESearchCase::IgnoreCase) || PropId.Equals(TEXT("Metallic"), ESearchCase::IgnoreCase))
+                            {
+                                if (PropDoubles.Num() >= 1)
+                                {
+                                    Mat.Metallic = FMath::Clamp((float)PropDoubles[0], 0.0f, 1.0f);
+                                    UE_LOG(LogTemp, Warning, TEXT("✨ [FBX MATERYAL] '%s' -> Metallic: %.2f"), *LabelStr, Mat.Metallic);
+                                }
+                            }
+                            else if (PropId.Equals(TEXT("Shininess"), ESearchCase::IgnoreCase) || PropId.Equals(TEXT("ShininessExponent"), ESearchCase::IgnoreCase))
+                            {
+                                if (PropDoubles.Num() >= 1)
+                                {
+                                    // Blender exports: Shininess = (1.0 - Roughness)^2 * 100.0
+                                    float ShininessVal = FMath::Clamp((float)PropDoubles[0], 0.0f, 100.0f);
+                                    Mat.Roughness = FMath::Clamp(1.0f - FMath::Sqrt(ShininessVal / 100.0f), 0.0f, 1.0f);
+                                    UE_LOG(LogTemp, Warning, TEXT("✨ [FBX MATERYAL] '%s' -> Roughness: %.2f (Shininess: %.1f)"), *LabelStr, Mat.Roughness, ShininessVal);
+                                }
+                            }
+                            else if (PropId.Equals(TEXT("Roughness"), ESearchCase::IgnoreCase))
+                            {
+                                if (PropDoubles.Num() >= 1)
+                                {
+                                    Mat.Roughness = FMath::Clamp((float)PropDoubles[0], 0.0f, 1.0f);
+                                    UE_LOG(LogTemp, Warning, TEXT("✨ [FBX MATERYAL] '%s' -> Roughness: %.2f"), *LabelStr, Mat.Roughness);
+                                }
+                            }
+                            else if (PropId.Equals(TEXT("SpecularFactor"), ESearchCase::IgnoreCase) || PropId.Equals(TEXT("Specular"), ESearchCase::IgnoreCase))
+                            {
+                                if (PropDoubles.Num() >= 1)
+                                {
+                                    Mat.Specular = FMath::Clamp((float)PropDoubles[0], 0.0f, 1.0f);
+                                    UE_LOG(LogTemp, Warning, TEXT("✨ [FBX MATERYAL] '%s' -> Specular: %.2f"), *LabelStr, Mat.Specular);
+                                }
+                            }
+                        }
+                        PropP = (int32)PEnd;
+                    }
+                }
+                MP = (int32)MEnd;
+            }
+            MaterialMap.Add(ObjID, Mat);
+        }
         OP = (int32)OEnd;
     }
 
@@ -2073,6 +2238,7 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
 
         // Find Parent Model
         FString ModelName = Geom.Label;
+        uint64 ParentModelID = 0;
         if (const TArray<uint64>* Parents = ChildToParents.Find(GeomID))
         {
             for (uint64 PID : *Parents)
@@ -2080,9 +2246,40 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                 if (const FString* MName = ModelMap.Find(PID))
                 {
                     ModelName = *MName;
+                    ParentModelID = PID;
                     break;
                 }
             }
+        }
+
+        // Find connected Materials from Blender (in slot order)
+        TArray<FRawFbxMaterial> ModelMats;
+        if (const TArray<uint64>* ConnectedToModel = ParentToChildren.Find(ParentModelID))
+        {
+            for (uint64 CID : *ConnectedToModel)
+            {
+                if (const FRawFbxMaterial* FoundMat = MaterialMap.Find(CID))
+                {
+                    ModelMats.Add(*FoundMat);
+                }
+            }
+        }
+        if (ModelMats.Num() == 0)
+        {
+            if (const TArray<uint64>* ConnectedToGeom = ParentToChildren.Find(GeomID))
+            {
+                for (uint64 CID : *ConnectedToGeom)
+                {
+                    if (const FRawFbxMaterial* FoundMat = MaterialMap.Find(CID))
+                    {
+                        ModelMats.Add(*FoundMat);
+                    }
+                }
+            }
+        }
+        if (ModelMats.Num() == 0)
+        {
+            ModelMats.Add(FRawFbxMaterial());
         }
 
         bool bIsSensorMesh = ModelName.StartsWith(TEXT("S_"), ESearchCase::IgnoreCase) ||
@@ -2117,10 +2314,12 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                             TSet<int32> BoneVertSet(SubDef->Indices);
                             TArray<FVector> SubVerts;
                             TArray<int32> SubTris;
+                            TArray<int32> SubTriMatSlots;
                             TMap<int32, int32> VertMap;
 
                             for (int32 p = 0; p + 2 < Geom.Polygons.Num(); p += 3)
                             {
+                                int32 triIdx = p / 3;
                                 int32 V0 = Geom.Polygons[p];
                                 int32 V1 = Geom.Polygons[p + 1];
                                 int32 V2 = Geom.Polygons[p + 2];
@@ -2134,6 +2333,9 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                                     SubTris.Add(VertMap[V0]);
                                     SubTris.Add(VertMap[V1]);
                                     SubTris.Add(VertMap[V2]);
+
+                                    int32 Slot = Geom.TriangleMatSlots.IsValidIndex(triIdx) ? Geom.TriangleMatSlots[triIdx] : 0;
+                                    SubTriMatSlots.Add(Slot);
                                 }
                             }
 
@@ -2164,6 +2366,60 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
                                     Sec.MeshName = bIsUCXModel ? FString::Printf(TEXT("%s_%s"), *ModelName, *MeshLabel) : MeshLabel;
                                     Sec.PivotPoint = Pivot;
                                     Sec.BoneDirection = SubDef->BoneDirection;
+
+                                    // Group triangles by material slot
+                                    TMap<int32, TArray<int32>> SlotToTris;
+                                    for (int32 t = 0; t < SubTriMatSlots.Num(); ++t)
+                                    {
+                                        int32 Slot = SubTriMatSlots[t];
+                                        TArray<int32>& TrisForSlot = SlotToTris.FindOrAdd(Slot);
+                                        TrisForSlot.Add(SubTris[t * 3]);
+                                        TrisForSlot.Add(SubTris[t * 3 + 1]);
+                                        TrisForSlot.Add(SubTris[t * 3 + 2]);
+                                    }
+
+                                    if (SlotToTris.Num() > 1)
+                                    {
+                                        for (auto& Pair : SlotToTris)
+                                        {
+                                            FImporterMaterialSlot MSlot;
+                                            int32 SlotIdx = Pair.Key;
+                                            if (ModelMats.IsValidIndex(SlotIdx))
+                                            {
+                                                MSlot.Color = ModelMats[SlotIdx].Color;
+                                                MSlot.Metallic = ModelMats[SlotIdx].Metallic;
+                                                MSlot.Roughness = ModelMats[SlotIdx].Roughness;
+                                                MSlot.Specular = ModelMats[SlotIdx].Specular;
+                                            }
+                                            MSlot.Triangles = Pair.Value;
+                                            Sec.MaterialSlots.Add(MSlot);
+                                        }
+                                        if (Sec.MaterialSlots.Num() > 0)
+                                        {
+                                            Sec.MaterialColor = Sec.MaterialSlots[0].Color;
+                                            Sec.Metallic = Sec.MaterialSlots[0].Metallic;
+                                            Sec.Roughness = Sec.MaterialSlots[0].Roughness;
+                                            Sec.Specular = Sec.MaterialSlots[0].Specular;
+                                        }
+                                    }
+                                    else if (SlotToTris.Num() == 1)
+                                    {
+                                        int32 OnlySlot = SlotToTris.CreateIterator().Key();
+                                        if (ModelMats.IsValidIndex(OnlySlot))
+                                        {
+                                            Sec.MaterialColor = ModelMats[OnlySlot].Color;
+                                            Sec.Metallic = ModelMats[OnlySlot].Metallic;
+                                            Sec.Roughness = ModelMats[OnlySlot].Roughness;
+                                            Sec.Specular = ModelMats[OnlySlot].Specular;
+                                        }
+                                    }
+                                    else if (ModelMats.Num() > 0)
+                                    {
+                                        Sec.MaterialColor = ModelMats[0].Color;
+                                        Sec.Metallic = ModelMats[0].Metallic;
+                                        Sec.Roughness = ModelMats[0].Roughness;
+                                        Sec.Specular = ModelMats[0].Specular;
+                                    }
 
                                     // Gövdenin boyuna uzanımını (Pivot -> Burun mesafesi) hesapla
                                     float MaxForwardProj = 0.0f;
@@ -2242,6 +2498,61 @@ bool APiSimModelImporter::ParseBinaryFbxFile(const FString& FilePath, TArray<FIm
 
                 Sec.Vertices = CenteredVerts;
                 Sec.Triangles = Geom.Polygons;
+
+                // Group triangles by material slot
+                TMap<int32, TArray<int32>> SlotToTris;
+                for (int32 t = 0; t + 2 < Geom.Polygons.Num(); t += 3)
+                {
+                    int32 triIdx = t / 3;
+                    int32 Slot = Geom.TriangleMatSlots.IsValidIndex(triIdx) ? Geom.TriangleMatSlots[triIdx] : 0;
+                    TArray<int32>& TrisForSlot = SlotToTris.FindOrAdd(Slot);
+                    TrisForSlot.Add(Geom.Polygons[t]);
+                    TrisForSlot.Add(Geom.Polygons[t + 1]);
+                    TrisForSlot.Add(Geom.Polygons[t + 2]);
+                }
+
+                if (SlotToTris.Num() > 1)
+                {
+                    for (auto& Pair : SlotToTris)
+                    {
+                        FImporterMaterialSlot MSlot;
+                        int32 SlotIdx = Pair.Key;
+                        if (ModelMats.IsValidIndex(SlotIdx))
+                        {
+                            MSlot.Color = ModelMats[SlotIdx].Color;
+                            MSlot.Metallic = ModelMats[SlotIdx].Metallic;
+                            MSlot.Roughness = ModelMats[SlotIdx].Roughness;
+                            MSlot.Specular = ModelMats[SlotIdx].Specular;
+                        }
+                        MSlot.Triangles = Pair.Value;
+                        Sec.MaterialSlots.Add(MSlot);
+                    }
+                    if (Sec.MaterialSlots.Num() > 0)
+                    {
+                        Sec.MaterialColor = Sec.MaterialSlots[0].Color;
+                        Sec.Metallic = Sec.MaterialSlots[0].Metallic;
+                        Sec.Roughness = Sec.MaterialSlots[0].Roughness;
+                        Sec.Specular = Sec.MaterialSlots[0].Specular;
+                    }
+                }
+                else if (SlotToTris.Num() == 1)
+                {
+                    int32 OnlySlot = SlotToTris.CreateIterator().Key();
+                    if (ModelMats.IsValidIndex(OnlySlot))
+                    {
+                        Sec.MaterialColor = ModelMats[OnlySlot].Color;
+                        Sec.Metallic = ModelMats[OnlySlot].Metallic;
+                        Sec.Roughness = ModelMats[OnlySlot].Roughness;
+                        Sec.Specular = ModelMats[OnlySlot].Specular;
+                    }
+                }
+                else if (ModelMats.Num() > 0)
+                {
+                    Sec.MaterialColor = ModelMats[0].Color;
+                    Sec.Metallic = ModelMats[0].Metallic;
+                    Sec.Roughness = ModelMats[0].Roughness;
+                    Sec.Specular = ModelMats[0].Specular;
+                }
 
                 Sec.Normals.Init(FVector::ZeroVector, CenteredVerts.Num());
                 for (int32 t = 0; t + 2 < Geom.Polygons.Num(); t += 3)
@@ -2381,7 +2692,15 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         return;
     }
 
-    UMaterialInterface* DefaultMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+    UMaterialInterface* DefaultMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/SimBlank/Materials/NewMaterial.NewMaterial"));
+    if (!DefaultMat)
+    {
+        DefaultMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/SimBlank/blender_models/M_Red.M_Red"));
+    }
+    if (!DefaultMat)
+    {
+        DefaultMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+    }
 
     // -----------------------------------------------------------------------------------------
     // [KÖK KEMİK DİSPATCHER] CHASSIS -> LAND, AIRFRAME -> AIR, HULL -> SEA
@@ -2459,9 +2778,68 @@ void APiSimModelImporter::BuildAndSpawnRobotHierarchy(float Scale)
         TArray<FLinearColor> VertexColors;
         TArray<FProcMeshTangent> Tangents;
 
+        // Otomatik planar UV koordinatları üret (Texture/Materyal düzgün otursun diye)
+        UV0.Reserve(VisualSections[i].Vertices.Num());
+        for (const FVector& V : VisualSections[i].Vertices)
+        {
+            UV0.Add(FVector2D(V.X * 0.01f, V.Y * 0.01f));
+        }
+
         // Görsel Modeli Çiz (Render)
-        VisComp->CreateMeshSection_LinearColor(0, VisualSections[i].Vertices, VisualSections[i].Triangles, VisualSections[i].Normals, UV0, VertexColors, Tangents, false);
-        if (DefaultMat) VisComp->SetMaterial(0, DefaultMat);
+        UMaterialInterface* BaseMat = CustomVisualMaterial ? CustomVisualMaterial : DefaultMat;
+        if (VisualSections[i].MaterialSlots.Num() > 1)
+        {
+            // ÇOKLU MATERYAL: Her slot için ayrı bir UProceduralMeshComponent section'ı oluştur
+            for (int32 s = 0; s < VisualSections[i].MaterialSlots.Num(); ++s)
+            {
+                const FImporterMaterialSlot& Slot = VisualSections[i].MaterialSlots[s];
+                if (Slot.Triangles.Num() > 0)
+                {
+                    VisComp->CreateMeshSection_LinearColor(s, VisualSections[i].Vertices, Slot.Triangles, VisualSections[i].Normals, UV0, VertexColors, Tangents, false);
+                    if (BaseMat)
+                    {
+                        UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BaseMat, this);
+                        if (DynMat)
+                        {
+                            DynMat->SetVectorParameterValue(TEXT("Color"), Slot.Color);
+                            DynMat->SetVectorParameterValue(TEXT("BaseColor"), Slot.Color);
+                            DynMat->SetVectorParameterValue(TEXT("Tint"), Slot.Color);
+                            DynMat->SetScalarParameterValue(TEXT("Metallic"), Slot.Metallic);
+                            DynMat->SetScalarParameterValue(TEXT("Roughness"), Slot.Roughness);
+                            DynMat->SetScalarParameterValue(TEXT("Specular"), Slot.Specular);
+                            VisComp->SetMaterial(s, DynMat);
+                        }
+                        else
+                        {
+                            VisComp->SetMaterial(s, BaseMat);
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            // TEK MATERYAL (Slot 0 veya genel parça materyali)
+            VisComp->CreateMeshSection_LinearColor(0, VisualSections[i].Vertices, VisualSections[i].Triangles, VisualSections[i].Normals, UV0, VertexColors, Tangents, false);
+            if (BaseMat)
+            {
+                UMaterialInstanceDynamic* DynMat = UMaterialInstanceDynamic::Create(BaseMat, this);
+                if (DynMat)
+                {
+                    DynMat->SetVectorParameterValue(TEXT("Color"), VisualSections[i].MaterialColor);
+                    DynMat->SetVectorParameterValue(TEXT("BaseColor"), VisualSections[i].MaterialColor);
+                    DynMat->SetVectorParameterValue(TEXT("Tint"), VisualSections[i].MaterialColor);
+                    DynMat->SetScalarParameterValue(TEXT("Metallic"), VisualSections[i].Metallic);
+                    DynMat->SetScalarParameterValue(TEXT("Roughness"), VisualSections[i].Roughness);
+                    DynMat->SetScalarParameterValue(TEXT("Specular"), VisualSections[i].Specular);
+                    VisComp->SetMaterial(0, DynMat);
+                }
+                else
+                {
+                    VisComp->SetMaterial(0, BaseMat);
+                }
+            }
+        }
 
         VisComp->SetVisibility(true);
         VisComp->SetHiddenInGame(false);

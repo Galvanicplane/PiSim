@@ -55,7 +55,7 @@ void APiSimVehicle::SetVehiclePhysicsEnabled(bool bEnable)
     if (VehicleSkeletalMesh)
     {
         VehicleSkeletalMesh->SetSimulatePhysics(bEnable);
-        if (bEnable)
+        if (bEnable) // burada eğer fizik gerçekten açılmış mı diye kontrol etmiyor sadece girilen değere göre bir değişklik yapıyor
         {
             VehicleSkeletalMesh->SetMassOverrideInKg(NAME_None, TotalMassKg, true);
         }

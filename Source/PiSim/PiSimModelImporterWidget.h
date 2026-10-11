@@ -78,11 +78,17 @@ private:
     FReply OnRemoveSensorClicked();
     FReply OnAddVirtualSensorClicked(uint8 SensorTypeEnumVal);
 
+    // Data Tab Actions
+    FReply OnTabDataClicked();
+
     // Slate Tab Container & View Switcher
     TSharedPtr<class SWidgetSwitcher> MainTabSwitcher;
     TSharedPtr<class SBorder> TabMotorsBtnBorder;
     TSharedPtr<class SBorder> TabTelemetryBtnBorder;
     TSharedPtr<class SBorder> TabSensorsBtnBorder;
+    TSharedPtr<class SBorder> TabDataBtnBorder;
+    TSharedPtr<class SBorder> AeroHudTableBorder;
+    TSharedPtr<class SBorder> AeroHudLandInfoBorder;
 
     // Motor Tab Widgets
     TSharedPtr<class STextBlock> DisplayModeButtonText;

@@ -35,7 +35,7 @@ uint32 FAutopilotRxWorker::Run()
 UPiSimModularAutopilotBridge::UPiSimModularAutopilotBridge()
 {
     PrimaryComponentTick.bCanEverTick = true;
-    PrimaryComponentTick.TickGroup = TG_PrePhysics;
+    PrimaryComponentTick.TickGroup = TG_PrePhysics;//
 
     for (int32 i = 0; i < 16; ++i)
     {

@@ -428,6 +428,7 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
             // Tab 3: Sensörler
             + SHorizontalBox::Slot()
             .AutoWidth()
+            .Padding(FMargin(0.0f, 0.0f, 4.0f, 0.0f))
             [
                 SAssignNew(TabSensorsBtnBorder, SBorder)
                 .BorderBackgroundColor(FLinearColor(0.05f, 0.12f, 0.22f, 0.8f))
@@ -445,160 +446,31 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                     ]
                 ]
             ]
-        ]
 
-        // ---------------------------------------------------------------------
-        // 2) TOP-CENTER FLIGHT TEST TELEMETRY (KUVVETLER & CoG MOMENTLERİ)
-        // ---------------------------------------------------------------------
-        + SOverlay::Slot()
-        .HAlign(HAlign_Center)
-        .VAlign(VAlign_Top)
-        .Padding(FMargin(0.0f, 48.0f, 0.0f, 0.0f))
-        [
-            SNew(SBorder)
-            .BorderBackgroundColor(FLinearColor(0.012f, 0.02f, 0.04f, 0.94f))
-            .Padding(FMargin(14.0f, 8.0f))
+            // Tab 4: Veri Tablosu
+            + SHorizontalBox::Slot()
+            .AutoWidth()
             [
-                SNew(SVerticalBox)
-
-                // Panel Başlığı
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 4.0f)
+                SAssignNew(TabDataBtnBorder, SBorder)
+                .BorderBackgroundColor(FLinearColor(0.05f, 0.12f, 0.22f, 0.8f))
+                .Padding(FMargin(1.0f))
                 [
-                    SNew(STextBlock)
-                    .Text(FText::FromString(TEXT("⚡ PiSim AERODİNAMİK UÇUŞ TESTİ TELEMETRİSİ (KUVVETLER & CoG MOMENTLERİ)")))
-                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
-                    .ColorAndOpacity(FLinearColor(0.0f, 0.92f, 1.0f, 1.0f))
-                ]
-
-                // Tablo Başlık Satırı (Sabit Sütun Genişlikleri)
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                .Padding(0.0f, 0.0f, 0.0f, 3.0f)
-                [
-                    SNew(SHorizontalBox)
-                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(FLinearColor(0.02f, 0.05f, 0.12f, 0.95f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModelImporterWidget::OnTabDataClicked))
+                    .ContentPadding(FMargin(14.0f, 5.0f))
                     [
-                        SNew(SBox).WidthOverride(110.0f)
-                        [
-                            SNew(STextBlock).Text(FText::FromString(TEXT("KAYNAK")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
-                        ]
+                        SNew(STextBlock)
+                        .Text(FText::FromString(TEXT("📊 4. VERİ TABLOSU")))
+                        .Font(TabFont)
+                        .ColorAndOpacity(FLinearColor(0.8f, 0.9f, 1.0f, 1.0f))
                     ]
-                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-                    [
-                        SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
-                        [
-                            SNew(STextBlock).Text(FText::FromString(TEXT("Fx (İleri)")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
-                        ]
-                    ]
-                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-                    [
-                        SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
-                        [
-                            SNew(STextBlock).Text(FText::FromString(TEXT("Fy (Yan)")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
-                        ]
-                    ]
-                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-                    [
-                        SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
-                        [
-                            SNew(STextBlock).Text(FText::FromString(TEXT("Fz (Dikey)")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
-                        ]
-                    ]
-                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-                    [
-                        SNew(SBox).WidthOverride(20.0f).HAlign(HAlign_Center)
-                        [
-                            SNew(STextBlock).Text(FText::FromString(TEXT("│")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                            .ColorAndOpacity(FLinearColor(0.35f, 0.45f, 0.6f, 0.8f))
-                        ]
-                    ]
-                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-                    [
-                        SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
-                        [
-                            SNew(STextBlock).Text(FText::FromString(TEXT("Mx (Roll)")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
-                        ]
-                    ]
-                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-                    [
-                        SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
-                        [
-                            SNew(STextBlock).Text(FText::FromString(TEXT("My (Pitch)")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
-                        ]
-                    ]
-                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-                    [
-                        SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
-                        [
-                            SNew(STextBlock).Text(FText::FromString(TEXT("Mz (Yaw)")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                            .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
-                        ]
-                    ]
-                ]
-
-                // Sütunlu Satırlar
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
-                [
-                    MakeAeroRow(TEXT("LİFT"), FLinearColor(0.1f, 1.0f, 0.45f), AeroHudLiftCells, false)
-                ]
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
-                [
-                    MakeAeroRow(TEXT("DRAG"), FLinearColor(1.0f, 0.55f, 0.05f), AeroHudDragCells, false)
-                ]
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
-                [
-                    MakeAeroRow(TEXT("İTKİ"), FLinearColor(0.9f, 0.3f, 1.0f), AeroHudThrustCells, false)
-                ]
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
-                [
-                    MakeAeroRow(TEXT("YERÇEKİMİ"), FLinearColor(1.0f, 0.25f, 0.25f), AeroHudGravCells, false)
-                ]
-
-                // İnce Ayırıcı Çizgi
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f)
-                [
-                    SNew(SBorder)
-                    .BorderBackgroundColor(FLinearColor(0.25f, 0.35f, 0.5f, 0.7f))
-                    .Padding(FMargin(0.0f, 0.5f))
-                ]
-
-                // TOPLAM NET Satırı
-                + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
-                [
-                    MakeAeroRow(TEXT("TOPLAM NET"), FLinearColor::White, AeroHudTotalCells, true)
-                ]
-
-                // Alt Durum Çubuğu (Hız, AoA, L/D, CoG, Lift Çarpanı)
-                + SVerticalBox::Slot()
-                .AutoHeight()
-                .Padding(0.0f, 3.0f, 0.0f, 0.0f)
-                [
-                    SAssignNew(AeroHudFooterText, STextBlock)
-                    .Text(FText::FromString(TEXT("Hız: 0.0 km/h   │   AoA: +0.0°   │   L/D: 0.0   │   CoG: +0.0 cm [O/P]   │   Lift Çarpanı: 1.00x [L/K]")))
-                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-                    .ColorAndOpacity(FLinearColor(0.95f, 0.85f, 0.2f, 1.0f))
                 ]
             ]
         ]
 
         // ---------------------------------------------------------------------
-        // 3) ANA İÇERİK DEĞİŞTİRİCİ (WIDGET SWITCHER: TABS 0, 1, 2)
+        // 2) ANA İÇERİK DEĞİŞTİRİCİ (WIDGET SWITCHER: TABS 0, 1, 2, 3)
         // ---------------------------------------------------------------------
         + SOverlay::Slot()
         .HAlign(HAlign_Fill)
@@ -1561,6 +1433,193 @@ TSharedRef<SWidget> UPiSimModelImporterWidget::RebuildWidget()
                     ]
                 ]
             ]
+
+            // =================================================================
+            // [SEKME 4] UÇUŞ TESTİ VERİ TABLOSU (DATA TAB)
+            // =================================================================
+            + SWidgetSwitcher::Slot()
+            .HAlign(HAlign_Center)
+            .VAlign(VAlign_Top)
+            .Padding(FMargin(0.0f, 12.0f, 0.0f, 0.0f))
+            [
+                SNew(SVerticalBox)
+
+                // Hava Aracı İçin Aerodinamik Tablo (Sadece Hava Aracında Görünür)
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .HAlign(HAlign_Center)
+                [
+                    SAssignNew(AeroHudTableBorder, SBorder)
+                    .BorderBackgroundColor(FLinearColor(0.012f, 0.02f, 0.04f, 0.94f))
+                    .Padding(FMargin(18.0f, 10.0f))
+                    [
+                        SNew(SVerticalBox)
+
+                        // Panel Başlığı
+                        + SVerticalBox::Slot()
+                        .AutoHeight()
+                        .Padding(0.0f, 0.0f, 0.0f, 4.0f)
+                        [
+                            SNew(STextBlock)
+                            .Text(FText::FromString(TEXT("⚡ PiSim AERODİNAMİK UÇUŞ TESTİ TELEMETRİSİ (KUVVETLER & CoG MOMENTLERİ)")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+                            .ColorAndOpacity(FLinearColor(0.0f, 0.92f, 1.0f, 1.0f))
+                        ]
+
+                        // Tablo Başlık Satırı (Sabit Sütun Genişlikleri)
+                        + SVerticalBox::Slot()
+                        .AutoHeight()
+                        .Padding(0.0f, 0.0f, 0.0f, 4.0f)
+                        [
+                            SNew(SHorizontalBox)
+                            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                            [
+                                SNew(SBox).WidthOverride(110.0f)
+                                [
+                                    SNew(STextBlock).Text(FText::FromString(TEXT("KAYNAK")))
+                                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                                    .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                                ]
+                            ]
+                            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                            [
+                                SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
+                                [
+                                    SNew(STextBlock).Text(FText::FromString(TEXT("Fx (İleri)")))
+                                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                                    .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                                ]
+                            ]
+                            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                            [
+                                SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
+                                [
+                                    SNew(STextBlock).Text(FText::FromString(TEXT("Fy (Yan)")))
+                                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                                    .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                                ]
+                            ]
+                            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                            [
+                                SNew(SBox).WidthOverride(75.0f).HAlign(HAlign_Right)
+                                [
+                                    SNew(STextBlock).Text(FText::FromString(TEXT("Fz (Dikey)")))
+                                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                                    .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                                ]
+                            ]
+                            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                            [
+                                SNew(SBox).WidthOverride(20.0f).HAlign(HAlign_Center)
+                                [
+                                    SNew(STextBlock).Text(FText::FromString(TEXT("│")))
+                                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                                    .ColorAndOpacity(FLinearColor(0.35f, 0.45f, 0.6f, 0.8f))
+                                ]
+                            ]
+                            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                            [
+                                SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
+                                [
+                                    SNew(STextBlock).Text(FText::FromString(TEXT("Mx (Roll)")))
+                                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                                    .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                                ]
+                            ]
+                            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                            [
+                                SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
+                                [
+                                    SNew(STextBlock).Text(FText::FromString(TEXT("My (Pitch)")))
+                                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                                    .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                                ]
+                            ]
+                            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                            [
+                                SNew(SBox).WidthOverride(85.0f).HAlign(HAlign_Right)
+                                [
+                                    SNew(STextBlock).Text(FText::FromString(TEXT("Mz (Yaw)")))
+                                    .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                                    .ColorAndOpacity(FLinearColor(0.6f, 0.7f, 0.85f, 1.0f))
+                                ]
+                            ]
+                        ]
+
+                        // Sütunlu Satırlar
+                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                        [
+                            MakeAeroRow(TEXT("LİFT"), FLinearColor(0.1f, 1.0f, 0.45f), AeroHudLiftCells, false)
+                        ]
+                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                        [
+                            MakeAeroRow(TEXT("DRAG"), FLinearColor(1.0f, 0.55f, 0.05f), AeroHudDragCells, false)
+                        ]
+                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                        [
+                            MakeAeroRow(TEXT("İTKİ"), FLinearColor(0.9f, 0.3f, 1.0f), AeroHudThrustCells, false)
+                        ]
+                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                        [
+                            MakeAeroRow(TEXT("YERÇEKİMİ"), FLinearColor(1.0f, 0.25f, 0.25f), AeroHudGravCells, false)
+                        ]
+
+                        // İnce Ayırıcı Çizgi
+                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 2.0f)
+                        [
+                            SNew(SBorder)
+                            .BorderBackgroundColor(FLinearColor(0.25f, 0.35f, 0.5f, 0.7f))
+                            .Padding(FMargin(0.0f, 0.5f))
+                        ]
+
+                        // TOPLAM NET Satırı
+                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 1.0f)
+                        [
+                            MakeAeroRow(TEXT("TOPLAM NET"), FLinearColor::White, AeroHudTotalCells, true)
+                        ]
+
+                        // Alt Durum Çubuğu (Hız, AoA, L/D, CoG, Lift Çarpanı)
+                        + SVerticalBox::Slot()
+                        .AutoHeight()
+                        .Padding(0.0f, 4.0f, 0.0f, 0.0f)
+                        [
+                            SAssignNew(AeroHudFooterText, STextBlock)
+                            .Text(FText::FromString(TEXT("Hız: 0.0 km/h   │   AoA: +0.0°   │   L/D: 0.0   │   CoG: +0.0 cm [O/P]   │   Lift Çarpanı: 1.00x [L/K]")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                            .ColorAndOpacity(FLinearColor(0.95f, 0.85f, 0.2f, 1.0f))
+                        ]
+                    ]
+                ]
+
+                // Kara Aracı Modu Bilgi Kartı (Araç modundayken aero tablo yerine bu görünür)
+                + SVerticalBox::Slot()
+                .AutoHeight()
+                .HAlign(HAlign_Center)
+                .Padding(FMargin(0.0f, 40.0f, 0.0f, 0.0f))
+                [
+                    SAssignNew(AeroHudLandInfoBorder, SBorder)
+                    .BorderBackgroundColor(FLinearColor(0.012f, 0.025f, 0.06f, 0.95f))
+                    .Padding(FMargin(24.0f, 18.0f))
+                    .Visibility(EVisibility::Collapsed)
+                    [
+                        SNew(SVerticalBox)
+                        + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
+                        [
+                            SNew(STextBlock)
+                            .Text(FText::FromString(TEXT("🚗 KARA ARACI MODU (Chassis / Tekerlekli)")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+                            .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
+                        ]
+                        + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 8.0f, 0.0f, 0.0f)
+                        [
+                            SNew(STextBlock)
+                            .Text(FText::FromString(TEXT("Aerodinamik uçuş testi kuvvet tablosu (Lift, Drag, AoA) kara araçları için gizlenmiştir.\nTekerlek devir ve tork değerlerini 1. Sekmeden (Motorlar) izleyebilirsiniz.")))
+                            .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                            .ColorAndOpacity(FLinearColor(0.7f, 0.8f, 0.9f, 1.0f))
+                        ]
+                    ]
+                ]
+            ]
         ];
 }
 
@@ -1830,6 +1889,19 @@ void UPiSimModelImporterWidget::NativeTick(const FGeometry& MyGeometry, float In
             TabTelemetryBtnBorder->SetBorderBackgroundColor(ActiveIdx == 1 ? FLinearColor(0.0f, 0.45f, 0.75f, 1.0f) : FLinearColor(0.05f, 0.12f, 0.22f, 0.8f));
         if (TabSensorsBtnBorder.IsValid())
             TabSensorsBtnBorder->SetBorderBackgroundColor(ActiveIdx == 2 ? FLinearColor(0.0f, 0.45f, 0.75f, 1.0f) : FLinearColor(0.05f, 0.12f, 0.22f, 0.8f));
+        if (TabDataBtnBorder.IsValid())
+            TabDataBtnBorder->SetBorderBackgroundColor(ActiveIdx == 3 ? FLinearColor(0.0f, 0.45f, 0.75f, 1.0f) : FLinearColor(0.05f, 0.12f, 0.22f, 0.8f));
+    }
+
+    // Araç modundayken (kara aracı) aerodinamik tablo gizlenir
+    bool bIsAir = (TargetImporter && TargetImporter->VehicleDomain == EVehicleDomain::Air);
+    if (AeroHudTableBorder.IsValid())
+    {
+        AeroHudTableBorder->SetVisibility(bIsAir ? EVisibility::Visible : EVisibility::Collapsed);
+    }
+    if (AeroHudLandInfoBorder.IsValid())
+    {
+        AeroHudLandInfoBorder->SetVisibility(!bIsAir ? EVisibility::Visible : EVisibility::Collapsed);
     }
 
     // 3) TAB 1: BONE & MOTOR LIST POPULATION
@@ -2582,6 +2654,12 @@ FReply UPiSimModelImporterWidget::OnTabTelemetryClicked()
 FReply UPiSimModelImporterWidget::OnTabSensorsClicked()
 {
     if (TargetImporter) TargetImporter->SetActiveTab(EPiSimActiveTab::SensorsTab);
+    return FReply::Handled();
+}
+
+FReply UPiSimModelImporterWidget::OnTabDataClicked()
+{
+    if (TargetImporter) TargetImporter->SetActiveTab(EPiSimActiveTab::DataTab);
     return FReply::Handled();
 }
 
