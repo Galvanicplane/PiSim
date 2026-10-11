@@ -8,9 +8,14 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "IPiSimInspectableModule.h"
+#include "Widgets/DeclarativeSyntaxSupport.h"
+#include "Widgets/SCompoundWidget.h"
 #include "GarageWidget.generated.h"
 
 class APiSimVehicle;
+class SScrollBox;
+class STextBlock;
+class SEditableTextBox;
 
 UCLASS()
 class PISIM_API UPiSimModularGarageWidget : public UUserWidget
@@ -20,6 +25,7 @@ class PISIM_API UPiSimModularGarageWidget : public UUserWidget
 public:
     virtual void NativeConstruct() override;
     virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+    virtual TSharedRef<SWidget> RebuildWidget() override;
 
     // Hedef aracı bağlar
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
@@ -54,8 +60,24 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|UI")
     TArray<FPiSimPropertyDescriptor> CurrentProperties;
 
+    // UI Aksiyon Tetikleyicileri
+    FReply OnTogglePhysicsClicked();
+    FReply OnAutoAssignMotorsClicked();
+    FReply OnSaveProfileClicked();
+    FReply OnLoadProfileClicked();
+    FReply OnBakeClicked();
+    FReply OnSelectBoneClicked(FName BoneName);
+    FReply OnAssignRoleClicked(FString RoleName);
+
 protected:
     IPiSimInspectableModule* CurrentActiveModule = nullptr;
 
+    void RebuildBoneListView();
     void RefreshPropertyInspector();
+
+    TSharedPtr<SScrollBox> BoneListScrollBox;
+    TSharedPtr<SScrollBox> InspectorSlotScrollBox;
+    TSharedPtr<STextBlock> SelectedBoneTitleText;
+    TSharedPtr<SEditableTextBox> ProfileNameInput;
+    TSharedPtr<STextBlock> StatusMessageText;
 };

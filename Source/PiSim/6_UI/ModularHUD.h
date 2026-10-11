@@ -1,5 +1,5 @@
 // ModularHUD.h
-// PiSim HUD: TelemetryGateway'den araç verilerini okuyarak ekrana canlı telemetri çizimi yapar.
+// PiSim HUD: TelemetryGateway'den araç verilerini okuyarak ekrana havacılık göstergelerini (Yapay Ufuk, Hız ve İrtifa Şeritleri, Pusula) çizer.
 
 #pragma once
 
@@ -22,5 +22,10 @@ protected:
     UPROPERTY()
     UPiSimTelemetryGateway* CachedGateway = nullptr;
 
-    void DrawTelemetryOverlay();
+    void DrawAvionicsPFD();
+    void DrawHorizonLadder(float CenterX, float CenterY, float PitchDeg, float RollDeg);
+    void DrawSpeedTape(float CenterX, float CenterY, float SpeedKmh);
+    void DrawAltitudeTape(float CenterX, float CenterY, float AltitudeM);
+    void DrawHeadingTape(float CenterX, float CenterY, float HeadingDeg);
+    void DrawStatusOverlay();
 };

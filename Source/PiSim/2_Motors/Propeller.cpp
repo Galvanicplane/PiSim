@@ -11,7 +11,7 @@ UPiSimPropellerComponent::UPiSimPropellerComponent()
     PrimaryComponentTick.TickGroup = TG_PrePhysics;
 }
 
-// @state: WIP - Her frame itki kuvvetini ve devir sayısını hesaplar
+// @state: WIP - Her frame itki kuvvetini hesaplar ve fizik gövdesine uygular
 void UPiSimPropellerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -24,68 +24,88 @@ void UPiSimPropellerComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
     ApplyThrustPhysics(DeltaTime);
 }
 
-// @state: WIP - Normalize gaz miktarını ayarlar (0..1)
+// @state: WIP - Gaz kolu değerini (0.0 - 1.0) günceller
 void UPiSimPropellerComponent::SetThrottle(float InThrottleNormalized)
 {
     Throttle = FMath::Clamp(InThrottleNormalized, 0.0f, 1.0f);
     CurrentRPM = Throttle * MaxRPM;
+    CurrentThrustNewtons = (Throttle * Throttle) * MaxThrustNewtons;
 }
 
 // @state: WIP - ArduPilot 1000..2000 us PWM sinyalini gaza çevirir
 void UPiSimPropellerComponent::SetFromPWM(int32 InPWM)
 {
-    float ClampedPWM = FMath::Clamp((float)InPWM, 1000.0f, 2000.0f);
-    SetThrottle((ClampedPWM - 1000.0f) / 1000.0f);
+    if (bManualOverride)
+    {
+        return;
+    }
+
+    float Norm = FMath::Clamp((InPWM - 1000) / 1000.0f, 0.0f, 1.0f);
+    SetThrottle(Norm);
 }
 
-// @state: WIP - Otopark UI parametrelerini doldurur
+// @state: WIP - Otopark UI için pervane parametrelerini döner
 void UPiSimPropellerComponent::GetInspectableProperties(TArray<FPiSimPropertyDescriptor>& OutProperties)
 {
-    FPiSimPropertyDescriptor ThrottleDesc;
-    ThrottleDesc.PropertyId = TEXT("Throttle");
-    ThrottleDesc.DisplayName = TEXT("Gaz / Güç (%)");
-    ThrottleDesc.PropertyType = EPiSimPropertyType::Slider;
-    ThrottleDesc.MinValue = 0.0f;
-    ThrottleDesc.MaxValue = 1.0f;
-    ThrottleDesc.CurrentFloatValue = Throttle;
-    ThrottleDesc.bContinuousTickUpdate = true;
-    OutProperties.Add(ThrottleDesc);
+    FPiSimPropertyDescriptor ThrDesc;
+    ThrDesc.PropertyId = TEXT("Throttle");
+    ThrDesc.DisplayName = TEXT("Gaz / İtki (0 - 100%)");
+    ThrDesc.PropertyType = EPiSimPropertyType::Slider;
+    ThrDesc.MinValue = 0.0f;
+    ThrDesc.MaxValue = 1.0f;
+    ThrDesc.CurrentFloatValue = Throttle;
+    ThrDesc.bContinuousTickUpdate = true;
+    OutProperties.Add(ThrDesc);
 
     FPiSimPropertyDescriptor ThrustDesc;
     ThrustDesc.PropertyId = TEXT("MaxThrustNewtons");
     ThrustDesc.DisplayName = TEXT("Maksimum İtki (Newton)");
     ThrustDesc.PropertyType = EPiSimPropertyType::Slider;
-    ThrustDesc.MinValue = 1.0f;
+    ThrustDesc.MinValue = 5.0f;
     ThrustDesc.MaxValue = 500.0f;
     ThrustDesc.CurrentFloatValue = MaxThrustNewtons;
     ThrustDesc.bContinuousTickUpdate = false;
     OutProperties.Add(ThrustDesc);
 
-    FPiSimPropertyDescriptor ChannelDesc;
-    ChannelDesc.PropertyId = TEXT("ArduPilotChannel");
-    ChannelDesc.DisplayName = TEXT("ArduPilot Gaz Kanalı (1-16)");
-    ChannelDesc.PropertyType = EPiSimPropertyType::Slider;
-    ChannelDesc.MinValue = 1.0f;
-    ChannelDesc.MaxValue = 16.0f;
-    ChannelDesc.CurrentFloatValue = (float)ArduPilotChannel;
-    ChannelDesc.bContinuousTickUpdate = false;
-    OutProperties.Add(ChannelDesc);
+    FPiSimPropertyDescriptor RevDesc;
+    RevDesc.PropertyId = TEXT("bReverseThrust");
+    RevDesc.DisplayName = TEXT("İtki Yönünü Ters Çevir");
+    RevDesc.PropertyType = EPiSimPropertyType::Toggle;
+    RevDesc.CurrentFloatValue = bReverseThrust ? 1.0f : 0.0f;
+    RevDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(RevDesc);
+
+    FPiSimPropertyDescriptor ChDesc;
+    ChDesc.PropertyId = TEXT("ArduPilotChannel");
+    ChDesc.DisplayName = TEXT("ArduPilot Kanalı");
+    ChDesc.PropertyType = EPiSimPropertyType::Slider;
+    ChDesc.MinValue = 1.0f;
+    ChDesc.MaxValue = 16.0f;
+    ChDesc.CurrentFloatValue = (float)ArduPilotChannel;
+    ChDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(ChDesc);
 }
 
 // @state: WIP - UI sliderından gelen float değerini pervaneye uygular
 void UPiSimPropellerComponent::SetInspectablePropertyFloat(FName PropertyId, float NewValue)
 {
+    bManualOverride = true;
+
     if (PropertyId == TEXT("Throttle"))
     {
         SetThrottle(NewValue);
     }
     else if (PropertyId == TEXT("MaxThrustNewtons"))
     {
-        MaxThrustNewtons = FMath::Max(0.1f, NewValue);
+        MaxThrustNewtons = FMath::Max(1.0f, NewValue);
+    }
+    else if (PropertyId == TEXT("bReverseThrust"))
+    {
+        bReverseThrust = (NewValue > 0.5f);
     }
     else if (PropertyId == TEXT("ArduPilotChannel"))
     {
-        ArduPilotChannel = FMath::Clamp((int32)NewValue, 1, 16);
+        ArduPilotChannel = FMath::Clamp(FMath::RoundToInt(NewValue), 1, 16);
     }
 }
 
@@ -94,16 +114,17 @@ void UPiSimPropellerComponent::SetInspectablePropertyString(FName PropertyId, co
 {
 }
 
-// @state: WIP - Otopark UI aksiyon butonunu işler
+// @state: WIP - UI aksiyon butonunu işler
 void UPiSimPropellerComponent::TriggerInspectableAction(FName ActionId)
 {
-    if (ActionId == TEXT("KillEngine"))
+    if (ActionId == TEXT("CutThrottle"))
     {
         SetThrottle(0.0f);
+        bManualOverride = false;
     }
 }
 
-// @state: WIP - Pervane itki kuvvetini gövdeye uygular
+// @state: WIP - İtki kuvvetini (Newton * 100 = dyn/cm) iskelet kemiği konumunda uygular
 void UPiSimPropellerComponent::ApplyThrustPhysics(float DeltaTime)
 {
     if (!CachedSkeletalMesh || Throttle <= 0.001f)
@@ -111,9 +132,19 @@ void UPiSimPropellerComponent::ApplyThrustPhysics(float DeltaTime)
         return;
     }
 
-    float ForceMagnitude = Throttle * MaxThrustNewtons * 100.0f; // UE ölçeği (cm/s^2)
     FTransform BoneTransform = TargetBoneName.IsNone() ? CachedSkeletalMesh->GetComponentTransform() : CachedSkeletalMesh->GetSocketTransform(TargetBoneName);
-    FVector WorldDirection = BoneTransform.TransformVectorNoScale(LocalThrustDirection).GetSafeNormal();
 
-    CachedSkeletalMesh->AddForceAtLocation(WorldDirection * ForceMagnitude, BoneTransform.GetLocation(), TargetBoneName);
+    FVector LocalDir = LocalThrustDirection.GetSafeNormal();
+    if (bReverseThrust)
+    {
+        LocalDir = -LocalDir;
+    }
+
+    FVector WorldThrustDir = BoneTransform.TransformVectorNoScale(LocalDir).GetSafeNormal();
+    CurrentThrustNewtons = (Throttle * Throttle) * MaxThrustNewtons;
+
+    // UE kuvvet birimi: 1 Newton = 100 N*cm/s^2 (veya AddForce için Newton * 100)
+    FVector ForceVector = WorldThrustDir * CurrentThrustNewtons * 100.0f;
+
+    CachedSkeletalMesh->AddForceAtLocation(ForceVector, BoneTransform.GetLocation(), TargetBoneName);
 }

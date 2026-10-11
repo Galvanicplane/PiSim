@@ -1,5 +1,5 @@
 // Servo.h
-// Açısal Eylem & Kontrol Yüzeyi Servosu: Kemiklerin açısal limitli hareketini ve ArduPilot PWM eşleşmesini yönetir.
+// Açısal Eylem & Kontrol Yüzeyi Servosu: Kemiklerin açısal limitli hareketini, ArduPilot PWM ve Elevon/Rudder mikserini yönetir.
 
 #pragma once
 
@@ -30,6 +30,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Servo")
     void SetFromPWM(int32 InPWM);
 
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Servo")
+    void SetPitchRollMixing(float PitchNorm, float RollNorm);
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
     FName TargetBoneName = NAME_None;
 
@@ -42,23 +45,25 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
     float TargetAngleDeg = 0.0f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Servo")
     float CurrentAngleDeg = 0.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
-    float SpeedDegPerSec = 180.0f;
+    float SpeedDegPerSec = 240.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
     int32 ArduPilotChannel = 1; // 1 - 16
 
+    /** Servo Rolü: Aileron, Elevator, Rudder, Elevon_Left, Elevon_Right, Flap, Steer */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
-    FString ArduPilotFunction = TEXT("Aileron"); // Aileron, Elevator, Rudder, Flap, Steer
+    FString ArduPilotFunction = TEXT("Aileron");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
     FVector LocalRotationAxis = FVector(0.0f, 0.0f, 1.0f); // Varsayılan Z Yaw ekseni
 
+    /** Manuel UI testi açıksa gelen PWM komutları değeri ezmez */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
-    USceneComponent* LinkedComponent = nullptr;
+    bool bManualOverride = false;
 
 protected:
     UPROPERTY()

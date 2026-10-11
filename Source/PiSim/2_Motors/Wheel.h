@@ -1,5 +1,5 @@
 // Wheel.h
-// Tekerlek Mikro Modülü: Drive Wheel (Tahrikli) ve Free Wheel (Serbest Dönen Caster) fiziğini yönetir.
+// Tekerlek Mikro Modülü: Drive Wheel (Tahrikli), Steered Wheel (Direksiyonlu) ve Free Wheel (Serbest Dönen Caster) fiziğini yönetir.
 
 #pragma once
 
@@ -11,8 +11,9 @@
 UENUM(BlueprintType)
 enum class EPiSimWheelMode : uint8
 {
-    DriveWheel UMETA(DisplayName = "Tahrikli Tekerlek (Drive Wheel)"),
-    FreeWheel  UMETA(DisplayName = "Serbest Sarhoş Tekerlek (Free Caster)")
+    DriveWheel   UMETA(DisplayName = "Tahrikli Tekerlek (Drive Wheel)"),
+    SteeredWheel UMETA(DisplayName = "Direksiyonlu Tekerlek (Steered Wheel)"),
+    FreeWheel    UMETA(DisplayName = "Serbest Sarhoş Tekerlek (Free Caster)")
 };
 
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
@@ -35,7 +36,13 @@ public:
     void SetTargetRPM(float InRPM) { TargetRPM = InRPM; }
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Wheel")
+    void SetSteerAngle(float InAngleDeg) { TargetSteerAngleDeg = FMath::Clamp(InAngleDeg, -MaxSteerAngleDeg, MaxSteerAngleDeg); }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Wheel")
     void SetWheelMode(EPiSimWheelMode InMode) { WheelMode = InMode; }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Wheel")
+    void SetFromPWM(int32 InPWM, bool bIsSteering = false);
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
     FName TargetBoneName = NAME_None;
@@ -46,14 +53,30 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
     float TargetRPM = 0.0f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Wheel")
     float CurrentRPM = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
+    float TargetSteerAngleDeg = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Wheel")
+    float CurrentSteerAngleDeg = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
+    float MaxSteerAngleDeg = 35.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
     float RadiusCm = 15.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
-    float FrictionCoefficient = 0.8f;
+    float FrictionCoefficient = 0.85f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
+    int32 ArduPilotChannel = 3; // Gaz veya Direksiyon kanalı
+
+    /** Manuel UI testi açıksa ağ / otopilot komutları değeri ezmez */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
+    bool bManualOverride = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
     FVector LocalSpinAxis = FVector(0.0f, 1.0f, 0.0f); // Varsayılan Y Pitch ekseni

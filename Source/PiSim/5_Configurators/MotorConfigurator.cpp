@@ -29,16 +29,60 @@ void UPiSimMotorConfigurator::AutoAssignMotorsByBoneNames(APiSimVehicle* TargetV
 
         if (BoneStr.Contains(TEXT("wheel")) || BoneStr.Contains(TEXT("teker")) || BoneStr.Contains(TEXT("caster")))
         {
-            AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Wheel"));
+            UActorComponent* Comp = AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Wheel"));
+            if (UPiSimWheelComponent* Wheel = Cast<UPiSimWheelComponent>(Comp))
+            {
+                if (BoneStr.Contains(TEXT("caster")) || BoneStr.Contains(TEXT("sarhos")))
+                {
+                    Wheel->SetWheelMode(EPiSimWheelMode::FreeWheel);
+                }
+                else if (BoneStr.Contains(TEXT("front")) || BoneStr.Contains(TEXT("steer")) || BoneStr.Contains(TEXT("on_")))
+                {
+                    Wheel->SetWheelMode(EPiSimWheelMode::SteeredWheel);
+                    Wheel->ArduPilotChannel = 1;
+                }
+                else
+                {
+                    Wheel->SetWheelMode(EPiSimWheelMode::DriveWheel);
+                    Wheel->ArduPilotChannel = 3;
+                }
+            }
         }
         else if (BoneStr.Contains(TEXT("servo")) || BoneStr.Contains(TEXT("steer")) || BoneStr.Contains(TEXT("rudder")) || 
-                 BoneStr.Contains(TEXT("aileron")) || BoneStr.Contains(TEXT("elevator")) || BoneStr.Contains(TEXT("arm")))
+                 BoneStr.Contains(TEXT("aileron")) || BoneStr.Contains(TEXT("elevator")) || BoneStr.Contains(TEXT("elevon")) || BoneStr.Contains(TEXT("arm")))
         {
-            AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Servo"));
+            UActorComponent* Comp = AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Servo"));
+            if (UPiSimServoComponent* Servo = Cast<UPiSimServoComponent>(Comp))
+            {
+                if (BoneStr.Contains(TEXT("elevon_l")) || BoneStr.Contains(TEXT("aileron_l")))
+                {
+                    Servo->ArduPilotFunction = TEXT("Elevon_Left");
+                    Servo->ArduPilotChannel = 1;
+                }
+                else if (BoneStr.Contains(TEXT("elevon_r")) || BoneStr.Contains(TEXT("aileron_r")))
+                {
+                    Servo->ArduPilotFunction = TEXT("Elevon_Right");
+                    Servo->ArduPilotChannel = 2;
+                }
+                else if (BoneStr.Contains(TEXT("elevator")))
+                {
+                    Servo->ArduPilotFunction = TEXT("Elevator");
+                    Servo->ArduPilotChannel = 2;
+                }
+                else if (BoneStr.Contains(TEXT("rudder")))
+                {
+                    Servo->ArduPilotFunction = TEXT("Rudder");
+                    Servo->ArduPilotChannel = 4;
+                }
+            }
         }
         else if (BoneStr.Contains(TEXT("prop")) || BoneStr.Contains(TEXT("motor")) || BoneStr.Contains(TEXT("thrust")) || BoneStr.Contains(TEXT("pervane")))
         {
-            AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Propeller"));
+            UActorComponent* Comp = AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Propeller"));
+            if (UPiSimPropellerComponent* Prop = Cast<UPiSimPropellerComponent>(Comp))
+            {
+                Prop->ArduPilotChannel = 3;
+            }
         }
         else if (BoneStr.Contains(TEXT("wing")) || BoneStr.Contains(TEXT("kanat")) || BoneStr.Contains(TEXT("lift")) || BoneStr.Contains(TEXT("flap")))
         {

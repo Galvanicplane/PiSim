@@ -42,14 +42,25 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Propeller")
     float MaxRPM = 8000.0f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Propeller")
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Propeller")
     float CurrentRPM = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Propeller")
+    float CurrentThrustNewtons = 0.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Propeller")
     int32 ArduPilotChannel = 3; // Varsayılan Gaz kanalı (CH3)
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Propeller")
     FVector LocalThrustDirection = FVector(1.0f, 0.0f, 0.0f); // Varsayılan X ileri
+
+    /** İtki yönünü tersine çevir (Pusher / Çekici motor dönüşümü) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Propeller")
+    bool bReverseThrust = false;
+
+    /** Manuel UI slider testi açıksa ağ paketleri değeri ezmez */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Propeller")
+    bool bManualOverride = false;
 
 protected:
     UPROPERTY()

@@ -45,8 +45,11 @@ bool UPiSimSaveManager::SaveProfile(APiSimVehicle* TargetVehicle, const FString&
         {
             ModObj->SetStringField(TEXT("Type"), TEXT("Wheel"));
             ModObj->SetStringField(TEXT("BoneName"), Wheel->TargetBoneName.ToString());
+            ModObj->SetStringField(TEXT("WheelMode"), (Wheel->WheelMode == EPiSimWheelMode::SteeredWheel) ? TEXT("SteeredWheel") :
+                                                     (Wheel->WheelMode == EPiSimWheelMode::FreeWheel) ? TEXT("FreeWheel") : TEXT("DriveWheel"));
             ModObj->SetNumberField(TEXT("RadiusCm"), Wheel->RadiusCm);
             ModObj->SetNumberField(TEXT("Friction"), Wheel->FrictionCoefficient);
+            ModObj->SetNumberField(TEXT("Channel"), Wheel->ArduPilotChannel);
             ModulesArray.Add(MakeShareable(new FJsonValueObject(ModObj)));
         }
         else if (UPiSimServoComponent* Servo = Cast<UPiSimServoComponent>(Comp))
@@ -140,6 +143,15 @@ bool UPiSimSaveManager::LoadProfile(APiSimVehicle* TargetVehicle, const FString&
             {
                 Wheel->RadiusCm = ModObj->GetNumberField(TEXT("RadiusCm"));
                 Wheel->FrictionCoefficient = ModObj->GetNumberField(TEXT("Friction"));
+                FString WMode;
+                if (ModObj->TryGetStringField(TEXT("WheelMode"), WMode))
+                {
+                    if (WMode == TEXT("SteeredWheel")) Wheel->SetWheelMode(EPiSimWheelMode::SteeredWheel);
+                    else if (WMode == TEXT("FreeWheel")) Wheel->SetWheelMode(EPiSimWheelMode::FreeWheel);
+                    else Wheel->SetWheelMode(EPiSimWheelMode::DriveWheel);
+                }
+                int32 Ch = 3;
+                if (ModObj->TryGetNumberField(TEXT("Channel"), Ch)) Wheel->ArduPilotChannel = Ch;
             }
             else if (UPiSimServoComponent* Servo = Cast<UPiSimServoComponent>(NewComp))
             {

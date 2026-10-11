@@ -34,6 +34,11 @@ void UPiSimIMUSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActor
         return;
     }
 
+    if (!CachedGateway)
+    {
+        CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
+    }
+
     FVector CurrentVelocity = GetOwner()->GetVelocity();
     if (!bHasPreviousVelocity)
     {
@@ -41,39 +46,54 @@ void UPiSimIMUSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActor
         bHasPreviousVelocity = true;
     }
 
-    // Doğrusal İvme: a = dv / dt (cm/s^2 -> m/s^2)
-    FVector RawAccel = (CurrentVelocity - PreviousVelocity) / (DeltaTime * 100.0f);
+    // Dünya İvmesi: a = dv / dt (cm/s^2 -> m/s^2)
+    FVector WorldLinearAccel = (CurrentVelocity - PreviousVelocity) / (DeltaTime * 100.0f);
     PreviousVelocity = CurrentVelocity;
 
-    // Yerçekimi ivmesi ekle (Sensör yerçekimini hisseder)
-    FVector Gravity(0.0f, 0.0f, 9.81f);
-    LinearAcceleration = RawAccel + Gravity;
+    // Yerçekimi reaksiyonu (Dikey yukarı +9.81 m/s^2 zemin tepkisi)
+    FVector AccelWithGravity = WorldLinearAccel + FVector(0.0f, 0.0f, 9.81f);
 
-    // Gürültü ekle (Sensör noise simülasyonu)
+    // Gövde (Body) eksenine çevir
+    FQuat OwnerQuat = GetOwner()->GetActorQuat();
+    FVector BodyAccel = OwnerQuat.UnrotateVector(AccelWithGravity);
+
+    // Gürültü ekle
     if (NoiseIntensity > 0.0f)
     {
-        LinearAcceleration += FVector(FMath::FRandRange(-NoiseIntensity, NoiseIntensity),
-                                      FMath::FRandRange(-NoiseIntensity, NoiseIntensity),
-                                      FMath::FRandRange(-NoiseIntensity, NoiseIntensity));
+        BodyAccel += FVector(FMath::FRandRange(-NoiseIntensity, NoiseIntensity),
+                             FMath::FRandRange(-NoiseIntensity, NoiseIntensity),
+                             FMath::FRandRange(-NoiseIntensity, NoiseIntensity));
     }
+    LinearAcceleration = BodyAccel;
 
     // Açısal Hız (Jiroskop)
+    FVector WorldAngularVelDeg = FVector::ZeroVector;
     UPrimitiveComponent* RootPrim = Cast<UPrimitiveComponent>(GetOwner()->GetRootComponent());
     if (RootPrim && RootPrim->IsSimulatingPhysics())
     {
-        AngularVelocityDeg = RootPrim->GetPhysicsAngularVelocityInDegrees();
+        WorldAngularVelDeg = RootPrim->GetPhysicsAngularVelocityInDegrees();
     }
-    else
-    {
-        AngularVelocityDeg = FVector::ZeroVector;
-    }
+    AngularVelocityDeg = WorldAngularVelDeg;
+
+    // Gövde açısal hızı (rad/s)
+    FVector BodyAngularVelDeg = OwnerQuat.UnrotateVector(WorldAngularVelDeg);
+    FVector BodyAngularVelRad = FVector(
+        FMath::DegreesToRadians(BodyAngularVelDeg.X),
+        FMath::DegreesToRadians(BodyAngularVelDeg.Y),
+        FMath::DegreesToRadians(BodyAngularVelDeg.Z)
+    );
+
+    // Manyetometre hesabı (Dünya Manyetik Alanı ~0.5 Gauss)
+    FVector WorldMag(0.22f, 0.01f, 0.42f);
+    FVector BodyMag = OwnerQuat.UnrotateVector(WorldMag);
 
     if (CachedGateway)
     {
         FPiSimIMUData ImuData;
-        ImuData.LinearAcceleration = LinearAcceleration;
-        ImuData.AngularVelocity = AngularVelocityDeg;
-        ImuData.Orientation = GetOwner()->GetActorQuat();
+        ImuData.LinearAcceleration = BodyAccel;
+        ImuData.AngularVelocityRad = BodyAngularVelRad;
+        ImuData.Orientation = OwnerQuat;
+        ImuData.MagnetometerGauss = BodyMag;
         CachedGateway->FeedIMUData(ImuData);
     }
 }

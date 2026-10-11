@@ -23,9 +23,13 @@ public:
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaTime) override;
 
-    // Fiziği açıp kapatma fonksiyonu
+    // Fiziği açıp kapatma fonksiyonu (Geçerli Physics Asset ve Body Setup kontrolü ile)
     UFUNCTION(BlueprintCallable, Category = "PiSim|Vehicle")
     void SetVehiclePhysicsEnabled(bool bEnable);
+
+    // Fiziğin gerçekten aktif olup olmadığını döndürür
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Vehicle")
+    bool IsVehiclePhysicsActive() const;
 
     // Kemiğe modül atama fonksiyonu (Wheel, Servo, Propeller vb.)
     UFUNCTION(BlueprintCallable, Category = "PiSim|Vehicle")
@@ -38,6 +42,9 @@ public:
     // İskeletteki tüm kemik isimlerini listeler (UI Otopark için)
     UFUNCTION(BlueprintCallable, Category = "PiSim|Vehicle")
     void GetVehicleBoneNames(TArray<FName>& OutBoneNames) const;
+
+    // Atanmış tüm modülleri harita olarak döner
+    const TMap<FName, UActorComponent*>& GetBoneSlotRegistry() const { return BoneSlotRegistry; }
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Mesh")
     USkeletalMeshComponent* VehicleSkeletalMesh;
@@ -59,6 +66,22 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
     bool bStartWithPhysics = false;
+
+    /** Chaos eylemsizlik momenti çarpanı (Küçük modellerin fazla hassas dönmesini engeller) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics", meta = (ClampMin = "0.1", ClampMax = "50.0"))
+    float InertiaTensorScale = 1.0f;
+
+    /** Ağırlık merkezi (CoG) ofseti (cm) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
+    FVector CenterOfMassOffset = FVector::ZeroVector;
+
+    /** Doğrusal sönümleme (Linear Damping) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
+    float LinearDamping = 0.05f;
+
+    /** Açısal sönümleme (Angular Damping) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
+    float AngularDamping = 0.1f;
 
 protected:
     UPROPERTY()

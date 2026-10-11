@@ -1,6 +1,6 @@
 // AutopilotBridge.h
 // Otopilot Köprüsü: ArduPilot (Port 9002/9003) & PX4 (Port 14560) SITL protokolü ile konuşur.
-// TelemetryGateway'den araç durumunu okur; gelen 16-kanal PWM sinyallerini araçtaki Servo ve Pervane modüllerine dağıtır.
+// TelemetryGateway'den araç durumunu okur; gelen 16-kanal PWM sinyallerini araçtaki Servo, Pervane ve Tekerlek modüllerine dağıtır.
 
 #pragma once
 
@@ -59,10 +59,22 @@ public:
     void StopSitl();
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Autopilot")
+    FString TargetIP = TEXT("127.0.0.1");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Autopilot")
     int32 ListenPort = 9002;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Autopilot")
     int32 SendPort = 9003;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Autopilot")
+    bool bIsConnected = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Autopilot")
+    float PacketRateHz = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Autopilot")
+    FString LastStatusMessage = TEXT("Beklemede");
 
     // Arka plan iş parçacığının okuma döngüsü
     void ExecuteRxLoop(FThreadSafeBool& bRunning);
@@ -84,6 +96,10 @@ protected:
 
     FAutopilotRxWorker* RxWorker = nullptr;
     FRunnableThread* RxThread = nullptr;
+
+    float LastPacketTime = 0.0f;
+    int32 RxCountInWindow = 0;
+    float RateTimer = 0.0f;
 
     void DispatchPwmToVehicleMotors();
 };

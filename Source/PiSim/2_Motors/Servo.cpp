@@ -4,14 +4,14 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Servo bileşeni yapıcısı
+// @state: WIP - Servo eyleyici yapıcısı
 UPiSimServoComponent::UPiSimServoComponent()
 {
     PrimaryComponentTick.bCanEverTick = true;
     PrimaryComponentTick.TickGroup = TG_PrePhysics;
 }
 
-// @state: WIP - Her frame servonun hedef açıya doğru interpolasyonunu hesaplar
+// @state: WIP - Her frame servonun hedef açıya doğru hareketini uygular
 void UPiSimServoComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -24,24 +24,59 @@ void UPiSimServoComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
     ApplyServoPhysics(DeltaTime);
 }
 
-// @state: WIP - Servonun hedef açısını limitler dahilinde belirler
+// @state: WIP - Hedef açıyı limitler dahilinde ayarlar
 void UPiSimServoComponent::SetTargetAngle(float InAngleDeg)
 {
     TargetAngleDeg = FMath::Clamp(InAngleDeg, MinAngleDeg, MaxAngleDeg);
 }
 
-// @state: WIP - ArduPilot 1000..2000 us PWM sinyalini servo açısına çevirir
+// @state: WIP - ArduPilot 1000..2000 us PWM sinyalini açıya çevirir
 void UPiSimServoComponent::SetFromPWM(int32 InPWM)
 {
-    float ClampedPWM = FMath::Clamp((float)InPWM, 1000.0f, 2000.0f);
-    float Normalized = (ClampedPWM - 1500.0f) / 500.0f; // -1.0 .. +1.0
-    if (Normalized >= 0.0f)
+    if (bManualOverride)
     {
-        SetTargetAngle(Normalized * MaxAngleDeg);
+        return;
+    }
+
+    float Norm = FMath::Clamp((InPWM - 1500) / 500.0f, -1.0f, 1.0f); // -1.0 .. +1.0
+    if (Norm >= 0.0f)
+    {
+        TargetAngleDeg = Norm * MaxAngleDeg;
     }
     else
     {
-        SetTargetAngle(FMath::Abs(Normalized) * MinAngleDeg);
+        TargetAngleDeg = -Norm * MinAngleDeg;
+    }
+}
+
+// @state: WIP - Pitch ve Roll bileşenlerini Elevon mimarisinde karıştırır
+void UPiSimServoComponent::SetPitchRollMixing(float PitchNorm, float RollNorm)
+{
+    if (bManualOverride)
+    {
+        return;
+    }
+
+    FString FuncLower = ArduPilotFunction.ToLower();
+    if (FuncLower.Contains(TEXT("elevon_l")) || FuncLower.Contains(TEXT("left")))
+    {
+        // Sol Elevon = Pitch + Roll
+        float Angle = (PitchNorm + RollNorm) * MaxAngleDeg;
+        SetTargetAngle(Angle);
+    }
+    else if (FuncLower.Contains(TEXT("elevon_r")) || FuncLower.Contains(TEXT("right")))
+    {
+        // Sağ Elevon = Pitch - Roll
+        float Angle = (PitchNorm - RollNorm) * MaxAngleDeg;
+        SetTargetAngle(Angle);
+    }
+    else if (FuncLower.Contains(TEXT("elevator")))
+    {
+        SetTargetAngle(PitchNorm * MaxAngleDeg);
+    }
+    else if (FuncLower.Contains(TEXT("aileron")))
+    {
+        SetTargetAngle(RollNorm * MaxAngleDeg);
     }
 }
 
@@ -50,7 +85,7 @@ void UPiSimServoComponent::GetInspectableProperties(TArray<FPiSimPropertyDescrip
 {
     FPiSimPropertyDescriptor AngleDesc;
     AngleDesc.PropertyId = TEXT("TargetAngleDeg");
-    AngleDesc.DisplayName = TEXT("Hedef Açı (Derece)");
+    AngleDesc.DisplayName = TEXT("Hedef Açı (°)");
     AngleDesc.PropertyType = EPiSimPropertyType::Slider;
     AngleDesc.MinValue = MinAngleDeg;
     AngleDesc.MaxValue = MaxAngleDeg;
@@ -60,7 +95,7 @@ void UPiSimServoComponent::GetInspectableProperties(TArray<FPiSimPropertyDescrip
 
     FPiSimPropertyDescriptor SpeedDesc;
     SpeedDesc.PropertyId = TEXT("SpeedDegPerSec");
-    SpeedDesc.DisplayName = TEXT("Servo Hızı (Derece/sn)");
+    SpeedDesc.DisplayName = TEXT("Servo Hızı (°/s)");
     SpeedDesc.PropertyType = EPiSimPropertyType::Slider;
     SpeedDesc.MinValue = 30.0f;
     SpeedDesc.MaxValue = 720.0f;
@@ -68,44 +103,46 @@ void UPiSimServoComponent::GetInspectableProperties(TArray<FPiSimPropertyDescrip
     SpeedDesc.bContinuousTickUpdate = false;
     OutProperties.Add(SpeedDesc);
 
-    FPiSimPropertyDescriptor ChannelDesc;
-    ChannelDesc.PropertyId = TEXT("ArduPilotChannel");
-    ChannelDesc.DisplayName = TEXT("ArduPilot PWM Kanalı (1-16)");
-    ChannelDesc.PropertyType = EPiSimPropertyType::Slider;
-    ChannelDesc.MinValue = 1.0f;
-    ChannelDesc.MaxValue = 16.0f;
-    ChannelDesc.CurrentFloatValue = (float)ArduPilotChannel;
-    ChannelDesc.bContinuousTickUpdate = false;
-    OutProperties.Add(ChannelDesc);
-
     FPiSimPropertyDescriptor FuncDesc;
     FuncDesc.PropertyId = TEXT("ArduPilotFunction");
-    FuncDesc.DisplayName = TEXT("ArduPilot Rolü");
+    FuncDesc.DisplayName = TEXT("Otopilot Fonksiyonu");
     FuncDesc.PropertyType = EPiSimPropertyType::Dropdown;
     FuncDesc.CurrentStringValue = ArduPilotFunction;
-    FuncDesc.DropdownOptions = { TEXT("Aileron"), TEXT("Elevator"), TEXT("Rudder"), TEXT("ElevonLeft"), TEXT("ElevonRight"), TEXT("Flap"), TEXT("Steer") };
+    FuncDesc.DropdownOptions = { TEXT("Aileron"), TEXT("Elevator"), TEXT("Rudder"), TEXT("Elevon_Left"), TEXT("Elevon_Right"), TEXT("Flap"), TEXT("Steer") };
     FuncDesc.bContinuousTickUpdate = false;
     OutProperties.Add(FuncDesc);
+
+    FPiSimPropertyDescriptor ChDesc;
+    ChDesc.PropertyId = TEXT("ArduPilotChannel");
+    ChDesc.DisplayName = TEXT("ArduPilot Kanalı");
+    ChDesc.PropertyType = EPiSimPropertyType::Slider;
+    ChDesc.MinValue = 1.0f;
+    ChDesc.MaxValue = 16.0f;
+    ChDesc.CurrentFloatValue = (float)ArduPilotChannel;
+    ChDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(ChDesc);
 }
 
-// @state: WIP - UI sliderından gelen float değerini servoya uygular
+// @state: WIP - UI sliderından gelen değeri servoya uygular
 void UPiSimServoComponent::SetInspectablePropertyFloat(FName PropertyId, float NewValue)
 {
+    bManualOverride = true;
+
     if (PropertyId == TEXT("TargetAngleDeg"))
     {
         SetTargetAngle(NewValue);
     }
     else if (PropertyId == TEXT("SpeedDegPerSec"))
     {
-        SpeedDegPerSec = FMath::Max(1.0f, NewValue);
+        SpeedDegPerSec = FMath::Clamp(NewValue, 10.0f, 1500.0f);
     }
     else if (PropertyId == TEXT("ArduPilotChannel"))
     {
-        ArduPilotChannel = FMath::Clamp((int32)NewValue, 1, 16);
+        ArduPilotChannel = FMath::Clamp(FMath::RoundToInt(NewValue), 1, 16);
     }
 }
 
-// @state: WIP - UI açılır listesinden gelen rol seçimini servoya uygular
+// @state: WIP - UI fonksiyon seçimini uygular
 void UPiSimServoComponent::SetInspectablePropertyString(FName PropertyId, const FString& NewValue)
 {
     if (PropertyId == TEXT("ArduPilotFunction"))
@@ -114,23 +151,45 @@ void UPiSimServoComponent::SetInspectablePropertyString(FName PropertyId, const 
     }
 }
 
-// @state: WIP - Otopark UI tetikleyici butonunu işler
+// @state: WIP - UI buton aksiyonu
 void UPiSimServoComponent::TriggerInspectableAction(FName ActionId)
 {
-    if (ActionId == TEXT("CenterServo"))
+    if (ActionId == TEXT("ZeroServo"))
     {
-        SetTargetAngle(0.0f);
+        TargetAngleDeg = 0.0f;
+        bManualOverride = false;
     }
 }
 
-// @state: WIP - Kemik veya bağlı bileşenin açısını yumuşakça hedefe doğru döndürür
+// @state: WIP - Kemik oryantasyonunu servo açısına göre günceller
 void UPiSimServoComponent::ApplyServoPhysics(float DeltaTime)
 {
-    CurrentAngleDeg = FMath::FInterpConstantTo(CurrentAngleDeg, TargetAngleDeg, DeltaTime, SpeedDegPerSec);
-
-    if (LinkedComponent)
+    if (!CachedSkeletalMesh || TargetBoneName.IsNone())
     {
-        FRotator TargetRot = FRotator(LocalRotationAxis.Y * CurrentAngleDeg, LocalRotationAxis.Z * CurrentAngleDeg, LocalRotationAxis.X * CurrentAngleDeg);
-        LinkedComponent->SetRelativeRotation(TargetRot);
+        return;
+    }
+
+    // Açı limitli enterpolasyon
+    float MaxStep = SpeedDegPerSec * DeltaTime;
+    float AngleDiff = TargetAngleDeg - CurrentAngleDeg;
+    if (FMath::Abs(AngleDiff) <= MaxStep)
+    {
+        CurrentAngleDeg = TargetAngleDeg;
+    }
+    else
+    {
+        CurrentAngleDeg += FMath::Sign(AngleDiff) * MaxStep;
+    }
+
+    // İskeletteki kemiği döndür
+    int32 BoneIndex = CachedSkeletalMesh->GetBoneIndex(TargetBoneName);
+    if (BoneIndex != INDEX_NONE)
+    {
+        FQuat DeltaQuat(LocalRotationAxis.GetSafeNormal(), FMath::DegreesToRadians(CurrentAngleDeg));
+        // Fizik simüle ediliyorsa açısal hedef veya constraint ile kilitler
+        if (CachedSkeletalMesh->IsSimulatingPhysics(TargetBoneName))
+        {
+            // Bone physical angular rotation
+        }
     }
 }

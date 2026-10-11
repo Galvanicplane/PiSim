@@ -5,6 +5,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
+#include "PhysicsEngine/PhysicsAsset.h"
 
 // @state: WIP - Araç Pawn yapıcısı, iskelet ve kamera bileşenlerini kurar
 APiSimVehicle::APiSimVehicle()
@@ -15,6 +16,7 @@ APiSimVehicle::APiSimVehicle()
     SetRootComponent(VehicleSkeletalMesh);
     VehicleSkeletalMesh->SetSimulatePhysics(false);
     VehicleSkeletalMesh->SetCollisionProfileName(TEXT("BlockAll"));
+    VehicleSkeletalMesh->bApplyImpulseOnDamage = false;
 
     VisualSkeletalMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("VisualSkeletalMesh"));
     VisualSkeletalMesh->SetupAttachment(VehicleSkeletalMesh);
@@ -49,17 +51,67 @@ void APiSimVehicle::Tick(float DeltaTime)
     Super::Tick(DeltaTime);
 }
 
-// @state: WIP - Tüm aracın fizik simülasyonunu ve kütlesini yönetir
+// @state: WIP - Fizik durumunu doğrular ve güvenle açıp kapatır
 void APiSimVehicle::SetVehiclePhysicsEnabled(bool bEnable)
 {
-    if (VehicleSkeletalMesh)
+    if (!VehicleSkeletalMesh)
     {
-        VehicleSkeletalMesh->SetSimulatePhysics(bEnable);
-        if (bEnable) // burada eğer fizik gerçekten açılmış mı diye kontrol etmiyor sadece girilen değere göre bir değişklik yapıyor
+        return;
+    }
+
+    if (bEnable)
+    {
+        // 1. İskelet ve Physics Asset kontrolü
+        if (!VehicleSkeletalMesh->GetSkeletalMeshAsset())
         {
-            VehicleSkeletalMesh->SetMassOverrideInKg(NAME_None, TotalMassKg, true);
+            UE_LOG(LogTemp, Warning, TEXT("[APiSimVehicle] Fizik açılamadı: SkeletalMesh atanmamış!"));
+            return;
+        }
+
+        UPhysicsAsset* PhysAsset = VehicleSkeletalMesh->GetPhysicsAsset();
+        if (!PhysAsset)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[APiSimVehicle] Fizik açılamadı: İskelete ait Physics Asset bulunamadı!"));
+            return;
+        }
+
+        // 2. Fiziği aktifleştir
+        VehicleSkeletalMesh->SetSimulatePhysics(true);
+
+        // 3. Gerçekten fizik simülasyonu başlayıp başlamadığını teyit et
+        if (VehicleSkeletalMesh->IsSimulatingPhysics())
+        {
+            // Kütleyi uygula
+            VehicleSkeletalMesh->SetMassOverrideInKg(NAME_None, FMath::Max(0.1f, TotalMassKg), true);
+
+            // Ağırlık merkezi ofseti (CoG)
+            if (!CenterOfMassOffset.IsNearlyZero())
+            {
+                VehicleSkeletalMesh->SetCenterOfMass(CenterOfMassOffset, NAME_None);
+            }
+
+            // Sönümlemeler
+            VehicleSkeletalMesh->SetLinearDamping(LinearDamping);
+            VehicleSkeletalMesh->SetAngularDamping(AngularDamping);
+
+            UE_LOG(LogTemp, Log, TEXT("[APiSimVehicle] Fizik simülasyonu başarıyla aktif edildi. Kütle: %.1f kg"), TotalMassKg);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error, TEXT("[APiSimVehicle] SetSimulatePhysics(true) çağrıldı ancak Chaos fizik gövdesi başlatılamadı!"));
         }
     }
+    else
+    {
+        VehicleSkeletalMesh->SetSimulatePhysics(false);
+        UE_LOG(LogTemp, Log, TEXT("[APiSimVehicle] Fizik simülasyonu kapatıldı."));
+    }
+}
+
+// @state: WIP - Fiziğin aktif olup olmadığını döner
+bool APiSimVehicle::IsVehiclePhysicsActive() const
+{
+    return VehicleSkeletalMesh && VehicleSkeletalMesh->IsSimulatingPhysics();
 }
 
 // @state: WIP - Belirtilen iskelet kemiğine mikro-modül (Wheel, Servo vb.) atar

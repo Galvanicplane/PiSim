@@ -63,6 +63,8 @@ void UPiSimGPSSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActor
         GpsData.Longitude = CurrentLongitude;
         GpsData.AltitudeMeters = CurrentAltitudeMeters;
         GpsData.SpeedKmh = CurrentSpeedKmh;
+        // UE (cm/s) -> NED (m/s): X North, Y East, Z Down (-Up)
+        GpsData.VelocityNED = FVector(Velocity.X / 100.0f, Velocity.Y / 100.0f, -Velocity.Z / 100.0f);
         CachedGateway->FeedGPSData(GpsData);
     }
 }
