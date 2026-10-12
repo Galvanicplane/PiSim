@@ -66,5 +66,8 @@ protected:
     UPROPERTY()
     class USkeletalMeshComponent* CachedSkeletalMesh = nullptr;
 
+    UPROPERTY()
+    class USceneComponent* TargetSceneComponent = nullptr;
+
     void ApplyThrustPhysics(float DeltaTime);
 };

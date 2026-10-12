@@ -62,6 +62,11 @@ public:
 
     // UI Aksiyon Tetikleyicileri
     FReply OnTogglePhysicsClicked();
+    FReply OnToggleCollisionViewClicked();
+    FReply OnToggleModelClicked();
+    FReply OnMultiplyScale01Clicked();
+    FReply OnMultiplyScale10Clicked();
+    FReply OnReimportClicked();
     FReply OnAutoAssignMotorsClicked();
     FReply OnSaveProfileClicked();
     FReply OnLoadProfileClicked();
@@ -80,4 +85,13 @@ protected:
     TSharedPtr<STextBlock> SelectedBoneTitleText;
     TSharedPtr<SEditableTextBox> ProfileNameInput;
     TSharedPtr<STextBlock> StatusMessageText;
+
+    TSharedPtr<STextBlock> ModelButtonText;
+    TSharedPtr<STextBlock> CollisionButtonText;
+    TSharedPtr<STextBlock> PhysicsButtonText;
+    TSharedPtr<STextBlock> ScaleText;
+
+    float CurrentScaleMultiplier = 1.0f;
+    FString ActiveModelFileName = TEXT("robot_import_test.fbx");
+    bool bSmoothNormals = true;
 };

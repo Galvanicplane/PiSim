@@ -24,7 +24,9 @@ public class PiSim : ModuleRules
 			"ProceduralMeshComponent",
 			"UMG",
 			"Slate",
-			"SlateCore"
+			"SlateCore",
+			"TypedElementFramework",
+			"TypedElementRuntime"
 		});
 
 		PublicIncludePaths.AddRange(new string[] { 

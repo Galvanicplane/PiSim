@@ -30,8 +30,12 @@ void APiSimModularHUD::DrawHUD()
         }
     }
 
-    DrawAvionicsPFD();
-    DrawStatusOverlay();
+    // Sadece uçuş HUD'ı açıkken PFD göstergelerini çiz (Garajda ekranı temiz tut)
+    if (bShowAvionicsHUD)
+    {
+        DrawAvionicsPFD();
+        DrawStatusOverlay();
+    }
 }
 
 // @state: WIP - Birincil Uçuş Ekranı (PFD) avionik göstergelerini çizer

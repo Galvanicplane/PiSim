@@ -1,6 +1,7 @@
 // Wheel.cpp
 
 #include "Wheel.h"
+#include "Vehicle.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Actor.h"
 
@@ -19,6 +20,15 @@ void UPiSimWheelComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
     if (!CachedSkeletalMesh && GetOwner())
     {
         CachedSkeletalMesh = GetOwner()->FindComponentByClass<USkeletalMeshComponent>();
+    }
+
+    if (!TargetSceneComponent && GetOwner() && !TargetBoneName.IsNone())
+    {
+        APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner());
+        if (Vehicle)
+        {
+            TargetSceneComponent = Vehicle->GetSceneComponentForBone(TargetBoneName);
+        }
     }
 
     ApplyWheelPhysics(DeltaTime);
@@ -137,6 +147,17 @@ void UPiSimWheelComponent::SetInspectablePropertyFloat(FName PropertyId, float N
     {
         ArduPilotChannel = FMath::Clamp(FMath::RoundToInt(NewValue), 1, 16);
     }
+
+    // DEBUG BİLGİSİ: UI'dan gelen motor verisini konsola ve ekrana bas
+    UE_LOG(LogTemp, Warning, TEXT("⚡ [PISIM MOTOR DEBUG] Kemik: '%s' | Tekerlek Parametresi: '%s' = %.2f | Bağlı Bileşen: %s"),
+        *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue,
+        TargetSceneComponent ? *TargetSceneComponent->GetName() : TEXT("Bağlanmadı (Aranıyor...)"));
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(920, 2.0f, FColor::Cyan,
+            FString::Printf(TEXT("⚡ [TEKERLEK DEBUG] %s (%s) = %.2f"), *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue));
+    }
 }
 
 // @state: WIP - UI metin kutusundan gelen string değerini işler
@@ -173,6 +194,28 @@ void UPiSimWheelComponent::TriggerInspectableAction(FName ActionId)
 // @state: WIP - Tekerlek dönme ve direksiyon fiziğini uygular
 void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
 {
+    // Direksiyon açısı enterpolasyonu
+    CurrentSteerAngleDeg = FMath::FInterpTo(CurrentSteerAngleDeg, TargetSteerAngleDeg, DeltaTime, 12.0f);
+
+    // 1) Dinamik FBX Kemik Bileşeni Varsa (TargetSceneComponent - BoneComp)
+    if (TargetSceneComponent)
+    {
+        // 1 RPM = 6 deg/sec
+        float DesiredAngularVelocityDeg = TargetRPM * 6.0f;
+        float DeltaRotationDeg = DesiredAngularVelocityDeg * DeltaTime;
+
+        // 🛑 KESİNLİKLE VE SADECE KEMİK DÖNDÜRÜLÜR!
+        // Meshler bu kemiğe bağlı çocuklardır ve onunla beraber döner!
+        if (FMath::Abs(DeltaRotationDeg) > 0.001f)
+        {
+            FQuat SpinQuat(LocalSpinAxis.GetSafeNormal(), FMath::DegreesToRadians(DeltaRotationDeg));
+            TargetSceneComponent->AddLocalRotation(SpinQuat);
+            CurrentRPM = TargetRPM;
+        }
+        return;
+    }
+
+    // 2) SkeletalMesh Varsa
     if (!CachedSkeletalMesh || TargetBoneName.IsNone())
     {
         return;
@@ -184,18 +227,13 @@ void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
         return;
     }
 
-    // Direksiyon açısı enterpolasyonu
-    CurrentSteerAngleDeg = FMath::FInterpTo(CurrentSteerAngleDeg, TargetSteerAngleDeg, DeltaTime, 12.0f);
-
     if (CachedSkeletalMesh->IsSimulatingPhysics(TargetBoneName))
     {
         if (WheelMode == EPiSimWheelMode::DriveWheel || WheelMode == EPiSimWheelMode::SteeredWheel)
         {
-            // 1 RPM = 6 deg/sec
             float DesiredAngularVelocityDeg = TargetRPM * 6.0f;
             FTransform BoneTransform = CachedSkeletalMesh->GetBoneTransform(BoneIndex);
 
-            // Direksiyon açısı varsa dönme eksenini yaw kadar saptır
             FVector ActiveSpinAxis = LocalSpinAxis;
             if (WheelMode == EPiSimWheelMode::SteeredWheel && FMath::Abs(CurrentSteerAngleDeg) > 0.01f)
             {

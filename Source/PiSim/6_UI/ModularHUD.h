@@ -1,5 +1,6 @@
 // ModularHUD.h
 // PiSim HUD: TelemetryGateway'den araç verilerini okuyarak ekrana havacılık göstergelerini (Yapay Ufuk, Hız ve İrtifa Şeritleri, Pusula) çizer.
+// Garaj / İthalat modunda ekranı kirletmemesi için varsayılan olarak kapalıdır.
 
 #pragma once
 
@@ -18,7 +19,22 @@ public:
 
     virtual void DrawHUD() override;
 
+    // @state: WIP - Uçuş HUD'ının görünürlüğünü ayarlar
+    UFUNCTION(BlueprintCallable, Category = "PiSim|HUD")
+    void SetAvionicsHUDVisible(bool bVisible) { bShowAvionicsHUD = bVisible; }
+
+    // @state: WIP - Uçuş HUD'ını açar/kapatır (Örn. H tuşu ile)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|HUD")
+    void ToggleAvionicsHUD() { bShowAvionicsHUD = !bShowAvionicsHUD; }
+
+    // @state: WIP - Uçuş HUD'ının aktif olup olmadığını döner
+    UFUNCTION(BlueprintPure, Category = "PiSim|HUD")
+    bool IsAvionicsHUDVisible() const { return bShowAvionicsHUD; }
+
 protected:
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|HUD")
+    bool bShowAvionicsHUD = false;
+
     UPROPERTY()
     UPiSimTelemetryGateway* CachedGateway = nullptr;
 

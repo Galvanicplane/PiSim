@@ -1,7 +1,10 @@
 // Servo.cpp
 
 #include "Servo.h"
+#include "Vehicle.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "ProceduralMeshComponent.h"
+#include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "GameFramework/Actor.h"
 
 // @state: WIP - Servo eyleyici yapıcısı
@@ -21,6 +24,49 @@ void UPiSimServoComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
         CachedSkeletalMesh = GetOwner()->FindComponentByClass<USkeletalMeshComponent>();
     }
 
+    if (!TargetSceneComponent && GetOwner() && !TargetBoneName.IsNone())
+    {
+        APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner());
+        if (Vehicle)
+        {
+            TargetSceneComponent = Vehicle->GetSceneComponentForBone(TargetBoneName);
+        }
+    }
+
+    // 1) SÜREKLİ SALINIM TESTİ (Kullanıcı Talebi 1: Servoya özel, kemiği range içinde durmaksızın döndüren test)
+    if (bContinuousSweepTest)
+    {
+        SweepTestTimer += DeltaTime * FMath::Max(0.1f, SweepCycleSpeed);
+
+        // Sinüs dalgası: [-1.0 .. +1.0] -> [0.0 .. 1.0]
+        float SinVal = FMath::Sin(SweepTestTimer * 2.5f);
+        float Alpha = (SinVal + 1.0f) * 0.5f;
+
+        // MinAngleDeg ile MaxAngleDeg arasında kesintisiz salın
+        TargetAngleDeg = FMath::Lerp(MinAngleDeg, MaxAngleDeg, Alpha);
+
+        // Canlı Ekrana Debug Bilgisi Bas
+        if (GEngine)
+        {
+            int32 MsgKey = 910 + (GetUniqueID() % 50);
+            FString BoneStr = TargetBoneName.ToString();
+            FString CompStr = TargetSceneComponent ? TargetSceneComponent->GetName() : TEXT("❌ Kemik Yok");
+            GEngine->AddOnScreenDebugMessage(MsgKey, 0.1f, FColor::Cyan,
+                FString::Printf(TEXT("⚡ [SERVO TEST] Kemik: '%s' | Açı: %+.1f° [%.0f° .. %.0f°] | Dönen Kemik: %s"),
+                    *BoneStr, CurrentAngleDeg, MinAngleDeg, MaxAngleDeg, *CompStr));
+        }
+
+        // Konsol Logu (Saniyede 2 kez)
+        float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : SweepTestTimer;
+        if (CurrentTime - LastSweepDebugLogTime >= 0.5f)
+        {
+            LastSweepDebugLogTime = CurrentTime;
+            UE_LOG(LogTemp, Warning, TEXT("⚡ [SERVO TEST] Kemik: '%s' | Hedef: %+.1f° | Mevcut: %+.1f° (Aralık: [%.1f°, %.1f°]) | Dönen Kemik: %s"),
+                *TargetBoneName.ToString(), TargetAngleDeg, CurrentAngleDeg, MinAngleDeg, MaxAngleDeg,
+                TargetSceneComponent ? *TargetSceneComponent->GetName() : TEXT("Bağlanmadı"));
+        }
+    }
+
     ApplyServoPhysics(DeltaTime);
 }
 
@@ -33,7 +79,7 @@ void UPiSimServoComponent::SetTargetAngle(float InAngleDeg)
 // @state: WIP - ArduPilot 1000..2000 us PWM sinyalini açıya çevirir
 void UPiSimServoComponent::SetFromPWM(int32 InPWM)
 {
-    if (bManualOverride)
+    if (bManualOverride || bContinuousSweepTest)
     {
         return;
     }
@@ -52,7 +98,7 @@ void UPiSimServoComponent::SetFromPWM(int32 InPWM)
 // @state: WIP - Pitch ve Roll bileşenlerini Elevon mimarisinde karıştırır
 void UPiSimServoComponent::SetPitchRollMixing(float PitchNorm, float RollNorm)
 {
-    if (bManualOverride)
+    if (bManualOverride || bContinuousSweepTest)
     {
         return;
     }
@@ -83,6 +129,16 @@ void UPiSimServoComponent::SetPitchRollMixing(float PitchNorm, float RollNorm)
 // @state: WIP - Otopark UI için servo parametrelerini döner
 void UPiSimServoComponent::GetInspectableProperties(TArray<FPiSimPropertyDescriptor>& OutProperties)
 {
+    FPiSimPropertyDescriptor SweepDesc;
+    SweepDesc.PropertyId = TEXT("ContinuousSweepTest");
+    SweepDesc.DisplayName = TEXT("Sürekli Salınım Testi (0=Kapalı, 1=Açık)");
+    SweepDesc.PropertyType = EPiSimPropertyType::Slider;
+    SweepDesc.MinValue = 0.0f;
+    SweepDesc.MaxValue = 1.0f;
+    SweepDesc.CurrentFloatValue = bContinuousSweepTest ? 1.0f : 0.0f;
+    SweepDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(SweepDesc);
+
     FPiSimPropertyDescriptor AngleDesc;
     AngleDesc.PropertyId = TEXT("TargetAngleDeg");
     AngleDesc.DisplayName = TEXT("Hedef Açı (°)");
@@ -126,10 +182,18 @@ void UPiSimServoComponent::GetInspectableProperties(TArray<FPiSimPropertyDescrip
 // @state: WIP - UI sliderından gelen değeri servoya uygular
 void UPiSimServoComponent::SetInspectablePropertyFloat(FName PropertyId, float NewValue)
 {
-    bManualOverride = true;
-
-    if (PropertyId == TEXT("TargetAngleDeg"))
+    if (PropertyId == TEXT("ContinuousSweepTest"))
     {
+        bContinuousSweepTest = (NewValue > 0.5f);
+        if (!bContinuousSweepTest)
+        {
+            bManualOverride = true;
+        }
+    }
+    else if (PropertyId == TEXT("TargetAngleDeg"))
+    {
+        bContinuousSweepTest = false; // Slider elle tutulunca otomatik testi durdur
+        bManualOverride = true;
         SetTargetAngle(NewValue);
     }
     else if (PropertyId == TEXT("SpeedDegPerSec"))
@@ -139,6 +203,17 @@ void UPiSimServoComponent::SetInspectablePropertyFloat(FName PropertyId, float N
     else if (PropertyId == TEXT("ArduPilotChannel"))
     {
         ArduPilotChannel = FMath::Clamp(FMath::RoundToInt(NewValue), 1, 16);
+    }
+
+    // DEBUG BİLGİSİ: UI'dan gelen motor verisini ekrana ve konsola bas
+    UE_LOG(LogTemp, Warning, TEXT("⚡ [PISIM MOTOR DEBUG] Kemik: '%s' | Servo Parametresi: '%s' = %.2f | Bağlı Bileşen: %s"),
+        *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue,
+        TargetSceneComponent ? *TargetSceneComponent->GetName() : TEXT("Bağlanmadı (Aranıyor...)"));
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(910, 2.0f, FColor::Yellow,
+            FString::Printf(TEXT("⚡ [SERVO DEBUG] %s (%s) = %.2f°"), *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue));
     }
 }
 
@@ -158,17 +233,13 @@ void UPiSimServoComponent::TriggerInspectableAction(FName ActionId)
     {
         TargetAngleDeg = 0.0f;
         bManualOverride = false;
+        bContinuousSweepTest = false;
     }
 }
 
 // @state: WIP - Kemik oryantasyonunu servo açısına göre günceller
 void UPiSimServoComponent::ApplyServoPhysics(float DeltaTime)
 {
-    if (!CachedSkeletalMesh || TargetBoneName.IsNone())
-    {
-        return;
-    }
-
     // Açı limitli enterpolasyon
     float MaxStep = SpeedDegPerSec * DeltaTime;
     float AngleDiff = TargetAngleDeg - CurrentAngleDeg;
@@ -181,12 +252,50 @@ void UPiSimServoComponent::ApplyServoPhysics(float DeltaTime)
         CurrentAngleDeg += FMath::Sign(AngleDiff) * MaxStep;
     }
 
-    // İskeletteki kemiği döndür
+    // 🛑 KESİNLİKLE VE SADECE KEMİK SAHNE BİLEŞENİ (TargetSceneComponent) DÖNDÜRÜLÜR!
+    // Görsel meshlere ASLA el sürülmez! Çünkü meshler bu kemiğe bağlı çocuklardır ve onunla beraber döner!
+    if (TargetSceneComponent)
+    {
+        if (!bHasRestRotation)
+        {
+            RestRotation = TargetSceneComponent->GetRelativeRotation();
+            bHasRestRotation = true;
+        }
+
+        FRotator NewRot = RestRotation;
+        NewRot.Yaw = FRotator::NormalizeAxis(RestRotation.Yaw + CurrentAngleDeg);
+        TargetSceneComponent->SetRelativeRotation(NewRot);
+
+        if (APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner()))
+        {
+            if (Vehicle->IsVehiclePhysicsActive())
+            {
+                UPhysicsConstraintComponent* Constraint = Vehicle->FindConstraintForBone(TargetBoneName);
+                if (!Constraint)
+                {
+                    int32 TargetSection = Vehicle->FindVisualSectionForBone(TargetBoneName);
+                    Constraint = Vehicle->FindConstraintForSection(TargetSection);
+                }
+                if (Constraint)
+                {
+                    FTransform SteerPose(NewRot, Constraint->GetRelativeLocation());
+                    Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
+                }
+            }
+        }
+        return;
+    }
+
+    // 2) SkeletalMesh Varsa
+    if (!CachedSkeletalMesh || TargetBoneName.IsNone())
+    {
+        return;
+    }
+
     int32 BoneIndex = CachedSkeletalMesh->GetBoneIndex(TargetBoneName);
     if (BoneIndex != INDEX_NONE)
     {
         FQuat DeltaQuat(LocalRotationAxis.GetSafeNormal(), FMath::DegreesToRadians(CurrentAngleDeg));
-        // Fizik simüle ediliyorsa açısal hedef veya constraint ile kilitler
         if (CachedSkeletalMesh->IsSimulatingPhysics(TargetBoneName))
         {
             // Bone physical angular rotation

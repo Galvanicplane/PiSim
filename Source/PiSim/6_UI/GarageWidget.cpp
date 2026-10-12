@@ -1,23 +1,25 @@
 // GarageWidget.cpp
+// Otopark / Slot Tabanlı Garaj Arayüzü Uygulaması
 
 #include "GarageWidget.h"
 #include "Vehicle.h"
 #include "MotorConfigurator.h"
+#include "ModelFbxImporter.h"
 #include "SaveManager.h"
 #include "Baker.h"
-#include "Widgets/Layout/SBorder.h"
-#include "Widgets/Layout/SBox.h"
-#include "Widgets/Layout/SSpacer.h"
-#include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SSlider.h"
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
+#include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SScrollBox.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/Paths.h"
 
-// @state: WIP - Garaj Widget başlatıcı
+// @state: WIP - NativeConstruct: Sahnedeki aracı bulur ve bağlar
 void UPiSimModularGarageWidget::NativeConstruct()
 {
     Super::NativeConstruct();
@@ -32,29 +34,41 @@ void UPiSimModularGarageWidget::NativeConstruct()
     }
 }
 
-// @state: WIP - Tick anında sürekli güncellenen parametreleri modülden çeker
+// @state: WIP - NativeTick: Durum metinlerini ve buton etiketlerini günceller
 void UPiSimModularGarageWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
     Super::NativeTick(MyGeometry, InDeltaTime);
 
-    if (CurrentActiveModule)
+    if (!TargetVehicle && GetWorld())
     {
-        for (FPiSimPropertyDescriptor& Prop : CurrentProperties)
+        AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
+        if (Found)
         {
-            if (Prop.bContinuousTickUpdate)
-            {
-                // Dinamik parametreleri periyodik olarak canlı tutar
-            }
+            SetTargetVehicle(Cast<APiSimVehicle>(Found));
+        }
+    }
+
+    if (TargetVehicle)
+    {
+        if (PhysicsButtonText.IsValid())
+        {
+            PhysicsButtonText->SetText(FText::FromString(TargetVehicle->IsVehiclePhysicsActive() ? TEXT("⚡ FİZİK AKTİF") : TEXT("⚡ FİZİK SİMÜLE ET")));
+        }
+
+        if (CollisionButtonText.IsValid())
+        {
+            CollisionButtonText->SetText(FText::FromString(TargetVehicle->IsCollisionMeshViewEnabled() ? TEXT("🛡️ UCX ZIRH MODU") : TEXT("🎨 GÖRSEL MOD")));
         }
     }
 }
 
-// @state: WIP - Dinamik Slate görsel arayüz hiyerarşisini kurar
+// @state: WIP - Slate Widget ağacını oluşturur
 TSharedRef<SWidget> UPiSimModularGarageWidget::RebuildWidget()
 {
     return SNew(SBox)
         .HAlign(HAlign_Fill)
         .VAlign(VAlign_Fill)
+        .Visibility(EVisibility::SelfHitTestInvisible)
         [
             SNew(SVerticalBox)
 
@@ -69,41 +83,98 @@ TSharedRef<SWidget> UPiSimModularGarageWidget::RebuildWidget()
                 [
                     SNew(SHorizontalBox)
 
-                    // Fizik Aç/Kapa Butonu
-                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 8.0f, 0.0f))
+                    // [MODEL DEĞİŞTİR] Butonu
+                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 6.0f, 0.0f))
                     [
                         SNew(SButton)
-                        .ButtonColorAndOpacity(FLinearColor(0.1f, 0.5f, 0.9f, 1.0f))
-                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModularGarageWidget::OnTogglePhysicsClicked))
+                        .ButtonColorAndOpacity(FLinearColor(0.42f, 0.15f, 0.65f, 1.0f))
+                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModularGarageWidget::OnToggleModelClicked))
                         [
-                            SNew(STextBlock)
-                            .Text(FText::FromString(TEXT("⚡ FİZİĞİ AÇ / KAPAT")))
+                            SAssignNew(ModelButtonText, STextBlock)
+                            .Text(FText::FromString(FString::Printf(TEXT("📦 %s"), *ActiveModelFileName)))
                             .ColorAndOpacity(FLinearColor::White)
                         ]
                     ]
 
-                    // Otomatik Kemik Atama Butonu
+                    // [× 0.1] Ölçek
+                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 3.0f, 0.0f))
+                    [
+                        SNew(SButton)
+                        .ButtonColorAndOpacity(FLinearColor(0.0f, 0.45f, 0.75f, 1.0f))
+                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModularGarageWidget::OnMultiplyScale01Clicked))
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT(" ×0.1 "))).ColorAndOpacity(FLinearColor::White)
+                        ]
+                    ]
+
+                    // [× 10] Ölçek
+                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 6.0f, 0.0f))
+                    [
+                        SNew(SButton)
+                        .ButtonColorAndOpacity(FLinearColor(0.0f, 0.45f, 0.75f, 1.0f))
+                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModularGarageWidget::OnMultiplyScale10Clicked))
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT(" ×10 "))).ColorAndOpacity(FLinearColor::White)
+                        ]
+                    ]
+
+                    // [🔄 REIMPORT]
+                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 8.0f, 0.0f))
+                    [
+                        SNew(SButton)
+                        .ButtonColorAndOpacity(FLinearColor(0.08f, 0.45f, 0.25f, 1.0f))
+                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModularGarageWidget::OnReimportClicked))
+                        [
+                            SNew(STextBlock).Text(FText::FromString(TEXT("🔄 REIMPORT"))).ColorAndOpacity(FLinearColor::White)
+                        ]
+                    ]
+
+                    // [UCX ZIRH / GÖRSEL MOD] Butonu
+                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 8.0f, 0.0f))
+                    [
+                        SNew(SButton)
+                        .ButtonColorAndOpacity(FLinearColor(0.2f, 0.4f, 0.6f, 1.0f))
+                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModularGarageWidget::OnToggleCollisionViewClicked))
+                        [
+                            SAssignNew(CollisionButtonText, STextBlock)
+                            .Text(FText::FromString(TEXT("🎨 GÖRSEL MOD")))
+                            .ColorAndOpacity(FLinearColor::White)
+                        ]
+                    ]
+
+                    // [FİZİK SİMÜLE ET] Butonu
+                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 8.0f, 0.0f))
+                    [
+                        SNew(SButton)
+                        .ButtonColorAndOpacity(FLinearColor(0.85f, 0.4f, 0.0f, 1.0f))
+                        .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModularGarageWidget::OnTogglePhysicsClicked))
+                        [
+                            SAssignNew(PhysicsButtonText, STextBlock)
+                            .Text(FText::FromString(TEXT("⚡ FİZİK SİMÜLE ET")))
+                            .ColorAndOpacity(FLinearColor::White)
+                        ]
+                    ]
+
+                    // [OTOMATİK ROL ATA]
                     + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 8.0f, 0.0f))
                     [
                         SNew(SButton)
                         .ButtonColorAndOpacity(FLinearColor(0.2f, 0.65f, 0.4f, 1.0f))
                         .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModularGarageWidget::OnAutoAssignMotorsClicked))
                         [
-                            SNew(STextBlock)
-                            .Text(FText::FromString(TEXT("🤖 OTOMATİK ROL ATA")))
-                            .ColorAndOpacity(FLinearColor::White)
+                            SNew(STextBlock).Text(FText::FromString(TEXT("🤖 OTO ROL"))).ColorAndOpacity(FLinearColor::White)
                         ]
                     ]
 
                     // Profil Kaydet/Yükle Girişi
-                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(10.0f, 0.0f, 6.0f, 0.0f))
+                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(8.0f, 0.0f, 4.0f, 0.0f))
                     [
                         SAssignNew(ProfileNameInput, SEditableTextBox)
                         .Text(FText::FromString(TEXT("default_vehicle")))
-                        .MinDesiredWidth(130.0f)
+                        .MinDesiredWidth(110.0f)
                     ]
 
-                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 6.0f, 0.0f))
+                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 4.0f, 0.0f))
                     [
                         SNew(SButton)
                         .ButtonColorAndOpacity(FLinearColor(0.3f, 0.4f, 0.5f, 1.0f))
@@ -113,7 +184,7 @@ TSharedRef<SWidget> UPiSimModularGarageWidget::RebuildWidget()
                         ]
                     ]
 
-                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 8.0f, 0.0f))
+                    + SHorizontalBox::Slot().AutoWidth().Padding(FMargin(0.0f, 0.0f, 6.0f, 0.0f))
                     [
                         SNew(SButton)
                         .ButtonColorAndOpacity(FLinearColor(0.3f, 0.4f, 0.5f, 1.0f))
@@ -129,7 +200,7 @@ TSharedRef<SWidget> UPiSimModularGarageWidget::RebuildWidget()
                         .ButtonColorAndOpacity(FLinearColor(0.85f, 0.45f, 0.1f, 1.0f))
                         .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModularGarageWidget::OnBakeClicked))
                         [
-                            SNew(STextBlock).Text(FText::FromString(TEXT("🔥 BAKE (KİLİTLE)")))
+                            SNew(STextBlock).Text(FText::FromString(TEXT("🔥 BAKE")))
                         ]
                     ]
 
@@ -142,56 +213,71 @@ TSharedRef<SWidget> UPiSimModularGarageWidget::RebuildWidget()
                 ]
             ]
 
-            // 2. Ana Çalışma Alanı: Sol Kemik Ağacı + Sağ Dinamik Otopark Paneli
+            // 2. Ana Çalışma Alanı: Sol Panel (Sola Yaslı) + Orta Boşluk (Açık ve Tıklama Geçirgen) + Sağ Panel (Sağa Yaslı)
             + SVerticalBox::Slot()
             .FillHeight(1.0f)
             .Padding(FMargin(10.0f, 5.0f, 10.0f, 10.0f))
             [
                 SNew(SHorizontalBox)
 
-                // Sol Panel: Kemik Listesi
+                // Sol Panel: Kemik Ağacı (Sola Yaslı, Sabit Genişlik: 330px)
                 + SHorizontalBox::Slot()
-                .FillWidth(0.35f)
+                .AutoWidth()
                 .Padding(FMargin(0.0f, 0.0f, 6.0f, 0.0f))
                 [
-                    SNew(SBorder)
-                    .BorderBackgroundColor(FLinearColor(0.02f, 0.05f, 0.1f, 0.95f))
-                    .Padding(FMargin(12.0f))
+                    SNew(SBox)
+                    .WidthOverride(330.0f)
                     [
-                        SNew(SVerticalBox)
-                        + SVerticalBox::Slot().AutoHeight().Padding(FMargin(0.0f, 0.0f, 0.0f, 8.0f))
+                        SNew(SBorder)
+                        .BorderBackgroundColor(FLinearColor(0.02f, 0.05f, 0.1f, 0.95f))
+                        .Padding(FMargin(12.0f))
                         [
-                            SNew(STextBlock)
-                            .Text(FText::FromString(TEXT("🦴 İSKELET VE KEMİK LİSTESİ")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
-                            .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
-                        ]
-                        + SVerticalBox::Slot().FillHeight(1.0f)
-                        [
-                            SAssignNew(BoneListScrollBox, SScrollBox)
+                            SNew(SVerticalBox)
+                            + SVerticalBox::Slot().AutoHeight().Padding(FMargin(0.0f, 0.0f, 0.0f, 8.0f))
+                            [
+                                SNew(STextBlock)
+                                .Text(FText::FromString(TEXT("🦴 KEMİK HİYERARŞİSİ")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+                                .ColorAndOpacity(FLinearColor(0.0f, 0.88f, 1.0f, 1.0f))
+                            ]
+                            + SVerticalBox::Slot().FillHeight(1.0f)
+                            [
+                                SAssignNew(BoneListScrollBox, SScrollBox)
+                            ]
                         ]
                     ]
                 ]
 
-                // Sağ Panel: Dinamik Otopark Parametre Paneli (IPiSimInspectableModule)
+                // Orta Alan: Ekranın Üçte Biri (%40) Boş ve Tıklama Geçirgen (Viewport'a Ulaşım Sağlar)
                 + SHorizontalBox::Slot()
-                .FillWidth(0.65f)
+                .FillWidth(1.0f)
+                [
+                    SNew(SSpacer)
+                    .Visibility(EVisibility::SelfHitTestInvisible)
+                ]
+
+                // Sağ Panel: Dinamik Otopark Parametre Paneli (Sağa Yaslı, Sabit Genişlik: 390px)
+                + SHorizontalBox::Slot()
+                .AutoWidth()
                 .Padding(FMargin(6.0f, 0.0f, 0.0f, 0.0f))
                 [
-                    SNew(SBorder)
-                    .BorderBackgroundColor(FLinearColor(0.02f, 0.05f, 0.1f, 0.95f))
-                    .Padding(FMargin(14.0f))
+                    SNew(SBox)
+                    .WidthOverride(390.0f)
                     [
-                        SNew(SVerticalBox)
-
-                        // Seçili Kemik Başlığı
-                        + SVerticalBox::Slot().AutoHeight().Padding(FMargin(0.0f, 0.0f, 0.0f, 8.0f))
+                        SNew(SBorder)
+                        .BorderBackgroundColor(FLinearColor(0.02f, 0.05f, 0.1f, 0.95f))
+                        .Padding(FMargin(14.0f))
                         [
-                            SAssignNew(SelectedBoneTitleText, STextBlock)
-                            .Text(FText::FromString(TEXT("Bir kemik seçiniz")))
-                            .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
-                            .ColorAndOpacity(FLinearColor::White)
-                        ]
+                            SNew(SVerticalBox)
+
+                            // Seçili Kemik Başlığı
+                            + SVerticalBox::Slot().AutoHeight().Padding(FMargin(0.0f, 0.0f, 0.0f, 8.0f))
+                            [
+                                SAssignNew(SelectedBoneTitleText, STextBlock)
+                                .Text(FText::FromString(TEXT("Bir kemik seçiniz")))
+                                .Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+                                .ColorAndOpacity(FLinearColor::White)
+                            ]
 
                         // Rol Değiştirme Buton Çubuğu
                         + SVerticalBox::Slot().AutoHeight().Padding(FMargin(0.0f, 0.0f, 0.0f, 12.0f))
@@ -237,7 +323,8 @@ TSharedRef<SWidget> UPiSimModularGarageWidget::RebuildWidget()
                     ]
                 ]
             ]
-        ];
+        ]
+    ];
 }
 
 // @state: WIP - Hedef araç atamasını yapar ve kemik listesini doldurur
@@ -252,7 +339,7 @@ void UPiSimModularGarageWidget::SetTargetVehicle(APiSimVehicle* InVehicle)
     RefreshPropertyInspector();
 }
 
-// @state: WIP - İskeletteki kemikleri tarayıp sol listeyi doldurur
+// @state: WIP - Sol paneldeki kemik listesini aracın güncel kemiklerine göre tazeler
 void UPiSimModularGarageWidget::RebuildBoneListView()
 {
     if (!BoneListScrollBox.IsValid())
@@ -264,11 +351,68 @@ void UPiSimModularGarageWidget::RebuildBoneListView()
 
     if (!TargetVehicle)
     {
+        BoneListScrollBox->AddSlot()
+        [
+            SNew(STextBlock).Text(FText::FromString(TEXT("Hedef araç atanmadı."))).ColorAndOpacity(FLinearColor::Red)
+        ];
         return;
     }
 
     TArray<FName> BoneNames;
     TargetVehicle->GetVehicleBoneNames(BoneNames);
+
+    if (BoneNames.Num() == 0)
+    {
+        BoneListScrollBox->AddSlot()
+        [
+            SNew(STextBlock).Text(FText::FromString(TEXT("Henüz kemik bulunamadı.\nLütfen üst bardan bir model seçiniz."))).ColorAndOpacity(FLinearColor(0.7f, 0.7f, 0.7f, 1.0f))
+        ];
+        return;
+    }
+
+    const TArray<FPiSimBoneHierarchyNode>& Hierarchy = TargetVehicle->GetVehicleBoneHierarchy();
+    if (Hierarchy.Num() > 0)
+    {
+        for (const FPiSimBoneHierarchyNode& Node : Hierarchy)
+        {
+            UActorComponent* Mod = TargetVehicle->GetModuleAtBone(Node.BoneName);
+            FString ModuleTag = TEXT("🔘 Boş");
+            FLinearColor TagColor = FLinearColor(0.5f, 0.5f, 0.5f, 0.8f);
+
+            if (Mod)
+            {
+                FString ClassName = Mod->GetClass()->GetName();
+                if (ClassName.Contains(TEXT("Wheel"))) { ModuleTag = TEXT("🚗 Teker"); TagColor = FLinearColor(0.0f, 0.88f, 1.0f); }
+                else if (ClassName.Contains(TEXT("Servo"))) { ModuleTag = TEXT("🦾 Servo"); TagColor = FLinearColor(1.0f, 0.75f, 0.1f); }
+                else if (ClassName.Contains(TEXT("Propeller"))) { ModuleTag = TEXT("🛸 İtki"); TagColor = FLinearColor(1.0f, 0.3f, 0.3f); }
+                else if (ClassName.Contains(TEXT("LiftBody"))) { ModuleTag = TEXT("🪽 Kanat"); TagColor = FLinearColor(0.2f, 1.0f, 0.45f); }
+            }
+
+            float IndentPadding = FMath::Clamp(Node.IndentLevel, 0, 6) * 16.0f;
+            FString Prefix = (Node.IndentLevel > 0) ? TEXT("↳ ") : TEXT("📦 ");
+            FString DisplayText = Prefix + Node.BoneName.ToString();
+
+            BoneListScrollBox->AddSlot()
+                .Padding(FMargin(IndentPadding, 1.5f, 0.0f, 1.5f))
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(Node.BoneName == CurrentSelectedBone ? FLinearColor(0.0f, 0.45f, 0.8f, 1.0f) : FLinearColor(0.06f, 0.12f, 0.22f, 0.8f))
+                    .OnClicked(FOnClicked::CreateUObject(this, &UPiSimModularGarageWidget::OnSelectBoneClicked, Node.BoneName))
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+                        [
+                            SNew(STextBlock).Text(FText::FromString(DisplayText)).ColorAndOpacity(FLinearColor::White)
+                        ]
+                        + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                        [
+                            SNew(STextBlock).Text(FText::FromString(ModuleTag)).ColorAndOpacity(TagColor)
+                        ]
+                    ]
+                ];
+        }
+        return;
+    }
 
     for (const FName& Bone : BoneNames)
     {
@@ -306,24 +450,23 @@ void UPiSimModularGarageWidget::RebuildBoneListView()
     }
 }
 
-// @state: WIP - Kemik seçildiğinde eski modülden ayrılır ve yeni modülün slotlarını çizer
+// @state: WIP - Kemik seçildiğinde arayüzü günceller
 void UPiSimModularGarageWidget::SelectBone(FName BoneName)
 {
     CurrentSelectedBone = BoneName;
-    CurrentActiveModule = nullptr;
-    CurrentProperties.Empty();
 
     if (SelectedBoneTitleText.IsValid())
     {
-        SelectedBoneTitleText->SetText(FText::FromString(FString::Printf(TEXT("📍 Kemik: %s"), *BoneName.ToString())));
+        SelectedBoneTitleText->SetText(FText::FromString(FString::Printf(TEXT("🦴 Seçili Kemik: %s"), *BoneName.ToString())));
     }
 
+    CurrentActiveModule = nullptr;
     if (TargetVehicle && !BoneName.IsNone())
     {
-        UActorComponent* AssignedComp = TargetVehicle->GetModuleAtBone(BoneName);
-        if (AssignedComp)
+        UActorComponent* Comp = TargetVehicle->GetModuleAtBone(BoneName);
+        if (Comp)
         {
-            CurrentActiveModule = Cast<IPiSimInspectableModule>(AssignedComp);
+            CurrentActiveModule = Cast<IPiSimInspectableModule>(Comp);
         }
     }
 
@@ -331,7 +474,7 @@ void UPiSimModularGarageWidget::SelectBone(FName BoneName)
     RefreshPropertyInspector();
 }
 
-// @state: WIP - IPiSimInspectableModule parametrelerini arayüz slotlarına dinamik olarak çizer
+// @state: WIP - Seçilen modülün IPiSimInspectableModule özelliklerini Slate slotlarına doldurur
 void UPiSimModularGarageWidget::RefreshPropertyInspector()
 {
     if (!InspectorSlotScrollBox.IsValid())
@@ -342,9 +485,124 @@ void UPiSimModularGarageWidget::RefreshPropertyInspector()
     InspectorSlotScrollBox->ClearChildren();
     CurrentProperties.Empty();
 
+    if (CurrentSelectedBone.IsNone())
+    {
+        InspectorSlotScrollBox->AddSlot()
+        [
+            SNew(STextBlock).Text(FText::FromString(TEXT("Lütfen soldan bir kemik seçiniz."))).ColorAndOpacity(FLinearColor(0.6f, 0.6f, 0.6f, 1.0f))
+        ];
+        return;
+    }
+
+    // 1. CANLI MOTOR TEST SLIDER'I (22e300b pattern - Canlı test ve doğrudan dönüş)
+    float CurrentTestVal = TargetVehicle ? TargetVehicle->GetMotorTestValue(CurrentSelectedBone) : 0.0f;
+    TSharedPtr<STextBlock> TestValTextBlock;
+
+    InspectorSlotScrollBox->AddSlot()
+        .Padding(FMargin(0.0f, 0.0f, 0.0f, 12.0f))
+        [
+            SNew(SBorder)
+            .BorderBackgroundColor(FLinearColor(0.04f, 0.10f, 0.18f, 0.95f))
+            .Padding(FMargin(10.0f))
+            [
+                SNew(SVerticalBox)
+                // Başlık ve Yüzde Değeri
+                + SVerticalBox::Slot().AutoHeight()
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+                    [
+                        SNew(STextBlock)
+                        .Text(FText::FromString(TEXT("⚡ CANLI MOTOR TESTİ")))
+                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+                        .ColorAndOpacity(FLinearColor(1.0f, 0.75f, 0.1f, 1.0f))
+                    ]
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [
+                        SAssignNew(TestValTextBlock, STextBlock)
+                        .Text(FText::FromString(FMath::Abs(CurrentTestVal) < 0.01f ? TEXT("0.0% (DURUYOR)") : FString::Printf(TEXT("%+.1f%%"), CurrentTestVal * 100.0f)))
+                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+                        .ColorAndOpacity(FLinearColor(0.2f, 1.0f, 0.5f, 1.0f))
+                    ]
+                ]
+                // Test Slider'ı (-1.0f .. +1.0f)
+                + SVerticalBox::Slot().AutoHeight().Padding(FMargin(0.0f, 8.0f, 0.0f, 8.0f))
+                [
+                    SNew(SSlider)
+                    .Value((CurrentTestVal + 1.0f) * 0.5f)
+                    .OnValueChanged_Lambda([this, TestValTextBlock](float NewAlpha)
+                    {
+                        float RealVal = (NewAlpha * 2.0f) - 1.0f;
+                        if (TestValTextBlock.IsValid())
+                        {
+                            TestValTextBlock->SetText(FText::FromString(FMath::Abs(RealVal) < 0.01f ? TEXT("0.0% (DURUYOR)") : FString::Printf(TEXT("%+.1f%%"), RealVal * 100.0f)));
+                        }
+
+                        if (!TargetVehicle && GetWorld())
+                        {
+                            AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
+                            if (Found) SetTargetVehicle(Cast<APiSimVehicle>(Found));
+                        }
+
+                        if (TargetVehicle && !CurrentSelectedBone.IsNone())
+                        {
+                            TargetVehicle->SetMotorTestValue(CurrentSelectedBone, RealVal);
+                        }
+
+                        if (GEngine)
+                        {
+                            GEngine->AddOnScreenDebugMessage(920, 1.5f, FColor::Yellow,
+                                FString::Printf(TEXT("🎛️ [CANLI TEST SLIDER] Kemik: '%s' | Değer: %+.2f (%+.1f%%)"),
+                                    *CurrentSelectedBone.ToString(), RealVal, RealVal * 100.0f));
+                        }
+                        UE_LOG(LogTemp, Warning, TEXT("🎛️ [CANLI TEST SLIDER] Kemik: '%s' | Değer: %+.2f (%+.1f%%)"),
+                            *CurrentSelectedBone.ToString(), RealVal, RealVal * 100.0f);
+                    })
+                ]
+                // Sıfırla (Reset) Butonu
+                + SVerticalBox::Slot().AutoHeight()
+                [
+                    SNew(SButton)
+                    .ButtonColorAndOpacity(FLinearColor(0.08f, 0.16f, 0.12f, 1.0f))
+                    .OnClicked_Lambda([this, TestValTextBlock]() -> FReply
+                    {
+                        if (!TargetVehicle && GetWorld())
+                        {
+                            AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
+                            if (Found) SetTargetVehicle(Cast<APiSimVehicle>(Found));
+                        }
+
+                        if (TargetVehicle && !CurrentSelectedBone.IsNone())
+                        {
+                            TargetVehicle->SetMotorTestValue(CurrentSelectedBone, 0.0f);
+                        }
+                        if (TestValTextBlock.IsValid())
+                        {
+                            TestValTextBlock->SetText(FText::FromString(TEXT("0.0% (DURUYOR)")));
+                        }
+
+                        if (GEngine)
+                        {
+                            GEngine->AddOnScreenDebugMessage(920, 2.0f, FColor::Cyan,
+                                FString::Printf(TEXT("🔄 [SLIDER SIFIRLANDI] Kemik: '%s' -> 0.0%%"), *CurrentSelectedBone.ToString()));
+                        }
+                        RefreshPropertyInspector();
+                        return FReply::Handled();
+                    })
+                    [
+                        SNew(STextBlock)
+                        .Text(FText::FromString(TEXT("🔄 SIFIRLA / DURDUR (0%)")))
+                        .Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+                        .ColorAndOpacity(FLinearColor(0.4f, 1.0f, 0.7f, 1.0f))
+                        .Justification(ETextJustify::Center)
+                    ]
+                ]
+            ]
+        ];
+
     if (!CurrentActiveModule)
     {
-        InspectorSlotScrollBox->AddSlot().Padding(FMargin(0.0f, 20.0f))
+        InspectorSlotScrollBox->AddSlot()
         [
             SNew(STextBlock)
             .Text(FText::FromString(TEXT("Bu kemiğe atanmış mikro modül bulunmuyor.\nYukarıdaki butonlardan bir rol seçerek modül ekleyebilirsiniz.")))
@@ -423,9 +681,22 @@ void UPiSimModularGarageWidget::RefreshPropertyInspector()
 
 void UPiSimModularGarageWidget::OnSliderValueChanged(FName PropertyId, float NewValue)
 {
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(921, 2.0f, FColor::Cyan,
+            FString::Printf(TEXT("⚙️ [PARAMETRE SLIDER] Kemik: '%s' | Param: '%s' -> %.2f"),
+                *CurrentSelectedBone.ToString(), *PropertyId.ToString(), NewValue));
+    }
+    UE_LOG(LogTemp, Warning, TEXT("⚙️ [PARAMETRE SLIDER] Kemik: '%s' | Param: '%s' -> %.2f"),
+        *CurrentSelectedBone.ToString(), *PropertyId.ToString(), NewValue);
+
     if (CurrentActiveModule)
     {
         CurrentActiveModule->SetInspectablePropertyFloat(PropertyId, NewValue);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("⚠️ [GARAGE UI SLIDER] '%s' kemiğinde atanmış modül bileşeni bulunamadı!"), *CurrentSelectedBone.ToString());
     }
 }
 
@@ -479,20 +750,123 @@ FReply UPiSimModularGarageWidget::OnAssignRoleClicked(FString RoleName)
     return FReply::Handled();
 }
 
-FReply UPiSimModularGarageWidget::OnTogglePhysicsClicked()
+// @state: WIP - Modeli Değiştir butonuna basıldığında mevcut FBX modelleri arasında döner
+FReply UPiSimModularGarageWidget::OnToggleModelClicked()
+{
+    TArray<FString> Avail = UPiSimModelFbxImporter::GetAvailableCacheModels();
+    if (Avail.Num() > 0)
+    {
+        int32 CurIdx = Avail.IndexOfByKey(ActiveModelFileName);
+        int32 NextIdx = (CurIdx + 1) % Avail.Num();
+        ActiveModelFileName = Avail[NextIdx];
+    }
+    else
+    {
+        if (ActiveModelFileName.Equals(TEXT("robot_import_test.fbx"), ESearchCase::IgnoreCase))
+            ActiveModelFileName = TEXT("robot_import_test1.fbx");
+        else
+            ActiveModelFileName = TEXT("robot_import_test.fbx");
+    }
+
+    if (ModelButtonText.IsValid())
+    {
+        ModelButtonText->SetText(FText::FromString(FString::Printf(TEXT("📦 %s"), *ActiveModelFileName)));
+    }
+
+    OnReimportClicked();
+    return FReply::Handled();
+}
+
+// @state: WIP - İthalat ölçeğini 0.1 ile çarpar
+FReply UPiSimModularGarageWidget::OnMultiplyScale01Clicked()
+{
+    CurrentScaleMultiplier = FMath::Clamp(CurrentScaleMultiplier * 0.1f, 0.001f, 1000.0f);
+    OnReimportClicked();
+    return FReply::Handled();
+}
+
+// @state: WIP - İthalat ölçeğini 10 ile çarpar
+FReply UPiSimModularGarageWidget::OnMultiplyScale10Clicked()
+{
+    CurrentScaleMultiplier = FMath::Clamp(CurrentScaleMultiplier * 10.0f, 0.001f, 1000.0f);
+    OnReimportClicked();
+    return FReply::Handled();
+}
+
+// @state: WIP - Aktif modeli diskten tekrar okur ve kemik listesini tazeler
+FReply UPiSimModularGarageWidget::OnReimportClicked()
 {
     if (TargetVehicle)
     {
-        bool bActive = TargetVehicle->IsVehiclePhysicsActive();
-        TargetVehicle->SetVehiclePhysicsEnabled(!bActive);
-        if (StatusMessageText.IsValid())
+        FString FullPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache") / ActiveModelFileName;
+        bool bOk = UPiSimModelFbxImporter::ImportFbxFileToVehicle(TargetVehicle, FullPath, CurrentScaleMultiplier, bSmoothNormals);
+        if (bOk)
         {
-            StatusMessageText->SetText(FText::FromString(!bActive ? TEXT("🟢 Fizik Aktif") : TEXT("🔴 Fizik Kapalı")));
+            RebuildBoneListView();
+            if (StatusMessageText.IsValid())
+            {
+                StatusMessageText->SetText(FText::FromString(FString::Printf(TEXT("Model: %s (Ölçek: %.2fx)"), *ActiveModelFileName, CurrentScaleMultiplier)));
+            }
+        }
+        else
+        {
+            if (StatusMessageText.IsValid())
+            {
+                StatusMessageText->SetText(FText::FromString(FString::Printf(TEXT("HATA: %s bulunamadı!"), *ActiveModelFileName)));
+            }
         }
     }
     return FReply::Handled();
 }
 
+// @state: WIP - Görsel model ile UCX çarpışma zırhı arasındaki görünürlüğü değiştirir
+FReply UPiSimModularGarageWidget::OnToggleCollisionViewClicked()
+{
+    if (TargetVehicle)
+    {
+        bool bNewShow = !TargetVehicle->IsCollisionMeshViewEnabled();
+        TargetVehicle->SetCollisionMeshViewEnabled(bNewShow);
+        if (CollisionButtonText.IsValid())
+        {
+            CollisionButtonText->SetText(FText::FromString(bNewShow ? TEXT("🛡️ UCX ZIRH MODU") : TEXT("🎨 GÖRSEL MOD")));
+        }
+    }
+    return FReply::Handled();
+}
+
+// @state: WIP - Fizik simülasyonunu açıp kapatır
+FReply UPiSimModularGarageWidget::OnTogglePhysicsClicked()
+{
+    if (!TargetVehicle && GetWorld())
+    {
+        AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
+        if (Found) SetTargetVehicle(Cast<APiSimVehicle>(Found));
+    }
+
+    if (TargetVehicle)
+    {
+        bool bActive = TargetVehicle->IsVehiclePhysicsActive();
+        TargetVehicle->SetVehiclePhysicsEnabled(!bActive);
+        if (PhysicsButtonText.IsValid())
+        {
+            PhysicsButtonText->SetText(FText::FromString(!bActive ? TEXT("⚡ FİZİK AKTİF") : TEXT("⚡ FİZİK SİMÜLE ET")));
+        }
+        if (StatusMessageText.IsValid())
+        {
+            StatusMessageText->SetText(FText::FromString(!bActive ? TEXT("🟢 Fizik Aktif") : TEXT("🔴 Fizik Kapalı")));
+        }
+    }
+    else
+    {
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red, TEXT("❌ [HATA] Sahnedeki APiSimVehicle aktörü bulunamadı!"));
+        }
+    }
+    return FReply::Handled();
+}
+
+// @state: WIP - Otomatik motor rollerini atar
 FReply UPiSimModularGarageWidget::OnAutoAssignMotorsClicked()
 {
     if (TargetVehicle)

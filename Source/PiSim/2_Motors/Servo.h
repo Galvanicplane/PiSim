@@ -61,6 +61,13 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
     FVector LocalRotationAxis = FVector(0.0f, 0.0f, 1.0f); // Varsayılan Z Yaw ekseni
 
+    /** Sürekli Açı Salınım Testi (MinAngleDeg ve MaxAngleDeg arasında durmaksızın kemiği döndürür) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
+    bool bContinuousSweepTest = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
+    float SweepCycleSpeed = 1.0f;
+
     /** Manuel UI testi açıksa gelen PWM komutları değeri ezmez */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
     bool bManualOverride = false;
@@ -69,8 +76,14 @@ protected:
     UPROPERTY()
     class USkeletalMeshComponent* CachedSkeletalMesh = nullptr;
 
+    UPROPERTY()
+    class USceneComponent* TargetSceneComponent = nullptr;
+
     FRotator RestRotation = FRotator::ZeroRotator;
     bool bHasRestRotation = false;
+
+    float SweepTestTimer = 0.0f;
+    float LastSweepDebugLogTime = 0.0f;
 
     void ApplyServoPhysics(float DeltaTime);
 };

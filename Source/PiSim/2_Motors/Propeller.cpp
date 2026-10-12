@@ -1,7 +1,9 @@
 // Propeller.cpp
 
 #include "Propeller.h"
+#include "Vehicle.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "ProceduralMeshComponent.h"
 #include "GameFramework/Actor.h"
 
 // @state: WIP - Pervane bileşeni yapıcısı
@@ -19,6 +21,15 @@ void UPiSimPropellerComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
     if (!CachedSkeletalMesh && GetOwner())
     {
         CachedSkeletalMesh = GetOwner()->FindComponentByClass<USkeletalMeshComponent>();
+    }
+
+    if (!TargetSceneComponent && GetOwner() && !TargetBoneName.IsNone())
+    {
+        APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner());
+        if (Vehicle)
+        {
+            TargetSceneComponent = Vehicle->GetSceneComponentForBone(TargetBoneName);
+        }
     }
 
     ApplyThrustPhysics(DeltaTime);
@@ -107,6 +118,17 @@ void UPiSimPropellerComponent::SetInspectablePropertyFloat(FName PropertyId, flo
     {
         ArduPilotChannel = FMath::Clamp(FMath::RoundToInt(NewValue), 1, 16);
     }
+
+    // DEBUG BİLGİSİ: UI'dan gelen motor verisini konsola ve ekrana bas
+    UE_LOG(LogTemp, Warning, TEXT("⚡ [PISIM MOTOR DEBUG] Kemik: '%s' | Pervane Parametresi: '%s' = %.2f | Bağlı Bileşen: %s"),
+        *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue,
+        TargetSceneComponent ? *TargetSceneComponent->GetName() : TEXT("Bağlanmadı (Aranıyor...)"));
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(930, 2.0f, FColor::Emerald,
+            FString::Printf(TEXT("⚡ [PERVANE DEBUG] %s (%s) = %.2f"), *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue));
+    }
 }
 
 // @state: WIP - UI metin kutusundan gelen string değerini işler
@@ -124,10 +146,46 @@ void UPiSimPropellerComponent::TriggerInspectableAction(FName ActionId)
     }
 }
 
-// @state: WIP - İtki kuvvetini (Newton * 100 = dyn/cm) iskelet kemiği konumunda uygular
+// @state: WIP - İtki kuvvetini ve görsel pervane dönüşünü uygular
 void UPiSimPropellerComponent::ApplyThrustPhysics(float DeltaTime)
 {
-    if (!CachedSkeletalMesh || Throttle <= 0.001f)
+    if (Throttle <= 0.001f)
+    {
+        return;
+    }
+
+    // 1) Dinamik FBX Sahne Parçası Varsa (VisComp) Görsel Dönüşü Uygula
+    if (TargetSceneComponent)
+    {
+        // 1 RPM = 6 deg/sec
+        float AngularSpeedDeg = CurrentRPM * 6.0f;
+        float DeltaRotationDeg = AngularSpeedDeg * DeltaTime;
+        FVector Axis = LocalThrustDirection.GetSafeNormal();
+        if (bReverseThrust) Axis = -Axis;
+
+        FQuat SpinQuat(Axis, FMath::DegreesToRadians(DeltaRotationDeg));
+        TargetSceneComponent->AddLocalRotation(SpinQuat);
+
+        if (APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner()))
+        {
+            if (Vehicle->IsVehiclePhysicsActive())
+            {
+                UPrimitiveComponent* RootBody = Cast<UPrimitiveComponent>(Vehicle->GetRootComponent());
+                if (!RootBody && Vehicle->VisualMeshComponents.IsValidIndex(0))
+                {
+                    RootBody = Vehicle->VisualMeshComponents[0];
+                }
+                if (RootBody && RootBody->IsSimulatingPhysics())
+                {
+                    FVector WorldThrust = RootBody->GetComponentTransform().TransformVectorNoScale(Axis).GetSafeNormal();
+                    RootBody->AddForce(WorldThrust * CurrentThrustNewtons * 100.0f);
+                }
+            }
+        }
+    }
+
+    // 2) SkeletalMesh Varsa Fiziksel İtki Tatbik Et
+    if (!CachedSkeletalMesh)
     {
         return;
     }
