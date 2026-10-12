@@ -79,7 +79,7 @@ public:
     bool bManualOverride = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
-    FVector LocalSpinAxis = FVector(0.0f, 1.0f, 0.0f); // Varsayılan Y Pitch ekseni
+    FVector LocalSpinAxis = FVector(1.0f, 0.0f, 0.0f); // Roll X ekseni (PiSimModelImporter LocalAxle=(1,0,0) birebir)
 
 protected:
     UPROPERTY()

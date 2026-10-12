@@ -212,6 +212,26 @@ void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
             TargetSceneComponent->AddLocalRotation(SpinQuat);
             CurrentRPM = TargetRPM;
         }
+
+        // Canlı Fizik Sürüşü: 1-DOF Roll kısıtlamasına sahip tekerlek gövdesine Roll X açısal hızını ver (PiSimModelImporter lines 971-978)
+        if (APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner()))
+        {
+            if (Vehicle->IsVehiclePhysicsActive())
+            {
+                if (UPrimitiveComponent* Prim = Vehicle->GetPrimitiveComponentForBone(TargetBoneName))
+                {
+                    if (Prim->IsSimulatingPhysics())
+                    {
+                        FVector LocalAxle = LocalSpinAxis.GetSafeNormal();
+                        FVector WorldAxle = Prim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
+                        FVector CurrentAngVel = Prim->GetPhysicsAngularVelocityInDegrees();
+                        FVector NonRollVel = CurrentAngVel - (WorldAxle * (CurrentAngVel | WorldAxle));
+                        FVector DesiredRollVel = WorldAxle * DesiredAngularVelocityDeg;
+                        Prim->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
+                    }
+                }
+            }
+        }
         return;
     }
 

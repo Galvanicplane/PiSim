@@ -201,7 +201,13 @@ void APiSimVehicle::Tick(float DeltaTime)
                 }
                 if (Constraint)
                 {
-                    FTransform SteerPose(FRotator(0.0f, TargetAngle, 0.0f), Constraint->GetRelativeLocation());
+                    FVector RelLoc = Constraint->GetRelativeLocation();
+                    int32 TargetSection = FindVisualSectionForBone(BoneName);
+                    if (TargetSection > 0 && StoredVisualSections.IsValidIndex(TargetSection) && StoredVisualSections.IsValidIndex(0))
+                    {
+                        RelLoc = StoredVisualSections[TargetSection].PivotPoint - StoredVisualSections[0].PivotPoint;
+                    }
+                    FTransform SteerPose(FRotator(0.0f, TargetAngle, 0.0f), RelLoc);
                     Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
                 }
             }
@@ -1038,7 +1044,13 @@ void APiSimVehicle::SetVehiclePhysicsEnabled(bool bEnable)
     }
 }
 
-// 🔒 TEKERLEK 1-DOF ROLL KISITLAMA YAPILANDIRMASI (PiSimModelImporter pattern)
+// =========================================================================================
+// 🔒 [DO NOT MODIFY - WHEEL CONSTRAINT 1-DOF DEGREE OF FREEDOM LOCK]
+// 🛑 KESİNLİKLE DEĞİŞTİRİLEMEZ: TEKERLEK SERBESTLİK DERECESİ (DOF) AYARLARI!
+// Tekerlekler 3-DOF Linear Locked + Angular Twist (Roll) Free + Swing1/2 Locked standardındadır.
+// Bu ayarlar aracın zeminde düzgün yuvarlanması, patlamaması ve devrilmemesi için sabittir!
+// (PiSimModelImporter lines 3766-3786 Birebir Entegrasyon)
+// =========================================================================================
 void APiSimVehicle::ConfigureConstraintDof(UPhysicsConstraintComponent* Constraint, int32 SectionIndex)
 {
     if (!Constraint) return;
@@ -1049,11 +1061,29 @@ void APiSimVehicle::ConfigureConstraintDof(UPhysicsConstraintComponent* Constrai
     Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
     Constraint->SetDisableCollision(true); // Şasi ile tekerlek birbirini itmesin
 
-    // 2) Açısal Hareket (Angular Motion) - 1-DOF Roll:
+    // 2) Açısal Hareket (Angular Motion) - GENEL GEÇER TEKERLEK STANDARDI:
+    // TÜM TEKERLEKLER (Ön veya Arka ayrımı olmaksızın) TEK BİR EKSENDE (Roll / Twist) DÖNER!
+    // Twist (Roll / Yuvarlanma): ACM_Free (Tekerlek zeminde ileri/geri serbestçe döner)
+    // Swing1 (Yaw / Direksiyon): ACM_Locked (Direksiyon ekseni kilitli - Steer mafsalının referans açısıyla yönlendirilir)
+    // Swing2 (Pitch / Kamber): ACM_Locked (Kamber açısı kilitli - devrilmez)
     Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
     Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
     Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
     Constraint->SetOrientationDriveTwistAndSwing(false, false);
+}
+// 🔒 [END OF WHEEL CONSTRAINT DOF LOCK]
+// =========================================================================================
+
+void APiSimVehicle::UpdateAllConstraintDofs()
+{
+    for (int32 i = 1; i < StoredVisualSections.Num(); ++i)
+    {
+        UPhysicsConstraintComponent* Constraint = FindConstraintForSection(i);
+        if (Constraint)
+        {
+            ConfigureConstraintDof(Constraint, i);
+        }
+    }
 }
 
 UPhysicsConstraintComponent* APiSimVehicle::FindConstraintForSection(int32 SectionIndex)

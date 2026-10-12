@@ -117,6 +117,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Hierarchy")
     int32 FindVisualSectionForBone(FName BoneName) const;
 
+    // Tüm tekerlek kısıtlamalarının serbestlik derecelerini (DOF) günceller (PiSimModelImporter pattern)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Physics")
+    void UpdateAllConstraintDofs();
+
     // Kayıtlı FBX parça kesitleri (Chaos ve UCX Convex zırhı için)
     UPROPERTY()
     TArray<FPiSimMeshSection> StoredVisualSections;

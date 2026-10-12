@@ -278,7 +278,13 @@ void UPiSimServoComponent::ApplyServoPhysics(float DeltaTime)
                 }
                 if (Constraint)
                 {
-                    FTransform SteerPose(NewRot, Constraint->GetRelativeLocation());
+                    FVector RelLoc = Constraint->GetRelativeLocation();
+                    int32 TargetSection = Vehicle->FindVisualSectionForBone(TargetBoneName);
+                    if (TargetSection > 0 && Vehicle->StoredVisualSections.IsValidIndex(TargetSection) && Vehicle->StoredVisualSections.IsValidIndex(0))
+                    {
+                        RelLoc = Vehicle->StoredVisualSections[TargetSection].PivotPoint - Vehicle->StoredVisualSections[0].PivotPoint;
+                    }
+                    FTransform SteerPose(NewRot, RelLoc);
                     Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
                 }
             }

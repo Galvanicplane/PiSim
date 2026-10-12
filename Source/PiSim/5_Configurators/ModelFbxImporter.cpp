@@ -1759,6 +1759,75 @@ bool UPiSimModelFbxImporter::ImportFbxFileToVehicle(
     TargetVehicle->RegisterImportedBones(AllBoneNames);
     TargetVehicle->RegisterImportedBoneHierarchy(BoneHierarchy);
 
+    // =========================================================================
+    // 🔒 STEER <-> TEKERLEK BAĞLANTI EŞLEŞTİRMESİ (PiSimModelImporter lines 2921-2977)
+    // Direksiyon kemiklerini (M_Steer_FR, M_Steer_FL) ilgili tekerlek mesh indeksine bağla
+    // =========================================================================
+    TargetVehicle->WheelToSteerBoneMap.Empty();
+
+    // 1) PureBones ve AllBoneNames içindeki Steer kemiklerini isim token'ı ile eşleştir
+    for (const FString& PureBoneName : PureBones)
+    {
+        FString LowerPure = PureBoneName.ToLower();
+        if (LowerPure.Contains(TEXT("steer")) || LowerPure.Contains(TEXT("servo")) || LowerPure.StartsWith(TEXT("m_steer")))
+        {
+            FString Clean = PureBoneName;
+            Clean.RemoveFromStart(TEXT("M_Steer_"), ESearchCase::IgnoreCase);
+            Clean.RemoveFromStart(TEXT("Steer_"), ESearchCase::IgnoreCase);
+            Clean.RemoveFromStart(TEXT("M_"), ESearchCase::IgnoreCase);
+            FString CleanLower = Clean.ToLower();
+
+            int32 MatchedWheelIdx = INDEX_NONE;
+            for (int32 w = 1; w < VisualSections.Num(); ++w)
+            {
+                FString LowerW = VisualSections[w].MeshName.ToLower();
+
+                // Sadece tekerlek mesh'leri ile eşleştir — elevon, aero yüzeyleri ASLA
+                bool bIsWheelMesh = LowerW.Contains(TEXT("wheel")) ||
+                                    LowerW.Contains(TEXT("teker")) ||
+                                    LowerW.StartsWith(TEXT("w_"));
+                if (!bIsWheelMesh) continue;
+
+                bool bSuffixMatch = LowerW.EndsWith(TEXT("_") + CleanLower) ||
+                                    LowerW.Contains(TEXT("_") + CleanLower + TEXT("_")) ||
+                                    LowerW.Equals(CleanLower);
+
+                if (bSuffixMatch)
+                {
+                    MatchedWheelIdx = w;
+                    break;
+                }
+            }
+
+            if (MatchedWheelIdx != INDEX_NONE)
+            {
+                TargetVehicle->WheelToSteerBoneMap.Add(MatchedWheelIdx, PureBoneName);
+                UE_LOG(LogTemp, Warning, TEXT("🎯 [STEER MAFSALI KURULDU] '%s' steer mafsalı tekerleğe bağlandı: [%d] %s"),
+                    *PureBoneName, MatchedWheelIdx, *VisualSections[MatchedWheelIdx].MeshName);
+            }
+        }
+    }
+
+    // 2) Blender BoneHierarchy hiyerarşik ilişkisinden de eşleştir (Ebeveyn steer kemiği ise)
+    for (const FPiSimBoneHierarchyNode& Node : BoneHierarchy)
+    {
+        FString ChildStr = Node.BoneName.ToString();
+        FString ParentStr = Node.ParentBoneName.ToString();
+        if (ParentStr.Contains(TEXT("steer"), ESearchCase::IgnoreCase) || ParentStr.Contains(TEXT("servo"), ESearchCase::IgnoreCase))
+        {
+            for (int32 w = 1; w < VisualSections.Num(); ++w)
+            {
+                if (VisualSections[w].MeshName.Equals(ChildStr, ESearchCase::IgnoreCase))
+                {
+                    TargetVehicle->WheelToSteerBoneMap.Add(w, ParentStr);
+                    UE_LOG(LogTemp, Warning, TEXT("🎯 [HİYERARŞİK STEER BAĞLANTISI] '%s' ebeveyn steer kemiği '%s' tekerleğine kilitlendi (Bölüm: %d)"),
+                        *ParentStr, *ChildStr, w);
+                    break;
+                }
+            }
+        }
+    }
+
     // Otomatik Motor Rol Ataması Yap
     UPiSimMotorConfigurator::AutoAssignMotorsByBoneNames(TargetVehicle);
 
