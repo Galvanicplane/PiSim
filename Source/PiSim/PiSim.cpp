@@ -8,19 +8,18 @@
 #include "PropertyEditorModule.h"
 #include "DetailLayoutBuilder.h"
 #include "IDetailCustomization.h"
-#include "PiSimGarageRobot.h"
-#include "PiSimPrimitiveCube.h"
+#include "Vehicle.h"
 #include "BlueprintEditorModule.h"
 #include "BlueprintEditor.h"
 #include "WorkflowOrientedApp/WorkflowTabManager.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 
-class FPiSimRobotDetailCustomization : public IDetailCustomization
+class FPiSimVehicleDetailCustomization : public IDetailCustomization
 {
 public:
 	static TSharedRef<IDetailCustomization> MakeInstance()
 	{
-		return MakeShareable(new FPiSimRobotDetailCustomization());
+		return MakeShareable(new FPiSimVehicleDetailCustomization());
 	}
 
 	virtual void CustomizeDetails(IDetailLayoutBuilder& DetailBuilder) override
@@ -55,14 +54,14 @@ void FPiSimModule::StartupModule()
 			CustomizeEditorToolbarsAndMenus();
 		}
 
-		// Safely Register Custom Details Layout for APiSimGarageRobot
+		// Safely Register Custom Details Layout for APiSimVehicle
 		if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
 		{
 			FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
-			PropertyModule.UnregisterCustomClassLayout(APiSimGarageRobot::StaticClass()->GetFName());
+			PropertyModule.UnregisterCustomClassLayout(APiSimVehicle::StaticClass()->GetFName());
 			PropertyModule.RegisterCustomClassLayout(
-				APiSimGarageRobot::StaticClass()->GetFName(),
-				FOnGetDetailCustomizationInstance::CreateStatic(&FPiSimRobotDetailCustomization::MakeInstance)
+				APiSimVehicle::StaticClass()->GetFName(),
+				FOnGetDetailCustomizationInstance::CreateStatic(&FPiSimVehicleDetailCustomization::MakeInstance)
 			);
 		}
 	}
@@ -81,7 +80,7 @@ void FPiSimModule::ShutdownModule()
 	if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
 	{
 		FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
-		PropertyModule.UnregisterCustomClassLayout(APiSimGarageRobot::StaticClass()->GetFName());
+		PropertyModule.UnregisterCustomClassLayout(APiSimVehicle::StaticClass()->GetFName());
 	}
 #endif
 }
