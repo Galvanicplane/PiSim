@@ -95,6 +95,18 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
     void MouseZoom(float Direction);
 
+    // WebUI: Canlı motor test değeri uygular (-1.0f .. +1.0f)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void SetMotorTestValue(FName BoneName, float Value);
+
+    // WebUI: Sayfa açıldığında veya model değiştiğinde araç iskeletini ve modül verilerini talep eder
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void RequestVehicleState();
+
+    // WebUI: 3D Kemik teşhis çizgilerini açıp kapatır ('U' tuşunun arayüz karşılığı)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void ToggleDebugDraw();
+
     // UI Aksiyon Tetikleyicileri
     FReply OnTogglePhysicsClicked();
     FReply OnToggleCollisionViewClicked();

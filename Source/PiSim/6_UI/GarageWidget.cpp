@@ -4,6 +4,7 @@
 #include "GarageWidget.h"
 #include "Vehicle.h"
 #include "MotorConfigurator.h"
+#include "MotorDebug.h"
 #include "ModelFbxImporter.h"
 #include "SaveManager.h"
 #include "Baker.h"
@@ -371,9 +372,70 @@ void UPiSimModularGarageWidget::SetTargetVehicle(APiSimVehicle* InVehicle)
     RefreshPropertyInspector();
 }
 
-// @state: WIP - Sol paneldeki kemik listesini aracın güncel kemiklerine göre tazeler
+// @state: WIP - Sol paneldeki kemik listesini hem Slate hem WebBrowser arayüzüne basar
 void UPiSimModularGarageWidget::RebuildBoneListView()
 {
+    if (!TargetVehicle && GetWorld())
+    {
+        AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
+        if (Found) SetTargetVehicle(Cast<APiSimVehicle>(Found));
+    }
+
+    // 1. WebBrowser Entegrasyonu (Modüler Otopark Sözleşmesi)
+    if (WebBrowserWidget.IsValid() && TargetVehicle)
+    {
+        const TArray<FPiSimBoneHierarchyNode>& Hierarchy = TargetVehicle->GetVehicleBoneHierarchy();
+        FString JsonList = TEXT("[");
+        if (Hierarchy.Num() > 0)
+        {
+            for (int32 i = 0; i < Hierarchy.Num(); ++i)
+            {
+                const FPiSimBoneHierarchyNode& Node = Hierarchy[i];
+                UActorComponent* Mod = TargetVehicle->GetModuleAtBone(Node.BoneName);
+                FString RoleTag = TEXT("None");
+                if (Mod)
+                {
+                    FString ClassName = Mod->GetClass()->GetName();
+                    if (ClassName.Contains(TEXT("Wheel"))) RoleTag = TEXT("Wheel");
+                    else if (ClassName.Contains(TEXT("Servo"))) RoleTag = TEXT("Servo");
+                    else if (ClassName.Contains(TEXT("Propeller"))) RoleTag = TEXT("Propeller");
+                    else if (ClassName.Contains(TEXT("LiftBody"))) RoleTag = TEXT("LiftBody");
+                }
+
+                if (i > 0) JsonList += TEXT(",");
+                JsonList += FString::Printf(TEXT("{\"name\":\"%s\",\"parent\":\"%s\",\"indent\":%d,\"role\":\"%s\"}"),
+                    *Node.BoneName.ToString(), *Node.ParentBoneName.ToString(), Node.IndentLevel, *RoleTag);
+            }
+        }
+        else
+        {
+            TArray<FName> BoneNames;
+            TargetVehicle->GetVehicleBoneNames(BoneNames);
+            for (int32 i = 0; i < BoneNames.Num(); ++i)
+            {
+                FName Bone = BoneNames[i];
+                UActorComponent* Mod = TargetVehicle->GetModuleAtBone(Bone);
+                FString RoleTag = TEXT("None");
+                if (Mod)
+                {
+                    FString ClassName = Mod->GetClass()->GetName();
+                    if (ClassName.Contains(TEXT("Wheel"))) RoleTag = TEXT("Wheel");
+                    else if (ClassName.Contains(TEXT("Servo"))) RoleTag = TEXT("Servo");
+                    else if (ClassName.Contains(TEXT("Propeller"))) RoleTag = TEXT("Propeller");
+                    else if (ClassName.Contains(TEXT("LiftBody"))) RoleTag = TEXT("LiftBody");
+                }
+
+                if (i > 0) JsonList += TEXT(",");
+                JsonList += FString::Printf(TEXT("{\"name\":\"%s\",\"parent\":\"Root\",\"indent\":1,\"role\":\"%s\"}"),
+                    *Bone.ToString(), *RoleTag);
+            }
+        }
+        JsonList += TEXT("]");
+
+        FString Script = FString::Printf(TEXT("if (typeof window.onBoneTreeUpdated === 'function') { window.onBoneTreeUpdated(%s); }"), *JsonList);
+        WebBrowserWidget->ExecuteJavascript(Script);
+    }
+
     if (!BoneListScrollBox.IsValid())
     {
         return;
@@ -506,9 +568,58 @@ void UPiSimModularGarageWidget::SelectBone(FName BoneName)
     RefreshPropertyInspector();
 }
 
-// @state: WIP - Seçilen modülün IPiSimInspectableModule özelliklerini Slate slotlarına doldurur
+// @state: WIP - Seçilen modülün IPiSimInspectableModule özelliklerini hem Slate hem WebBrowser slotlarına doldurur
 void UPiSimModularGarageWidget::RefreshPropertyInspector()
 {
+    if (!TargetVehicle && GetWorld())
+    {
+        AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
+        if (Found) SetTargetVehicle(Cast<APiSimVehicle>(Found));
+    }
+
+    // 1. WebBrowser Entegrasyonu (Modüler Otopark Sözleşmesi)
+    if (WebBrowserWidget.IsValid())
+    {
+        FString RoleStr = TEXT("None");
+        if (CurrentActiveModule)
+        {
+            UActorComponent* Comp = Cast<UActorComponent>(CurrentActiveModule);
+            if (Comp)
+            {
+                FString ClassName = Comp->GetClass()->GetName();
+                if (ClassName.Contains(TEXT("Wheel"))) RoleStr = TEXT("Wheel");
+                else if (ClassName.Contains(TEXT("Servo"))) RoleStr = TEXT("Servo");
+                else if (ClassName.Contains(TEXT("Propeller"))) RoleStr = TEXT("Propeller");
+                else if (ClassName.Contains(TEXT("LiftBody"))) RoleStr = TEXT("LiftBody");
+                else RoleStr = ClassName;
+            }
+        }
+
+        float TestVal = (TargetVehicle && !CurrentSelectedBone.IsNone()) ? TargetVehicle->GetMotorTestValue(CurrentSelectedBone) : 0.0f;
+
+        TArray<FPiSimPropertyDescriptor> Props;
+        if (CurrentActiveModule)
+        {
+            CurrentActiveModule->GetInspectableProperties(Props);
+        }
+
+        FString JsonProps = TEXT("[");
+        for (int32 i = 0; i < Props.Num(); ++i)
+        {
+            const FPiSimPropertyDescriptor& P = Props[i];
+            if (i > 0) JsonProps += TEXT(",");
+            JsonProps += FString::Printf(TEXT("{\"id\":\"%s\",\"name\":\"%s\",\"type\":%d,\"min\":%f,\"max\":%f,\"floatVal\":%f,\"strVal\":\"%s\"}"),
+                *P.PropertyId.ToString(), *P.DisplayName, (int32)P.PropertyType, P.MinValue, P.MaxValue, P.CurrentFloatValue, *P.CurrentStringValue);
+        }
+        JsonProps += TEXT("]");
+
+        FString JsonObj = FString::Printf(TEXT("{\"bone\":\"%s\",\"role\":\"%s\",\"testValue\":%f,\"properties\":%s}"),
+            *CurrentSelectedBone.ToString(), *RoleStr, TestVal, *JsonProps);
+
+        FString Script = FString::Printf(TEXT("if (typeof window.onModulePropertiesUpdated === 'function') { window.onModulePropertiesUpdated(%s); }"), *JsonObj);
+        WebBrowserWidget->ExecuteJavascript(Script);
+    }
+
     if (!InspectorSlotScrollBox.IsValid())
     {
         return;
@@ -748,6 +859,7 @@ void UPiSimModularGarageWidget::OnTriggerAction(FName ActionId)
     }
 }
 
+// @state: WIP - Kemiğin motor/modül rolünü değiştirir ve arayüzü günceller
 void UPiSimModularGarageWidget::ChangeBoneRole(FName BoneName, const FString& NewRole)
 {
     if (!TargetVehicle || BoneName.IsNone())
@@ -764,6 +876,7 @@ void UPiSimModularGarageWidget::ChangeBoneRole(FName BoneName, const FString& Ne
         UPiSimMotorConfigurator::AssignMotorRoleToBone(TargetVehicle, BoneName, NewRole);
     }
 
+    RebuildBoneListView();
     SelectBone(BoneName);
 }
 
@@ -986,5 +1099,60 @@ void UPiSimModularGarageWidget::MouseZoom(float Direction)
     if (TargetVehicle)
     {
         TargetVehicle->AddZoomDelta(Direction);
+    }
+}
+
+// @state: WIP - WebUI üzerinden gelen motor canlı test değerini (-1.0 .. +1.0) araca iletir
+void UPiSimModularGarageWidget::SetMotorTestValue(FName BoneName, float Value)
+{
+    if (!TargetVehicle && GetWorld())
+    {
+        AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
+        if (Found) SetTargetVehicle(Cast<APiSimVehicle>(Found));
+    }
+
+    if (TargetVehicle && !BoneName.IsNone())
+    {
+        TargetVehicle->SetMotorTestValue(BoneName, Value);
+    }
+}
+
+// @state: WIP - WebUI sayfa açıldığında veya model yenilendiğinde araç kemik ve modül durumunu tazeler
+void UPiSimModularGarageWidget::RequestVehicleState()
+{
+    if (!TargetVehicle && GetWorld())
+    {
+        AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
+        if (Found) SetTargetVehicle(Cast<APiSimVehicle>(Found));
+    }
+
+    RebuildBoneListView();
+
+    if (CurrentSelectedBone.IsNone() && TargetVehicle)
+    {
+        TArray<FName> BoneNames;
+        TargetVehicle->GetVehicleBoneNames(BoneNames);
+        if (BoneNames.Num() > 0)
+        {
+            SelectBone(BoneNames[0]);
+            return;
+        }
+    }
+
+    RefreshPropertyInspector();
+}
+
+// @state: WIP - WebUI arayüzünden 3D kemik teşhis çizgilerini açıp kapatır ('U' tuşu karşılığı)
+void UPiSimModularGarageWidget::ToggleDebugDraw()
+{
+    if (!TargetVehicle && GetWorld())
+    {
+        AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
+        if (Found) SetTargetVehicle(Cast<APiSimVehicle>(Found));
+    }
+
+    if (TargetVehicle && TargetVehicle->MotorDebugComponent)
+    {
+        TargetVehicle->MotorDebugComponent->ToggleDebugDraw();
     }
 }

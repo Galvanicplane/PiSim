@@ -6,6 +6,8 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "CollisionQueryParams.h"
+#include "GameFramework/PlayerController.h"
+#include "InputCoreTypes.h"
 
 UPiSimMotorDebugComponent::UPiSimMotorDebugComponent()
 {
@@ -13,11 +15,41 @@ UPiSimMotorDebugComponent::UPiSimMotorDebugComponent()
     PrimaryComponentTick.TickGroup = TG_PostPhysics; // Fizik sonrası güncel konum ve açıyı yakala
 }
 
+// @state: WIP - 'U' tuşunu dinleyerek teşhis çizgilerini açıp kapatır
 void UPiSimMotorDebugComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    DrawBoneDiagnostics();
+    // 'U' tuşuna basıldığında debug görünürlüğünü aç/kapa
+    if (UWorld* World = GetWorld())
+    {
+        if (APlayerController* PC = World->GetFirstPlayerController())
+        {
+            if (PC->WasInputKeyJustPressed(EKeys::U))
+            {
+                ToggleDebugDraw();
+            }
+        }
+    }
+
+    if (bEnableDebugDraw)
+    {
+        DrawBoneDiagnostics();
+    }
+}
+
+// @state: WIP - 'U' tuşu veya arayüz üzerinden kemik teşhis çizgilerini ve ekrandaki debug metinlerini açıp kapatır
+void UPiSimMotorDebugComponent::ToggleDebugDraw()
+{
+    bEnableDebugDraw = !bEnableDebugDraw;
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(999, 2.5f, bEnableDebugDraw ? FColor::Green : FColor::Red,
+            bEnableDebugDraw 
+                ? TEXT("👁️ [DEBUG] Kemik Çizgileri ve Teşhis: AÇIK [Kapatmak için 'U']") 
+                : TEXT("🙈 [DEBUG] Kemik Çizgileri ve Teşhis: GİZLENDİ [Açmak için 'U']"));
+    }
 }
 
 void UPiSimMotorDebugComponent::DrawBoneDiagnostics()
@@ -197,6 +229,16 @@ void UPiSimMotorDebugComponent::DumpDiagnosticsToLog()
 // IPiSimInspectableModule Entegrasyonu
 void UPiSimMotorDebugComponent::GetInspectableProperties(TArray<FPiSimPropertyDescriptor>& OutProperties)
 {
+    FPiSimPropertyDescriptor MasterDesc;
+    MasterDesc.PropertyId = TEXT("EnableDebugDraw");
+    MasterDesc.DisplayName = TEXT("Genel Teşhis Çizimleri (U)");
+    MasterDesc.PropertyType = EPiSimPropertyType::Toggle;
+    MasterDesc.MinValue = 0.0f;
+    MasterDesc.MaxValue = 1.0f;
+    MasterDesc.CurrentFloatValue = bEnableDebugDraw ? 1.0f : 0.0f;
+    MasterDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(MasterDesc);
+
     FPiSimPropertyDescriptor AxesDesc;
     AxesDesc.PropertyId = TEXT("ShowBoneAxes");
     AxesDesc.DisplayName = TEXT("3D Kemik Eksenleri (0/1)");
@@ -250,7 +292,11 @@ void UPiSimMotorDebugComponent::GetInspectableProperties(TArray<FPiSimPropertyDe
 
 void UPiSimMotorDebugComponent::SetInspectablePropertyFloat(FName PropertyId, float NewValue)
 {
-    if (PropertyId == TEXT("ShowBoneAxes"))
+    if (PropertyId == TEXT("EnableDebugDraw"))
+    {
+        bEnableDebugDraw = (NewValue > 0.5f);
+    }
+    else if (PropertyId == TEXT("ShowBoneAxes"))
     {
         bShowBoneAxes = (NewValue > 0.5f);
     }

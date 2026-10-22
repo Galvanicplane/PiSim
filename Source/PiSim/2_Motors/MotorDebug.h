@@ -26,6 +26,14 @@ public:
     virtual void SetInspectablePropertyString(FName PropertyId, const FString& NewValue) override;
     virtual void TriggerInspectableAction(FName ActionId) override;
 
+    /** 3D Kemik Çizgileri ve Teşhis Metinlerini Genel Aç/Kapa Anahtarı ('U' tuşu ile tetiklenir) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Debug")
+    bool bEnableDebugDraw = true;
+
+    // @state: WIP - 'U' tuşu ile kemik teşhis çizgilerini ve ekrandaki debug metinlerini açıp kapatır
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Debug")
+    void ToggleDebugDraw();
+
     /** 3D Kemik Eksenlerini Göster (X: Kırmızı İleri, Y: Yeşil Sağ, Z: Mavi Yukarı) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Debug")
     bool bShowBoneAxes = true;
