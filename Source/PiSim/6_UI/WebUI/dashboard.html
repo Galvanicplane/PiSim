@@ -250,27 +250,8 @@
                                 </div>
                             </div>
 
-                            <!-- 2. ALT KATMAN: DOĞRUDAN BYPASS ROTASI (DİYAGRAMLA BİREBİR AYNI TX/RX BORULARI VE DÜĞÜM) -->
-                            <div class="branch-tier interactive-tier" id="channel-direct" onclick="inspectChannel('direct')">
-                                <!-- SOL BORU: PISIM -> BYPASS -->
-                                <div class="two-way-pipe-group">
-                                    <div class="pipe-lane">
-                                        <span class="pipe-dir-tag" style="color:var(--accent-color);">TX→</span>
-                                        <div class="data-pipe tx"><div class="data-pipe-packet"></div></div>
-                                    </div>
-                                    <div class="pipe-lane">
-                                        <span class="pipe-dir-tag" style="color:#00e5ff;">RX←</span>
-                                        <div class="data-pipe rx"><div class="data-pipe-packet"></div></div>
-                                    </div>
-                                </div>
-
-                                <!-- ORTA DÜĞÜM: DOĞRUDAN BYPASS -->
-                                <div class="data-node" style="min-width: 120px;">
-                                    <div class="node-title" style="color:var(--accent-color);">DOĞRUDAN BYPASS</div>
-                                    <div class="node-sub">RAW UDP : 9002</div>
-                                </div>
-
-                                <!-- SAĞ BORU: BYPASS -> UE5 -->
+                            <!-- 2. ALT KATMAN: DOĞRUDAN KESİNTİSİZ TEK PARÇA HAT (PISIM WEBUI <-> UNREAL ENGINE 5) -->
+                            <div class="branch-tier interactive-tier" id="channel-direct" onclick="inspectChannel('direct')" title="Doğrudan Kesintisiz Hat: PiSim ⇄ UE5">
                                 <div class="two-way-pipe-group">
                                     <div class="pipe-lane">
                                         <span class="pipe-dir-tag" style="color:var(--accent-color);">TX→</span>
