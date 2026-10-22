@@ -18,6 +18,7 @@
 #include "Widgets/Layout/SScrollBox.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/Paths.h"
+#include "SWebBrowser.h"
 
 // @state: WIP - NativeConstruct: Sahnedeki aracı bulur ve bağlar
 void UPiSimModularGarageWidget::NativeConstruct()
@@ -62,9 +63,40 @@ void UPiSimModularGarageWidget::NativeTick(const FGeometry& MyGeometry, float In
     }
 }
 
-// @state: WIP - Slate Widget ağacını oluşturur
+// @state: WIP - Slate / WebUI Widget ağacını oluşturur
 TSharedRef<SWidget> UPiSimModularGarageWidget::RebuildWidget()
 {
+    FString HtmlFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Source/PiSim/6_UI/WebUI/garage.html"));
+    FString FileUrl = FString::Printf(TEXT("file:///%s"), *HtmlFilePath);
+
+    if (FPaths::FileExists(HtmlFilePath))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[UPiSimModularGarageWidget] 🚀 WebUI Garage HTML yukleniyor: %s"), *FileUrl);
+
+        SAssignNew(WebBrowserWidget, SWebBrowser)
+            .InitialURL(FileUrl)
+            .ShowControls(false)
+            .ShowAddressBar(false)
+            .ShowErrorMessage(true)
+            .SupportsTransparency(true)
+            .BackgroundColor(FColor(0, 0, 0, 0))
+            .BrowserFrameRate(60);
+
+        if (WebBrowserWidget.IsValid())
+        {
+            WebBrowserWidget->BindUObject(TEXT("garage"), this, true);
+        }
+
+        return SNew(SBox)
+            .HAlign(HAlign_Fill)
+            .VAlign(VAlign_Fill)
+            [
+                WebBrowserWidget.ToSharedRef()
+            ];
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("[UPiSimModularGarageWidget] WebUI garage.html bulunamadi, klasik Slate arayuzu baslatiliyor."));
+
     return SNew(SBox)
         .HAlign(HAlign_Fill)
         .VAlign(VAlign_Fill)
@@ -922,4 +954,37 @@ FReply UPiSimModularGarageWidget::OnBakeClicked()
         }
     }
     return FReply::Handled();
+}
+
+void UPiSimModularGarageWidget::MouseDelta(float DeltaX, float DeltaY, int32 Mode)
+{
+    if (!TargetVehicle && GetWorld())
+    {
+        TargetVehicle = Cast<APiSimVehicle>(UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass()));
+    }
+
+    if (TargetVehicle)
+    {
+        if (Mode == 0) // Sol tık -> 360 Orbit
+        {
+            TargetVehicle->AddOrbitDelta(DeltaX, DeltaY);
+        }
+        else if (Mode == 1) // Sağ tık -> Pan
+        {
+            TargetVehicle->AddPanDelta(DeltaX, DeltaY);
+        }
+    }
+}
+
+void UPiSimModularGarageWidget::MouseZoom(float Direction)
+{
+    if (!TargetVehicle && GetWorld())
+    {
+        TargetVehicle = Cast<APiSimVehicle>(UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass()));
+    }
+
+    if (TargetVehicle)
+    {
+        TargetVehicle->AddZoomDelta(Direction);
+    }
 }

@@ -13,7 +13,7 @@
             height: 100vh;
             padding: 10px 12px;
             gap: 10px;
-            background: radial-gradient(ellipse at center, #121820 0%, #050709 100%);
+            background: transparent;
         }
 
         .top-toolbar {
@@ -103,18 +103,9 @@
     <div class="garage-container">
         <!-- 1. ÜST ARAÇ ÇUBUĞU (TOOLBAR) -->
         <header class="top-toolbar cod-panel">
-            <div style="font-weight: 800; font-size: 13px; color: var(--accent-color); margin-right: 6px; letter-spacing: 1px;">
+            <div style="font-weight: 800; font-size: 13px; color: var(--accent-color); margin-right: 12px; letter-spacing: 1px;">
                 // GARAJ
             </div>
-
-            <!-- SAYFALAR ARASI GEÇİŞ MENÜSÜ -->
-            <nav class="tac-nav" style="margin-right: 10px;">
-                <a href="dashboard.html" class="cod-btn" style="padding: 5px 10px; font-size: 10px;">DASHBOARD</a>
-                <a href="garage.html" class="cod-btn active" style="padding: 5px 10px; font-size: 10px;">GARAJ</a>
-                <a href="plane_hud.html" class="cod-btn" style="padding: 5px 10px; font-size: 10px;">UÇAK HUD</a>
-                <a href="land_hud.html" class="cod-btn" style="padding: 5px 10px; font-size: 10px;">KARA HUD</a>
-                <a href="components.html" class="cod-btn" style="padding: 5px 10px; font-size: 10px;">VİTRİN</a>
-            </nav>
 
             <div class="tooltip-btn-wrapper" style="width: auto;">
                 <button id="btn-model" class="tooltip-btn">
@@ -254,5 +245,66 @@
             </div>
         </div>
     </div>
+
+    <!-- UNREAL ENGINE C++ KÖPRÜSÜ (JS -> C++ UFUNCTION) -->
+    <script>
+        function callUE(fnName, ...args) {
+            if (window.ue && window.ue.garage && typeof window.ue.garage[fnName] === 'function') {
+                window.ue.garage[fnName](...args);
+                return true;
+            }
+            console.log(`[UE Bridge Standalone] ${fnName}(`, ...args, `)`);
+            return false;
+        }
+
+        document.getElementById('btn-physics')?.addEventListener('click', () => callUE('togglephysics'));
+        document.getElementById('btn-armor')?.addEventListener('click', () => callUE('togglecollisionview'));
+        document.getElementById('btn-model')?.addEventListener('click', () => callUE('togglemodel'));
+        document.getElementById('btn-scale-down')?.addEventListener('click', () => callUE('scaledown'));
+        document.getElementById('btn-scale-up')?.addEventListener('click', () => callUE('scaleup'));
+        document.getElementById('btn-reimport')?.addEventListener('click', () => callUE('reimportmodel'));
+        document.getElementById('btn-auto-role')?.addEventListener('click', () => callUE('autoassignmotors'));
+        document.getElementById('btn-save')?.addEventListener('click', () => callUE('saveprofile'));
+        document.getElementById('btn-bake')?.addEventListener('click', () => callUE('bakemodel'));
+
+        // =========================================================================
+        // 3D DÜNYA VE ARAÇ KAMERA KONTROLÜ (ORBIT / PAN / ZOOM)
+        // =========================================================================
+        let isLeftDown = false;
+        let isRightDown = false;
+
+        window.addEventListener('mousedown', (e) => {
+            // Tıklanan eleman buton, input, panel veya kart ise kamerayı döndürme
+            if (e.target.closest('button, input, select, a, .cod-panel, .left-panel, .right-panel, .tooltip-popup')) {
+                return;
+            }
+            if (e.button === 0) isLeftDown = true;
+            if (e.button === 2) isRightDown = true;
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 0) isLeftDown = false;
+            if (e.button === 2) isRightDown = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isLeftDown) {
+                callUE('mousedelta', e.movementX, e.movementY, 0); // 0 = 360 Orbit
+            } else if (isRightDown) {
+                callUE('mousedelta', e.movementX, e.movementY, 1); // 1 = Pan
+            }
+        });
+
+        window.addEventListener('wheel', (e) => {
+            callUE('mousezoom', e.deltaY > 0 ? 1 : -1);
+        }, { passive: true });
+
+        // Sağ tık pan sırasında tarayıcı menüsünü engelle
+        window.addEventListener('contextmenu', (e) => {
+            if (!e.target.closest('input, textarea')) {
+                e.preventDefault();
+            }
+        });
+    </script>
 </body>
 </html>

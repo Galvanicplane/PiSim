@@ -26,7 +26,9 @@ public class PiSim : ModuleRules
 			"Slate",
 			"SlateCore",
 			"TypedElementFramework",
-			"TypedElementRuntime"
+			"TypedElementRuntime",
+			"WebBrowser",
+			"WebBrowserWidget"
 		});
 
 		PublicIncludePaths.AddRange(new string[] { 

@@ -13,7 +13,7 @@
             height: 100vh;
             padding: 12px 20px;
             overflow: hidden;
-            background: radial-gradient(ellipse at center, rgba(16, 22, 28, 0.4) 0%, rgba(5, 7, 9, 0.98) 100%);
+            background: transparent;
         }
 
         /* Üst Menü & Telemetri */
@@ -142,14 +142,6 @@
                 </div>
             </div>
 
-            <!-- SAYFALAR ARASI GEÇİŞ MENÜSÜ -->
-            <nav class="tac-nav">
-                <a href="dashboard.html" class="cod-btn">DASHBOARD</a>
-                <a href="garage.html" class="cod-btn">GARAJ</a>
-                <a href="plane_hud.html" class="cod-btn">UÇAK HUD</a>
-                <a href="land_hud.html" class="cod-btn active">KARA HUD</a>
-                <a href="components.html" class="cod-btn">VİTRİN</a>
-            </nav>
         </header>
 
         <!-- 2. ALT ŞASİ & 4 TEKERLEK TELEMETRİSİ (HIZ MOTOR RPMLERİNİN ÜSTÜNDE) -->
@@ -230,5 +222,50 @@
             </div>
         </footer>
     </div>
+
+    <!-- UNREAL ENGINE C++ KÖPRÜSÜ VE 3D KAMERA KONTROLÜ (ORBIT / PAN / ZOOM) -->
+    <script>
+        function callUE(fnName, ...args) {
+            if (window.ue && window.ue.garage && typeof window.ue.garage[fnName] === 'function') {
+                window.ue.garage[fnName](...args);
+                return true;
+            }
+            return false;
+        }
+
+        let isLeftDown = false;
+        let isRightDown = false;
+
+        window.addEventListener('mousedown', (e) => {
+            if (e.target.closest('button, input, select, a, .cod-panel, .speed-gauge-card, .tooltip-popup')) {
+                return;
+            }
+            if (e.button === 0) isLeftDown = true;
+            if (e.button === 2) isRightDown = true;
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 0) isLeftDown = false;
+            if (e.button === 2) isRightDown = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isLeftDown) {
+                callUE('mousedelta', e.movementX, e.movementY, 0); // 0 = Orbit
+            } else if (isRightDown) {
+                callUE('mousedelta', e.movementX, e.movementY, 1); // 1 = Pan
+            }
+        });
+
+        window.addEventListener('wheel', (e) => {
+            callUE('mousezoom', e.deltaY > 0 ? 1 : -1);
+        }, { passive: true });
+
+        window.addEventListener('contextmenu', (e) => {
+            if (!e.target.closest('input, textarea')) {
+                e.preventDefault();
+            }
+        });
+    </script>
 </body>
 </html>

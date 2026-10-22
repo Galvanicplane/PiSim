@@ -60,6 +60,41 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|UI")
     TArray<FPiSimPropertyDescriptor> CurrentProperties;
 
+    // WebUI JS Köprüsü UFUNCTION'ları
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void TogglePhysics() { OnTogglePhysicsClicked(); }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void ToggleCollisionView() { OnToggleCollisionViewClicked(); }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void ToggleModel() { OnToggleModelClicked(); }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void ScaleDown() { OnMultiplyScale01Clicked(); }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void ScaleUp() { OnMultiplyScale10Clicked(); }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void ReimportModel() { OnReimportClicked(); }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void AutoAssignMotors() { OnAutoAssignMotorsClicked(); }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void SaveProfile() { OnSaveProfileClicked(); }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void BakeModel() { OnBakeClicked(); }
+
+    // WebUI Fare ile 3D Kamera Kontrolü (Orbit / Pan / Zoom)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void MouseDelta(float DeltaX, float DeltaY, int32 Mode);
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void MouseZoom(float Direction);
+
     // UI Aksiyon Tetikleyicileri
     FReply OnTogglePhysicsClicked();
     FReply OnToggleCollisionViewClicked();
@@ -80,6 +115,7 @@ protected:
     void RebuildBoneListView();
     void RefreshPropertyInspector();
 
+    TSharedPtr<class SWebBrowser> WebBrowserWidget;
     TSharedPtr<SScrollBox> BoneListScrollBox;
     TSharedPtr<SScrollBox> InspectorSlotScrollBox;
     TSharedPtr<STextBlock> SelectedBoneTitleText;

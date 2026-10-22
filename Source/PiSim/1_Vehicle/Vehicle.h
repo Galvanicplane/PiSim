@@ -83,6 +83,16 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Vehicle")
     bool AssignModuleToBone(FName BoneName, UActorComponent* ModuleComponent);
 
+    // @state: WIP - WebUI ve dış kontrolden gelen kamera orbit/pan/zoom çağrıları
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Camera")
+    void AddOrbitDelta(float DeltaX, float DeltaY);
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Camera")
+    void AddPanDelta(float DeltaX, float DeltaY);
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Camera")
+    void AddZoomDelta(float Direction);
+
     // Kemiğe atanmış modülü alma
     UFUNCTION(BlueprintCallable, Category = "PiSim|Vehicle")
     UActorComponent* GetModuleAtBone(FName BoneName) const;

@@ -84,28 +84,14 @@ void APiSimVehicle::BeginPlay()
         UE_LOG(LogTemp, Warning, TEXT("[APiSimVehicle] 'robot_import_test.fbx' bulunamadi. Güvenlik gereği otomatik model atanmadi, araç boş başlatildi."));
     }
 
-    // 3. Uygun Widget'ı Ekrana Çıkar
+    // 3. Garaj / WebUI Arayüzünü Ekrana Çıkar
     if (PC)
     {
-        if (bModelLoaded)
+        UPiSimModularGarageWidget* GarageUI = CreateWidget<UPiSimModularGarageWidget>(PC, UPiSimModularGarageWidget::StaticClass());
+        if (GarageUI)
         {
-            // Model yüklendiyse doğrudan Garaj Arayüzünü aç
-            UPiSimModularGarageWidget* GarageUI = CreateWidget<UPiSimModularGarageWidget>(PC, UPiSimModularGarageWidget::StaticClass());
-            if (GarageUI)
-            {
-                GarageUI->SetTargetVehicle(this);
-                GarageUI->AddToViewport(10);
-            }
-        }
-        else
-        {
-            // Model yoksa kullanıcıya dosya seçtirmek için İthalat Arayüzünü aç
-            UPiSimModularImporterWidget* ImporterUI = CreateWidget<UPiSimModularImporterWidget>(PC, UPiSimModularImporterWidget::StaticClass());
-            if (ImporterUI)
-            {
-                ImporterUI->SetTargetVehicle(this);
-                ImporterUI->AddToViewport(100);
-            }
+            GarageUI->SetTargetVehicle(this);
+            GarageUI->AddToViewport(10);
         }
     }
 
@@ -167,6 +153,31 @@ void APiSimVehicle::Tick(float DeltaTime)
             CameraSpringArm->TargetArmLength = FMath::Clamp(CameraSpringArm->TargetArmLength + 35.0f, 30.0f, 2500.0f);
         }
     }
+}
+
+void APiSimVehicle::AddOrbitDelta(float DeltaX, float DeltaY)
+{
+    if (!CameraSpringArm) return;
+    FRotator ArmRot = CameraSpringArm->GetRelativeRotation();
+    ArmRot.Yaw += DeltaX * 0.35f;
+    ArmRot.Pitch = FMath::Clamp(ArmRot.Pitch - DeltaY * 0.35f, -80.0f, 80.0f);
+    CameraSpringArm->SetRelativeRotation(ArmRot);
+}
+
+void APiSimVehicle::AddPanDelta(float DeltaX, float DeltaY)
+{
+    if (!CameraSpringArm) return;
+    FVector ArmLoc = CameraSpringArm->GetRelativeLocation();
+    ArmLoc.Y += DeltaX * 0.5f;
+    ArmLoc.Z -= DeltaY * 0.5f;
+    CameraSpringArm->SetRelativeLocation(ArmLoc);
+}
+
+void APiSimVehicle::AddZoomDelta(float Direction)
+{
+    if (!CameraSpringArm) return;
+    CameraSpringArm->TargetArmLength = FMath::Clamp(CameraSpringArm->TargetArmLength + Direction * 45.0f, 30.0f, 2500.0f);
+}
 
     // =========================================================================
     // CANLI MOTOR / EYLEYİCİ DÖNÜŞ VE KONTROL BLOĞU (PiSimModelImporter pattern)
