@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="tr" data-pattern="dots">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PiSim - Taktik Garaj & Konfigürasyon</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Garaj Özel 3-Sütunlu Düzeni */
+        .garage-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 10px 12px;
+            gap: 10px;
+            background: radial-gradient(ellipse at center, #121820 0%, #050709 100%);
+        }
+
+        .top-toolbar {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            padding: 8px 14px;
+        }
+
+        .main-workspace {
+            display: flex;
+            flex: 1;
+            justify-content: space-between;
+            pointer-events: none; /* Orta alan boş kalsın, 3D araca tıklansın */
+            gap: 12px;
+            overflow: hidden;
+        }
+
+        .left-panel {
+            width: 330px;
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .right-panel {
+            width: 360px;
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .bone-tree-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            margin-top: 6px;
+        }
+
+        .bone-item {
+            padding: 6px 10px;
+            background: var(--mono-dark);
+            border-left: 2px solid var(--mono-border-bright);
+            font-size: 12px;
+            font-family: var(--font-mono);
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.15s ease;
+            clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+        }
+
+        .bone-item:hover, .bone-item.active {
+            background: var(--mono-mid);
+            border-left-color: var(--accent-color);
+            color: #ffffff;
+            box-shadow: 0 0 10px var(--accent-dim);
+        }
+
+        .bone-item.active {
+            border-left-width: 3px;
+        }
+
+        .log-terminal {
+            height: 100px;
+            background: var(--mono-dark);
+            border: 1px solid var(--mono-border);
+            font-size: 11px;
+            font-family: var(--font-mono);
+            padding: 8px;
+            overflow-y: auto;
+            color: var(--text-muted);
+            clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+        }
+
+        .log-terminal b {
+            color: var(--accent-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="scanlines"></div>
+
+    <div class="garage-container">
+        <!-- 1. ÜST ARAÇ ÇUBUĞU (TOOLBAR) -->
+        <header class="top-toolbar cod-panel">
+            <div style="font-weight: 800; font-size: 13px; color: var(--accent-color); margin-right: 6px; letter-spacing: 1px;">
+                // GARAJ
+            </div>
+
+            <!-- SAYFALAR ARASI GEÇİŞ MENÜSÜ -->
+            <nav class="tac-nav" style="margin-right: 10px;">
+                <a href="dashboard.html" class="cod-btn" style="padding: 5px 10px; font-size: 10px;">DASHBOARD</a>
+                <a href="garage.html" class="cod-btn active" style="padding: 5px 10px; font-size: 10px;">GARAJ</a>
+                <a href="plane_hud.html" class="cod-btn" style="padding: 5px 10px; font-size: 10px;">UÇAK HUD</a>
+                <a href="land_hud.html" class="cod-btn" style="padding: 5px 10px; font-size: 10px;">KARA HUD</a>
+                <a href="components.html" class="cod-btn" style="padding: 5px 10px; font-size: 10px;">VİTRİN</a>
+            </nav>
+
+            <div class="tooltip-btn-wrapper" style="width: auto;">
+                <button id="btn-model" class="tooltip-btn">
+                    <span class="btn-inner" style="padding: 6px 12px; font-size: 11px;">MODEL [TEST.FBX]</span>
+                </button>
+                <div class="tooltip-popup"><span>Diskteki FBX modelleri arasında geçiş yapar.</span></div>
+            </div>
+
+            <div class="tooltip-btn-wrapper" style="width: auto;">
+                <button id="btn-scale-down" class="tooltip-btn">
+                    <span class="btn-inner" style="padding: 6px 10px; font-size: 11px;">x0.1</span>
+                </button>
+                <div class="tooltip-popup"><span>Modeli 10 kat küçültür.</span></div>
+            </div>
+
+            <div class="tooltip-btn-wrapper" style="width: auto;">
+                <button id="btn-scale-up" class="tooltip-btn">
+                    <span class="btn-inner" style="padding: 6px 10px; font-size: 11px;">x10</span>
+                </button>
+                <div class="tooltip-popup"><span>Modeli 10 kat büyütür.</span></div>
+            </div>
+
+            <div class="tooltip-btn-wrapper" style="width: auto;">
+                <button id="btn-reimport" class="tooltip-btn">
+                    <span class="btn-inner" style="padding: 6px 12px; font-size: 11px;">REIMPORT</span>
+                </button>
+                <div class="tooltip-popup"><span>FBX modelini diskten tekrar okur.</span></div>
+            </div>
+
+            <div class="tooltip-btn-wrapper" style="width: auto;">
+                <button id="btn-armor" class="tooltip-btn">
+                    <span class="btn-inner" style="padding: 6px 12px; font-size: 11px;">UCX ZIRH</span>
+                </button>
+                <div class="tooltip-popup"><span>Görsel mesh ile fizik çarpışma zırhını değiştirir.</span></div>
+            </div>
+
+            <div class="tooltip-btn-wrapper" style="width: auto;">
+                <button id="btn-physics" class="tooltip-btn">
+                    <span class="btn-inner" style="padding: 6px 12px; font-size: 11px; color: var(--accent-color);">FİZİK SİMÜLE ET</span>
+                </button>
+                <div class="tooltip-popup"><span>Chaos fizik motorunu aktif eder.</span></div>
+            </div>
+
+            <div class="tooltip-btn-wrapper" style="width: auto;">
+                <button id="btn-auto-role" class="tooltip-btn">
+                    <span class="btn-inner" style="padding: 6px 12px; font-size: 11px;">OTO ROL</span>
+                </button>
+                <div class="tooltip-popup"><span>Kemik isimlerine göre motorları otomatik atar.</span></div>
+            </div>
+
+            <div style="flex: 1;"></div>
+
+            <div class="tooltip-btn-wrapper" style="width: auto;">
+                <button id="btn-save" class="tooltip-btn">
+                    <span class="btn-inner" style="padding: 6px 12px; font-size: 11px;">KAYDET</span>
+                </button>
+                <div class="tooltip-popup"><span>Yapılandırmayı JSON olarak kaydeder.</span></div>
+            </div>
+
+            <div class="tooltip-btn-wrapper" style="width: auto;">
+                <button id="btn-bake" class="tooltip-btn btn-danger-override">
+                    <span class="btn-inner" style="padding: 6px 14px; font-size: 11px;">BAKE</span>
+                </button>
+                <div class="tooltip-popup"><span>Modül eşleşmelerini kalıcı modele gömer!</span></div>
+            </div>
+        </header>
+
+        <!-- 2. ANA ÇALIŞMA ALANI (SOL: KEMİK AĞACI, ORTA: 3D BOŞLUK, SAĞ: PARAMETRELER) -->
+        <div class="main-workspace">
+            <!-- SOL PANEL: KEMİK VE PARÇA AĞACI -->
+            <div class="left-panel cod-panel">
+                <div style="font-weight: 800; font-size: 12px; color: var(--text-primary); letter-spacing: 1px;">
+                    // İSKELET VE KEMİK AĞACI
+                </div>
+                <div class="bone-tree-list">
+                    <div class="bone-item active">Root</div>
+                    <div class="bone-item" style="padding-left: 18px;">- Chassis_Body</div>
+                    <div class="bone-item" style="padding-left: 32px;">- Wheel_FL [TEKERLEK]</div>
+                    <div class="bone-item" style="padding-left: 32px;">- Wheel_FR [TEKERLEK]</div>
+                    <div class="bone-item" style="padding-left: 32px;">- Steer_FR [SERVO]</div>
+                    <div class="bone-item" style="padding-left: 32px;">- Sensor_IMU [SENSÖR]</div>
+                </div>
+                <div class="tooltip-btn-wrapper" style="margin-top: 4px;">
+                    <button id="btn-add-bone-module" class="tooltip-btn">
+                        <span class="btn-inner">+ SEÇİLİYE ROL ATA</span>
+                    </button>
+                    <div class="tooltip-popup"><span>Seçili kemiğe motor, servo veya sensör bağlar.</span></div>
+                </div>
+            </div>
+
+            <!-- SAĞ PANEL: PARAMETRELER VE TEST KONTROLLERİ -->
+            <div class="right-panel cod-panel">
+                <div style="font-weight: 800; font-size: 12px; color: var(--text-primary); letter-spacing: 1px;">
+                    // MODÜL PARAMETRELERİ (SLOT)
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">
+                    SEÇİLİ PARÇA: <span id="selected-module-title" style="color:var(--accent-color); font-weight: bold;">Wheel_FL</span>
+                </div>
+
+                <!-- HIZLI AYAR SLIDER 1 -->
+                <div class="quick-slider-card" style="margin-top: 4px;">
+                    <div class="quick-slider-header">
+                        <span>AZAMİ MOTOR TORKU:</span>
+                        <span class="val" id="val-torque-text">450 Nm</span>
+                    </div>
+                    <input type="range" class="quick-slider-input" min="0" max="1000" value="450" oninput="document.getElementById('val-torque-text').innerText = this.value + ' Nm'">
+                    <div class="quick-presets">
+                        <button class="preset-btn" onclick="document.getElementById('val-torque-text').innerText='250 Nm'">250</button>
+                        <button class="preset-btn" onclick="document.getElementById('val-torque-text').innerText='500 Nm'">500</button>
+                        <button class="preset-btn" onclick="document.getElementById('val-torque-text').innerText='750 Nm'">750</button>
+                        <button class="preset-btn" onclick="document.getElementById('val-torque-text').innerText='1000 Nm'">1000</button>
+                    </div>
+                </div>
+
+                <!-- HIZLI AYAR SLIDER 2 -->
+                <div class="quick-slider-card" style="margin-top: 4px;">
+                    <div class="quick-slider-header">
+                        <span>AZAMİ DEVİR (RPM):</span>
+                        <span class="val" id="val-rpm-text">3200 RPM</span>
+                    </div>
+                    <input type="range" class="quick-slider-input" min="0" max="6000" value="3200" oninput="document.getElementById('val-rpm-text').innerText = this.value + ' RPM'">
+                </div>
+
+                <!-- CANLI MOTOR TESTİ BUTONU -->
+                <button class="btn-action-glow" style="margin-top: 8px;">
+                    <span>CANLI MOTOR TESTİ</span>
+                </button>
+
+                <div style="margin-top: auto;">
+                    <div style="font-size: 10px; margin-bottom: 4px; color: var(--text-muted); letter-spacing: 1px;">SİSTEM LOGLARI:</div>
+                    <div class="log-terminal">
+                        [OK] FBX modeli yüklendi (14 mafsal)<br>
+                        [OK] UDP port 9002 telemetrisi hazır<br>
+                        <b>[ONLINE]</b> Chaos zırh fiziği nominal
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

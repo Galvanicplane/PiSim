@@ -34,5 +34,5 @@ Source/PiSim/ altındaki tüm modüller şu klasörleme doktrinine uyar:
 3. `3_Sensors/`         -> Camera, GPS, IMU, Lidar (Ortak çıkış kapısına bağlanır).
 4. `4_Communication/`   -> TelemetryGateway (Ortak kapı), Pi5Bridge (2 Thread: Video + ROS2/JSON), AutopilotBridge (ArduPilot/PX4 SITL), SerialPort.
 5. `5_Configurators/`   -> FbxImporter, MotorConfigurator, Baker, SaveManager.
-6. `6_UI/`              -> HUD, GarageWidget (Otopark slot widget'ı), ImporterWidget.
+6. `6_UI/`              -> HUD, GarageWidget (Otopark slot widget ı), ImporterWidget.
 7. `7_Core/`            -> PiSim modül başlangıç ve ortak interface/tanımlar.
