@@ -153,31 +153,6 @@ void APiSimVehicle::Tick(float DeltaTime)
             CameraSpringArm->TargetArmLength = FMath::Clamp(CameraSpringArm->TargetArmLength + 35.0f, 30.0f, 2500.0f);
         }
     }
-}
-
-void APiSimVehicle::AddOrbitDelta(float DeltaX, float DeltaY)
-{
-    if (!CameraSpringArm) return;
-    FRotator ArmRot = CameraSpringArm->GetRelativeRotation();
-    ArmRot.Yaw += DeltaX * 0.35f;
-    ArmRot.Pitch = FMath::Clamp(ArmRot.Pitch - DeltaY * 0.35f, -80.0f, 80.0f);
-    CameraSpringArm->SetRelativeRotation(ArmRot);
-}
-
-void APiSimVehicle::AddPanDelta(float DeltaX, float DeltaY)
-{
-    if (!CameraSpringArm) return;
-    FVector ArmLoc = CameraSpringArm->GetRelativeLocation();
-    ArmLoc.Y += DeltaX * 0.5f;
-    ArmLoc.Z -= DeltaY * 0.5f;
-    CameraSpringArm->SetRelativeLocation(ArmLoc);
-}
-
-void APiSimVehicle::AddZoomDelta(float Direction)
-{
-    if (!CameraSpringArm) return;
-    CameraSpringArm->TargetArmLength = FMath::Clamp(CameraSpringArm->TargetArmLength + Direction * 45.0f, 30.0f, 2500.0f);
-}
 
     // =========================================================================
     // CANLI MOTOR / EYLEYİCİ DÖNÜŞ VE KONTROL BLOĞU (PiSimModelImporter pattern)
@@ -347,6 +322,30 @@ void APiSimVehicle::AddZoomDelta(float Direction)
             }
         }
     }
+}
+
+void APiSimVehicle::AddOrbitDelta(float DeltaX, float DeltaY)
+{
+    if (!CameraSpringArm) return;
+    FRotator ArmRot = CameraSpringArm->GetRelativeRotation();
+    ArmRot.Yaw += DeltaX * 0.35f;
+    ArmRot.Pitch = FMath::Clamp(ArmRot.Pitch - DeltaY * 0.35f, -80.0f, 80.0f);
+    CameraSpringArm->SetRelativeRotation(ArmRot);
+}
+
+void APiSimVehicle::AddPanDelta(float DeltaX, float DeltaY)
+{
+    if (!CameraSpringArm) return;
+    FVector ArmLoc = CameraSpringArm->GetRelativeLocation();
+    ArmLoc.Y += DeltaX * 0.5f;
+    ArmLoc.Z -= DeltaY * 0.5f;
+    CameraSpringArm->SetRelativeLocation(ArmLoc);
+}
+
+void APiSimVehicle::AddZoomDelta(float Direction)
+{
+    if (!CameraSpringArm) return;
+    CameraSpringArm->TargetArmLength = FMath::Clamp(CameraSpringArm->TargetArmLength + Direction * 45.0f, 30.0f, 2500.0f);
 }
 
 // @state: WIP - Görsel model ile UCX çarpışma zırhı arasındaki görünürlüğü değiştirir
