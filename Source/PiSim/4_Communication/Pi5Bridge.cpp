@@ -216,22 +216,65 @@ void UPiSimPi5Bridge::TriggerBeaconProbe()
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
     if (!SocketSubsystem) return;
 
-    TSharedRef<FInternetAddr> BroadcastAddr = SocketSubsystem->CreateInternetAddr();
-    bool bIsValid = false;
-    BroadcastAddr->SetIp(TEXT("255.255.255.255"), bIsValid);
-    BroadcastAddr->SetPort(7499);
-
     FString ProbePayload = TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"msg\":\"HI FROM UNREAL\"}\n");
     FTCHARToUTF8 Utf8(*ProbePayload);
     int32 BytesSent = 0;
-    DiscoverySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BroadcastAddr);
 
-    if (!TargetIP.IsEmpty() && TargetIP != TEXT("127.0.0.1"))
+    TArray<FString> ProbeTargets;
+    ProbeTargets.Add(TEXT("255.255.255.255"));
+
+    // Yerel adaptör adreslerini tara ve alt ağ broadcast (örn: 192.168.1.255) adreslerini ekle
+    TArray<TSharedPtr<FInternetAddr>> LocalAddrs;
+    if (SocketSubsystem->GetLocalAdapterAddresses(LocalAddrs))
     {
-        TSharedRef<FInternetAddr> DirectAddr = SocketSubsystem->CreateInternetAddr();
-        DirectAddr->SetIp(*TargetIP, bIsValid);
-        DirectAddr->SetPort(7499);
-        DiscoverySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *DirectAddr);
+        for (const TSharedPtr<FInternetAddr>& Addr : LocalAddrs)
+        {
+            if (Addr.IsValid())
+            {
+                FString IpStr = Addr->ToString(false);
+                if (!IpStr.StartsWith(TEXT("127.")) && !IpStr.StartsWith(TEXT("169.254.")))
+                {
+                    TArray<FString> Parts;
+                    IpStr.ParseIntoArray(Parts, TEXT("."));
+                    if (Parts.Num() == 4)
+                    {
+                        ProbeTargets.AddUnique(FString::Printf(TEXT("%s.%s.%s.255"), *Parts[0], *Parts[1], *Parts[2]));
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        bool bCanBindAll = false;
+        TSharedPtr<FInternetAddr> LocalAddr = SocketSubsystem->GetLocalHostAddr(*GLog, bCanBindAll);
+        if (LocalAddr.IsValid())
+        {
+            FString IpStr = LocalAddr->ToString(false);
+            TArray<FString> Parts;
+            IpStr.ParseIntoArray(Parts, TEXT("."));
+            if (Parts.Num() == 4)
+            {
+                ProbeTargets.AddUnique(FString::Printf(TEXT("%s.%s.%s.255"), *Parts[0], *Parts[1], *Parts[2]));
+            }
+        }
+    }
+
+    if (!TargetIP.IsEmpty() && TargetIP != TEXT("127.0.0.1") && TargetIP != TEXT("0.0.0.0"))
+    {
+        ProbeTargets.AddUnique(TargetIP);
+    }
+
+    for (const FString& TargetStr : ProbeTargets)
+    {
+        TSharedRef<FInternetAddr> Addr = SocketSubsystem->CreateInternetAddr();
+        bool bValid = false;
+        Addr->SetIp(*TargetStr, bValid);
+        Addr->SetPort(7499);
+        if (bValid)
+        {
+            DiscoverySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *Addr);
+        }
     }
 }
 
@@ -333,11 +376,39 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
             TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *TargetAddr);
 
             // 2. Pi 5 henüz keşfedilmediyse (veya TargetIP hala 127.0.0.1 ise),
-            // telemetriyi yerel ağ broadcast (255.255.255.255:7400) adresine de bas!
+            // telemetriyi yerel ağ broadcast (255.255.255.255:7400) ve alt ağ broadcast (192.168.1.255 vb.) adreslerine de bas!
             // Böylece ağdaki Raspberry Pi 5 İLK SANİYEDEN İTİBAREN hiç elle ayar yapmadan canlı veriyi alır!
             if (CurrentTargetIP == TEXT("127.0.0.1"))
             {
                 TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
+
+                TArray<TSharedPtr<FInternetAddr>> LocalAddrs;
+                if (SocketSubsystem->GetLocalAdapterAddresses(LocalAddrs))
+                {
+                    for (const TSharedPtr<FInternetAddr>& Addr : LocalAddrs)
+                    {
+                        if (Addr.IsValid())
+                        {
+                            FString IpStr = Addr->ToString(false);
+                            if (!IpStr.StartsWith(TEXT("127.")) && !IpStr.StartsWith(TEXT("169.254.")))
+                            {
+                                TArray<FString> Parts;
+                                IpStr.ParseIntoArray(Parts, TEXT("."));
+                                if (Parts.Num() == 4)
+                                {
+                                    TSharedRef<FInternetAddr> SbAddr = SocketSubsystem->CreateInternetAddr();
+                                    bool bValid = false;
+                                    SbAddr->SetIp(*FString::Printf(TEXT("%s.%s.%s.255"), *Parts[0], *Parts[1], *Parts[2]), bValid);
+                                    SbAddr->SetPort(CurrentPort);
+                                    if (bValid)
+                                    {
+                                        TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *SbAddr);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             PacketCount++;
