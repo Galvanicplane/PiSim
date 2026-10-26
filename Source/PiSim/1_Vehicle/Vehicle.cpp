@@ -1,8 +1,8 @@
-// Vehicle.cpp
-// Ana Araç Pawn'ı: Saf iskelet ve dinamik parçalar, kemik slotları ve temel fizik yönetimini üstlenir.
-
 #include "Vehicle.h"
 #include "TelemetryGateway.h"
+#include "TelemetryLogger.h"
+#include "AutopilotBridge.h"
+#include "Pi5Bridge.h"
 #include "ModelFbxImporter.h"
 #include "GarageWidget.h"
 #include "ImporterWidget.h"
@@ -18,7 +18,7 @@
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "Misc/Paths.h"
 
-// @state: WIP - Araç Pawn yapıcısı, iskelet ve kamera bileşenlerini kurar
+// @state: WIP - Araç Pawn yapıcısı, iskelet, köprüler, logger ve kamera bileşenlerini kurar
 APiSimVehicle::APiSimVehicle()
 {
     PrimaryActorTick.bCanEverTick = true;
@@ -43,6 +43,12 @@ APiSimVehicle::APiSimVehicle()
     OrbitCamera->SetupAttachment(CameraSpringArm);
 
     TelemetryGateway = CreateDefaultSubobject<UPiSimTelemetryGateway>(TEXT("TelemetryGateway"));
+
+    TelemetryLogger = CreateDefaultSubobject<UPiSimTelemetryLogger>(TEXT("TelemetryLogger"));
+
+    AutopilotBridge = CreateDefaultSubobject<UPiSimModularAutopilotBridge>(TEXT("AutopilotBridge"));
+
+    Pi5Bridge = CreateDefaultSubobject<UPiSimPi5Bridge>(TEXT("Pi5Bridge"));
 
     MotorDebugComponent = CreateDefaultSubobject<UPiSimMotorDebugComponent>(TEXT("MotorDebugComponent"));
 }
@@ -84,8 +90,8 @@ void APiSimVehicle::BeginPlay()
         UE_LOG(LogTemp, Warning, TEXT("[APiSimVehicle] 'robot_import_test.fbx' bulunamadi. Güvenlik gereği otomatik model atanmadi, araç boş başlatildi."));
     }
 
-    // 3. Garaj / WebUI Arayüzünü Ekrana Çıkar
-    if (PC)
+    // 3. Garaj / WebUI Arayüzünü Ekrana Çıkar (Yalnızca ilk araçta veya henüz widget yoksa)
+    if (PC && VehicleId == 0)
     {
         UPiSimModularGarageWidget* GarageUI = CreateWidget<UPiSimModularGarageWidget>(PC, UPiSimModularGarageWidget::StaticClass());
         if (GarageUI)
@@ -120,7 +126,7 @@ void APiSimVehicle::Tick(float DeltaTime)
         PC = GetWorld()->GetFirstPlayerController();
     }
 
-    if (PC && CameraSpringArm)
+    if (PC && CameraSpringArm && bIsFocusedVehicle)
     {
         float MouseX = 0.0f, MouseY = 0.0f;
         PC->GetInputMouseDelta(MouseX, MouseY);

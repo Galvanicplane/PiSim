@@ -61,6 +61,19 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Pi5")
     float TelemetryRateHz = 50.0f;
 
+    // @state: WIP - İsteğe bağlı canlı video yayını aboneliği (On-demand video streaming)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Pi5")
+    void SetVideoSubscribed(bool bSubscribe);
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Pi5")
+    bool IsVideoSubscribed() const { return bIsVideoSubscribed; }
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Pi5")
+    bool bIsVideoSubscribed = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Pi5")
+    int32 VehicleId = 0;
+
     // İş parçacıkları tarafından çağrılır
     void ExecuteTelemetryLoop(FThreadSafeBool& bRunning);
     void ExecuteVideoLoop(FThreadSafeBool& bRunning);
@@ -77,4 +90,6 @@ protected:
 
     FPi5WorkerThread* VideoRunnable = nullptr;
     FRunnableThread* VideoThread = nullptr;
+
+    FCriticalSection VideoSubscriptionLock;
 };

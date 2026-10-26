@@ -67,6 +67,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Autopilot")
     int32 SendPort = 9003;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Autopilot")
+    int32 VehicleId = 0;
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Autopilot")
     bool bIsConnected = false;
 

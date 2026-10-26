@@ -44,7 +44,7 @@ UPiSimModularAutopilotBridge::UPiSimModularAutopilotBridge()
     }
 }
 
-// @state: WIP - Başlangıçta araç ve telemetri gateway referanslarını bulur
+// @state: WIP - Başlangıçta araç ve telemetri gateway referanslarını bulur, VehicleId'ye göre portları kurar
 void UPiSimModularAutopilotBridge::BeginPlay()
 {
     Super::BeginPlay();
@@ -53,6 +53,9 @@ void UPiSimModularAutopilotBridge::BeginPlay()
     if (CachedVehicle)
     {
         CachedGateway = CachedVehicle->FindComponentByClass<UPiSimTelemetryGateway>();
+        VehicleId = CachedVehicle->VehicleId;
+        ListenPort = 9002 + (VehicleId * 10);
+        SendPort = 9003 + (VehicleId * 10);
     }
 }
 

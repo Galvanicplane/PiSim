@@ -189,6 +189,23 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Gateway")
     UPiSimTelemetryGateway* TelemetryGateway;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Telemetry")
+    class UPiSimTelemetryLogger* TelemetryLogger;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Communication")
+    class UPiSimModularAutopilotBridge* AutopilotBridge;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Communication")
+    class UPiSimPi5Bridge* Pi5Bridge;
+
+    /** Çoklu Araç Filo Yönetimi: Araç ID (0, 1, 2...) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|MultiVehicle")
+    int32 VehicleId = 0;
+
+    /** Bu araç kullanıcının anlık kamera ve kontrol odağında mı? */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|MultiVehicle")
+    bool bIsFocusedVehicle = true;
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Debug")
     class UPiSimMotorDebugComponent* MotorDebugComponent;
 

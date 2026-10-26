@@ -6,6 +6,7 @@
 #include "Common/UdpSocketBuilder.h"
 #include "HAL/PlatformProcess.h"
 #include "GameFramework/Actor.h"
+#include "Vehicle.h"
 
 // --- FPi5WorkerThread İş Parçacığı Mantığı ---
 
@@ -61,7 +62,7 @@ UPiSimPi5Bridge::UPiSimPi5Bridge()
     PrimaryComponentTick.bCanEverTick = false;
 }
 
-// @state: WIP - Başlangıçta Gateway referansını bağlar
+// @state: WIP - Başlangıçta Gateway ve Araç referansını bağlar, VehicleId'ye göre portları ayarlar
 void UPiSimPi5Bridge::BeginPlay()
 {
     Super::BeginPlay();
@@ -69,7 +70,23 @@ void UPiSimPi5Bridge::BeginPlay()
     if (GetOwner())
     {
         CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
+        APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
+        if (VehicleOwner)
+        {
+            VehicleId = VehicleOwner->VehicleId;
+            TelemetryPort = 7400 + (VehicleId * 10);
+            VideoPort = 7401 + (VehicleId * 10);
+        }
     }
+}
+
+// @state: WIP - İsteğe bağlı video aboneliğini açıp kapatır (On-Demand Video Streaming)
+void UPiSimPi5Bridge::SetVideoSubscribed(bool bSubscribe)
+{
+    FScopeLock Lock(&VideoSubscriptionLock);
+    bIsVideoSubscribed = bSubscribe;
+    UE_LOG(LogTemp, Log, TEXT("📹 [UPiSimPi5Bridge] Araç ID %d Video Aboneliği: %s (Port: %d)"),
+        VehicleId, bSubscribe ? TEXT("AÇIK (Canlı Yayında)") : TEXT("KAPALI (Bant Genişliği Tasarrufu)"), VideoPort);
 }
 
 // @state: WIP - Bileşen yok edilirken arka plan iş parçacıklarını güvenle kapatır
@@ -196,7 +213,7 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
     }
 }
 
-// @state: WIP - Canlı video akış iş parçacığı döngüsü (JPEG karelerini UDP basar)
+// @state: WIP - Canlı video akış iş parçacığı döngüsü (Sadece abone olunduğunda JPEG karelerini UDP basar)
 void UPiSimPi5Bridge::ExecuteVideoLoop(FThreadSafeBool& bRunning)
 {
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
@@ -209,7 +226,14 @@ void UPiSimPi5Bridge::ExecuteVideoLoop(FThreadSafeBool& bRunning)
 
     while (bRunning)
     {
-        if (CachedGateway && VideoSocket)
+        bool bSubscribed = false;
+        {
+            FScopeLock SubLock(&VideoSubscriptionLock);
+            bSubscribed = bIsVideoSubscribed;
+        }
+
+        // On-demand: Sadece kullanıcı veya uç cihaz video izleme talebinde bulunduysa UDP paketi bas
+        if (bSubscribed && CachedGateway && VideoSocket)
         {
             if (CachedGateway->GetLatestCameraFrame(JpegBytes) && JpegBytes.Num() > 0)
             {

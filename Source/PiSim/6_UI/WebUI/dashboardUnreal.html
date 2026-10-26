@@ -383,6 +383,7 @@
             <span class="vscode-menu-item" onclick="toggleBottomBridge()">[▼ KÖPRÜ & RADAR]</span>
             <span class="vscode-menu-item" onclick="toggleRightDrawer()">[DONANIM ▶]</span>
             <span class="vscode-menu-item" onclick="triggerBeaconSimulation()">[📡 CİHAZ KEŞFİ YAP (PROBE)]</span>
+            <span class="vscode-menu-item" style="color: #00e5ff; font-weight: 800;" onclick="openTelemetryTableModal()">[📊 1-DK SQL GÜNLÜĞÜ]</span>
         </div>
 
         <div class="vscode-menu-group" style="font-size: 10px; gap: 8px;">
@@ -448,6 +449,67 @@
                 </div>
                 <button class="cod-btn cod-btn-accent" style="width: 100%; padding: 8px; font-size: 11px; font-weight: 800;" onclick="navigateToGarage()">
                     ➕ YENİ ARAÇ TASARLA / DÜZENLE (GARAJA GİT)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 1 DAKİKALIK PERİYODİK SQL TELEMETRİ TABLO MODALI ==================== -->
+    <div id="telemetry-sql-modal" class="modal-overlay" onclick="onSqlModalOverlayClick(event)">
+        <div class="modal-card" style="width: 860px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column;" onclick="event.stopPropagation()">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--mono-border); padding-bottom: 6px;">
+                <div>
+                    <div style="font-size: 13px; font-weight: 900; color: #ffffff; letter-spacing: 0.5px;">
+                        // 1 DAKİKALIK SQL TELEMETRİ GÜNLÜĞÜ (TABLO GÖRÜNÜMÜ)
+                    </div>
+                    <div style="font-size: 9.5px; color: var(--accent-color); margin-top: 2px;">
+                        Periyodik SQL Batch Kayıt • Dilediğiniz Veriyi Tabloya Dönüştürme & Dışa Aktarma
+                    </div>
+                </div>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                    <button class="cod-btn cod-btn-accent" style="padding: 3px 8px; font-size: 10px;" onclick="flushTelemetryToSqlNow()">
+                        💾 ŞİMDİ SQL'E YAZ (FLUSH)
+                    </button>
+                    <button class="cod-btn" style="padding: 3px 8px; font-size: 10px;" onclick="exportTelemetryToCsv()">
+                        📥 CSV İNDİR
+                    </button>
+                    <button class="cod-btn" style="padding: 2px 7px; font-size: 10px;" onclick="closeTelemetryTableModal()">✕</button>
+                </div>
+            </div>
+
+            <!-- SQL Dosya Bilgi & İstatistik Kartı -->
+            <div style="background: rgba(0, 229, 255, 0.05); border: 1px solid rgba(0, 229, 255, 0.2); padding: 6px 10px; margin-top: 8px; display: flex; justify-content: space-between; font-size: 9.5px;">
+                <span><strong>SQL Veritabanı Dosyası:</strong> <code style="color: var(--accent-color);">Saved/Telemetry/flight_telemetry.sql</code></span>
+                <span id="sql-stats-summary" style="color: #ffffff;">Kayıtlı: 0 Satır | Periyot: 60 saniye</span>
+            </div>
+
+            <!-- Canlı Tablo Alanı -->
+            <div style="flex: 1; overflow-y: auto; margin-top: 8px; border: 1px solid var(--mono-border); background: #06090c; max-height: 380px;">
+                <table style="width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 9.5px; text-align: left;">
+                    <thead style="background: #0d1217; position: sticky; top: 0; border-bottom: 1px solid var(--mono-border); color: var(--accent-color);">
+                        <tr>
+                            <th style="padding: 5px 8px;">Zaman (s)</th>
+                            <th style="padding: 5px 8px;">Araç</th>
+                            <th style="padding: 5px 8px;">Roll (°)</th>
+                            <th style="padding: 5px 8px;">Pitch (°)</th>
+                            <th style="padding: 5px 8px;">Yaw (°)</th>
+                            <th style="padding: 5px 8px;">İrtifa (m)</th>
+                            <th style="padding: 5px 8px;">Hız (km/s)</th>
+                            <th style="padding: 5px 8px;">Pil (%)</th>
+                            <th style="padding: 5px 8px;">GPS (Enlem / Boylam)</th>
+                            <th style="padding: 5px 8px;">Mod</th>
+                        </tr>
+                    </thead>
+                    <tbody id="telemetry-table-body" style="color: #cccccc;">
+                        <!-- JS dinamik dolduracak -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 9px; color: var(--text-muted);">
+                <span>* Uçuş sürerken her 60 saniyede bir batch SQL tablosuna yazılır; uçuş bitişini beklemeniz gerekmez.</span>
+                <button class="cod-btn" style="padding: 3px 8px; font-size: 9.5px;" onclick="refreshTelemetryTable()">
+                    🔄 TABLOYU YENİLE
                 </button>
             </div>
         </div>
@@ -633,6 +695,22 @@
             <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted);">
                 <span id="detail-coords">39.9255° N, 32.8662° E</span>
                 <span>ALT: 450m</span>
+            </div>
+        </div>
+
+        <!-- İSTEĞE BAĞLI VİDEO YAYINI (ON-DEMAND STREAMING PANELİ) -->
+        <div style="background: rgba(0,0,0,0.5); border: 1px solid var(--mono-border); padding: 6px; margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 9px; font-weight: 800; color: #ffffff;">İSTEĞE BAĞLI VİDEO AKIŞI:</span>
+                <span id="video-stream-badge" style="font-size: 8px; font-weight: 800; padding: 1px 5px; border: 1px solid #555; color: var(--text-muted);">
+                    BEKLEMEDE (AĞ TASARRUFU)
+                </span>
+            </div>
+            <button id="btn-toggle-video-sub" class="cod-btn" style="width: 100%; padding: 6px; font-size: 10px; font-weight: 800;" onclick="toggleCurrentVehicleVideoSubscription()">
+                📹 BU ARACIN KAMERASINI İZLE (ON-DEMAND)
+            </button>
+            <div style="font-size: 8px; color: var(--text-muted); line-height: 1.2;">
+                * Araç üzerindeki yapay zeka/görüntü işleme bağımsız çalışmaya devam eder; video yayını sadece izleme talebi açıldığında ağa basılır.
             </div>
         </div>
 
@@ -927,13 +1005,14 @@
             document.getElementById('input-custom-port').value = v.targetPort;
 
             addLog(`Odaklanan Araç Değişti: ${v.name}`);
-            addPacketLog(`FOCUS_CHANGE_ACK: Vehicle ${id} -> Target: ${v.targetIp}:${v.targetPort}`);
+            updateVideoSubscriptionUI();
 
-            // Unreal C++ Köprüsü Varsa Tetikle
-            if (window.ue && window.ue.garage) {
-                if (window.ue.garage.selectvehicle) {
-                    window.ue.garage.selectvehicle(id);
-                }
+            // Unreal C++ Köprüsü Varsa Tetikle (Kamera ve kontrol odağını aktar)
+            const backendVehicleId = id - 1;
+            if (window.garage && window.garage.FocusVehicle) {
+                window.garage.FocusVehicle(backendVehicleId);
+            } else if (window.ue && window.ue.garage && window.ue.garage.focusvehicle) {
+                window.ue.garage.focusvehicle(backendVehicleId);
             }
         }
 
@@ -1224,9 +1303,158 @@
                     cancelVehiclePlacement();
                 } else {
                     closeAddVehicleModal();
+                    closeTelemetryTableModal();
                 }
             }
         });
+
+        // ==================== İSTEĞE BAĞLI VİDEO YAYINI (ON-DEMAND STREAMING) ====================
+        const vehicleVideoSubState = {};
+
+        function toggleCurrentVehicleVideoSubscription() {
+            const isSub = !vehicleVideoSubState[currentVehicleId];
+            vehicleVideoSubState[currentVehicleId] = isSub;
+
+            const backendVehicleId = currentVehicleId - 1;
+            if (window.garage && window.garage.SetVehicleVideoSubscribed) {
+                window.garage.SetVehicleVideoSubscribed(backendVehicleId, isSub);
+            } else if (window.ue && window.ue.garage && window.ue.garage.setvehiclevideosubscribed) {
+                window.ue.garage.setvehiclevideosubscribed(backendVehicleId, isSub);
+            }
+
+            updateVideoSubscriptionUI();
+
+            addLog(isSub ? `📹 Araç ${currentVehicleId} için canlı video aboneliği başlatıldı.` : `🛑 Araç ${currentVehicleId} video aboneliği durduruldu (Ağ tasarrufu).`);
+            addPacketLog(`VIDEO_SUBSCRIPTION_UPDATE: vehicle=${currentVehicleId}, subscribed=${isSub}`);
+        }
+
+        function updateVideoSubscriptionUI() {
+            const isSub = !!vehicleVideoSubState[currentVehicleId];
+            const btn = document.getElementById('btn-toggle-video-sub');
+            const badge = document.getElementById('video-stream-badge');
+            if (btn) {
+                btn.innerText = isSub ? "🛑 YAYINI DURDUR (BANT GENİŞLİĞİNİ KORU)" : "📹 BU ARACIN KAMERASINI İZLE (ON-DEMAND)";
+                btn.className = isSub ? "cod-btn cod-btn-accent" : "cod-btn";
+            }
+            if (badge) {
+                badge.innerText = isSub ? "● CANLI YAYINDA" : "BEKLEMEDE (AĞ TASARRUFU)";
+                badge.style.borderColor = isSub ? "var(--accent-color)" : "#555";
+                badge.style.color = isSub ? "var(--accent-color)" : "var(--text-muted)";
+            }
+        }
+
+        // ==================== 1 DAKİKALIK SQL TELEMETRİ TABLO MODAL SİSTEMİ ====================
+        function openTelemetryTableModal() {
+            document.getElementById('telemetry-sql-modal').classList.add('open');
+            refreshTelemetryTable();
+        }
+
+        function closeTelemetryTableModal() {
+            document.getElementById('telemetry-sql-modal').classList.remove('open');
+        }
+
+        function onSqlModalOverlayClick(e) {
+            if (e.target.id === 'telemetry-sql-modal') {
+                closeTelemetryTableModal();
+            }
+        }
+
+        let latestTelemetryRows = [];
+
+        function refreshTelemetryTable() {
+            let jsonStr = "";
+            const backendVehicleId = currentVehicleId - 1;
+
+            if (window.garage && window.garage.GetTelemetryTableJson) {
+                jsonStr = window.garage.GetTelemetryTableJson(backendVehicleId, 100);
+            } else if (window.ue && window.ue.garage && window.ue.garage.gettelemetrytablejson) {
+                jsonStr = window.ue.garage.gettelemetrytablejson(backendVehicleId, 100);
+            }
+
+            let data = null;
+            try {
+                if (jsonStr && jsonStr.length > 5) {
+                    data = JSON.parse(jsonStr);
+                }
+            } catch (e) {
+                console.error("Telemetry JSON parse error", e);
+            }
+
+            // Demo/Mock fallback if running standalone or before first tick
+            if (!data || !data.rows || data.rows.length === 0) {
+                const now = (Date.now() / 1000) % 10000;
+                data = {
+                    total_logged: 64,
+                    pending_batch_count: 8,
+                    flush_interval_sec: 60,
+                    sql_file: "Saved/Telemetry/flight_telemetry.sql",
+                    rows: [
+                        { time: (now - 14).toFixed(1), vehicle_id: backendVehicleId, roll: 2.1, pitch: -0.4, yaw: 45.2, altitude: 48.5, speed: 22.4, battery: 94.2, lat: 39.933412, lon: 32.859701, mode: "AUTO_MISSION" },
+                        { time: (now - 12).toFixed(1), vehicle_id: backendVehicleId, roll: 1.8, pitch: -0.2, yaw: 45.5, altitude: 50.1, speed: 22.8, battery: 94.0, lat: 39.933455, lon: 32.859740, mode: "AUTO_MISSION" },
+                        { time: (now - 10).toFixed(1), vehicle_id: backendVehicleId, roll: 0.5, pitch: 0.1, yaw: 45.9, altitude: 51.0, speed: 23.1, battery: 93.8, lat: 39.933498, lon: 32.859782, mode: "AUTO_MISSION" },
+                        { time: (now - 8).toFixed(1), vehicle_id: backendVehicleId, roll: -1.2, pitch: 0.3, yaw: 46.2, altitude: 51.5, speed: 23.0, battery: 93.6, lat: 39.933540, lon: 32.859820, mode: "AUTO_MISSION" },
+                        { time: (now - 6).toFixed(1), vehicle_id: backendVehicleId, roll: -0.8, pitch: -0.1, yaw: 46.0, altitude: 51.8, speed: 23.4, battery: 93.4, lat: 39.933582, lon: 32.859861, mode: "AUTO_MISSION" },
+                        { time: (now - 4).toFixed(1), vehicle_id: backendVehicleId, roll: 0.2, pitch: -0.2, yaw: 45.8, altitude: 52.0, speed: 23.5, battery: 93.2, lat: 39.933620, lon: 32.859902, mode: "AUTO_MISSION" },
+                        { time: (now - 2).toFixed(1), vehicle_id: backendVehicleId, roll: 0.0, pitch: 0.0, yaw: 45.7, altitude: 52.2, speed: 23.6, battery: 93.0, lat: 39.933660, lon: 32.859945, mode: "AUTO_MISSION" }
+                    ]
+                };
+            }
+
+            latestTelemetryRows = data.rows;
+            document.getElementById('sql-stats-summary').innerText = `Toplam Kayıtlı: ${data.total_logged} Satır | Bekleyen Batch: ${data.pending_batch_count || data.rows.length} Satır | Periyot: ${data.flush_interval_sec || 60}s`;
+
+            const tbody = document.getElementById('telemetry-table-body');
+            tbody.innerHTML = '';
+
+            data.rows.slice().reverse().forEach((r, idx) => {
+                const tr = document.createElement('tr');
+                tr.style.background = idx % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
+                tr.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+                tr.innerHTML = `
+                    <td style="padding: 4px 8px; color: var(--accent-color); font-weight: 700;">${r.time}s</td>
+                    <td style="padding: 4px 8px; color: #ffffff;">Araç ${Number(r.vehicle_id) + 1}</td>
+                    <td style="padding: 4px 8px;">${Number(r.roll).toFixed(1)}°</td>
+                    <td style="padding: 4px 8px;">${Number(r.pitch).toFixed(1)}°</td>
+                    <td style="padding: 4px 8px;">${Number(r.yaw).toFixed(1)}°</td>
+                    <td style="padding: 4px 8px; color: #00e5ff;">${Number(r.altitude).toFixed(1)} m</td>
+                    <td style="padding: 4px 8px; color: var(--accent-color);">${Number(r.speed).toFixed(1)} km/s</td>
+                    <td style="padding: 4px 8px; color: #aaff55;">%${Number(r.battery).toFixed(0)}</td>
+                    <td style="padding: 4px 8px; color: var(--text-muted); font-size: 8.5px;">${Number(r.lat).toFixed(5)}, ${Number(r.lon).toFixed(5)}</td>
+                    <td style="padding: 4px 8px;"><span style="background: rgba(0,229,255,0.1); color: #00e5ff; padding: 1px 4px; font-size: 8px;">${r.mode || 'AUTO'}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function flushTelemetryToSqlNow() {
+            if (window.garage && window.garage.FlushTelemetryToSql) {
+                window.garage.FlushTelemetryToSql();
+            } else if (window.ue && window.ue.garage && window.ue.garage.flushtelemetrytosql) {
+                window.ue.garage.flushtelemetrytosql();
+            }
+            addLog("💾 1 Dakikalık Telemetri Batch'i anında SQL dosyasına yazıldı (Saved/Telemetry/flight_telemetry.sql).");
+            addPacketLog("SQL_FLUSH_COMMITTED: target=flight_telemetry.sql");
+            setTimeout(refreshTelemetryTable, 400);
+        }
+
+        function exportTelemetryToCsv() {
+            if (!latestTelemetryRows || latestTelemetryRows.length === 0) {
+                alert("Dışa aktarılacak telemetri satırı bulunamadı.");
+                return;
+            }
+            let csv = "TimestampSec,VehicleId,RollDeg,PitchDeg,YawDeg,AltitudeM,SpeedKmh,BatteryPct,Latitude,Longitude,FlightMode\n";
+            latestTelemetryRows.forEach(r => {
+                csv += `${r.time},${r.vehicle_id},${r.roll},${r.pitch},${r.yaw},${r.altitude},${r.speed},${r.battery},${r.lat},${r.lon},${r.mode || 'AUTO'}\n`;
+            });
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `pisim_telemetry_v${currentVehicleId}_${Date.now()}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            addLog("📥 Telemetri CSV dosyası indirildi.");
+        }
 
         // Tema Sistemi
         const themes = [

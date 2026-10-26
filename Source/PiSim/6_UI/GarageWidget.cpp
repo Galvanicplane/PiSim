@@ -16,10 +16,15 @@
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
-#include "Widgets/Layout/SScrollBox.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/Paths.h"
 #include "SWebBrowser.h"
+#include "TelemetryLogger.h"
+#include "Pi5Bridge.h"
+#include "AutopilotBridge.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
 
 // @state: WIP - NativeConstruct: Sahnedeki aracı bulur ve bağlar
 void UPiSimModularGarageWidget::NativeConstruct()
@@ -1202,38 +1207,189 @@ bool UPiSimModularGarageWidget::SpawnVehicleAtCursor(const FString& ProfileName)
     bool bHit = PC->GetHitResultUnderCursor(ECC_Visibility, false, HitResult);
     FVector TargetLocation = bHit ? (HitResult.ImpactPoint + FVector(0.0f, 0.0f, 60.0f)) : FVector(0.0f, 0.0f, 100.0f);
 
-    UE_LOG(LogTemp, Warning, TEXT("🚀 [UPiSimModularGarageWidget] Araç Işınlanıyor/Konuşlanıyor: '%s' -> (X=%.1f, Y=%.1f, Z=%.1f)"),
+    UE_LOG(LogTemp, Warning, TEXT("🚀 [UPiSimModularGarageWidget] Araç Konuşlanıyor: '%s' -> (X=%.1f, Y=%.1f, Z=%.1f)"),
         *ProfileName, TargetLocation.X, TargetLocation.Y, TargetLocation.Z);
 
-    if (TargetVehicle)
+    // İlk araç henüz boş ise mevcudu oraya ışınla, yoksa filoya yeni bağımsız araç ekle
+    APiSimVehicle* VehicleToInit = nullptr;
+    if (FleetVehicles.Num() == 0 || (FleetVehicles.Num() == 1 && FleetVehicles[0]->StoredVisualSections.Num() == 0))
     {
-        TargetVehicle->TeleportTo(TargetLocation, FRotator::ZeroRotator, false, true);
+        if (FleetVehicles.Num() > 0 && FleetVehicles[0])
+        {
+            VehicleToInit = FleetVehicles[0];
+            VehicleToInit->TeleportTo(TargetLocation, FRotator::ZeroRotator, false, true);
+        }
+    }
 
+    if (!VehicleToInit && GetWorld())
+    {
+        FActorSpawnParameters SpawnParams;
+        SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        VehicleToInit = GetWorld()->SpawnActor<APiSimVehicle>(APiSimVehicle::StaticClass(), TargetLocation, FRotator::ZeroRotator, SpawnParams);
+        if (VehicleToInit)
+        {
+            VehicleToInit->VehicleId = FleetVehicles.Num();
+            FleetVehicles.Add(VehicleToInit);
+        }
+    }
+
+    if (VehicleToInit)
+    {
         FString OutMsg;
-        UPiSimSaveManager::LoadProfile(TargetVehicle, ProfileName, OutMsg);
+        UPiSimSaveManager::LoadProfile(VehicleToInit, ProfileName, OutMsg);
+        FocusVehicle(VehicleToInit->VehicleId);
 
         if (GEngine)
         {
             GEngine->AddOnScreenDebugMessage(810, 4.0f, FColor::Green,
-                FString::Printf(TEXT("✅ [%s] Haritada seçilen noktaya konuşlandırıldı!"), *ProfileName));
+                FString::Printf(TEXT("✅ [%s] Filoya Eklendi! (Araç ID: %d, SITL Rx:%d, Tx:%d)"),
+                    *ProfileName, VehicleToInit->VehicleId, 9002 + VehicleToInit->VehicleId * 10, 9003 + VehicleToInit->VehicleId * 10));
         }
         return true;
     }
-    else if (GetWorld())
+
+    return false;
+}
+
+// @state: WIP - Aktif filodaki tüm araçları JSON dizisi olarak döner
+FString UPiSimModularGarageWidget::GetActiveFleetJson()
+{
+    TSharedPtr<FJsonObject> RootObject = MakeShareable(new FJsonObject);
+    TArray<TSharedPtr<FJsonValue>> FleetArray;
+
+    FleetVehicles.RemoveAll([](APiSimVehicle* V) { return !IsValid(V); });
+
+    for (APiSimVehicle* Vehicle : FleetVehicles)
     {
-        FActorSpawnParameters SpawnParams;
-        SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-        APiSimVehicle* NewVehicle = GetWorld()->SpawnActor<APiSimVehicle>(APiSimVehicle::StaticClass(), TargetLocation, FRotator::ZeroRotator, SpawnParams);
-        if (NewVehicle)
+        if (!Vehicle) continue;
+
+        TSharedPtr<FJsonObject> VObj = MakeShareable(new FJsonObject);
+        VObj->SetNumberField(TEXT("id"), Vehicle->VehicleId);
+        VObj->SetStringField(TEXT("name"), FString::Printf(TEXT("Araç %d"), Vehicle->VehicleId + 1));
+        VObj->SetBoolField(TEXT("is_focused"), Vehicle->bIsFocusedVehicle);
+
+        int32 SitlListen = Vehicle->AutopilotBridge ? Vehicle->AutopilotBridge->ListenPort : (9002 + Vehicle->VehicleId * 10);
+        int32 SitlSend = Vehicle->AutopilotBridge ? Vehicle->AutopilotBridge->SendPort : (9003 + Vehicle->VehicleId * 10);
+        int32 TelemetryPort = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->TelemetryPort : (7400 + Vehicle->VehicleId * 10);
+        int32 VideoPort = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->VideoPort : (7401 + Vehicle->VehicleId * 10);
+        bool bVideoSub = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->IsVideoSubscribed() : false;
+
+        VObj->SetNumberField(TEXT("sitl_listen_port"), SitlListen);
+        VObj->SetNumberField(TEXT("sitl_send_port"), SitlSend);
+        VObj->SetNumberField(TEXT("telemetry_port"), TelemetryPort);
+        VObj->SetNumberField(TEXT("video_port"), VideoPort);
+        VObj->SetBoolField(TEXT("video_subscribed"), bVideoSub);
+
+        FVector Loc = Vehicle->GetActorLocation();
+        VObj->SetNumberField(TEXT("loc_x"), Loc.X);
+        VObj->SetNumberField(TEXT("loc_y"), Loc.Y);
+        VObj->SetNumberField(TEXT("loc_z"), Loc.Z);
+
+        FleetArray.Add(MakeShareable(new FJsonValueObject(VObj)));
+    }
+
+    RootObject->SetArrayField(TEXT("fleet"), FleetArray);
+
+    FString OutputString;
+    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+    FJsonSerializer::Serialize(RootObject.ToSharedRef(), Writer);
+    return OutputString;
+}
+
+// @state: WIP - Belirtilen araca kamera ve kontrol odağını taşır
+bool UPiSimModularGarageWidget::FocusVehicle(int32 InVehicleId)
+{
+    APlayerController* PC = GetOwningPlayer();
+    if (!PC && GetWorld())
+    {
+        PC = GetWorld()->GetFirstPlayerController();
+    }
+
+    APiSimVehicle* FoundVehicle = nullptr;
+    for (APiSimVehicle* Vehicle : FleetVehicles)
+    {
+        if (Vehicle)
         {
-            SetTargetVehicle(NewVehicle);
-            FString OutMsg;
-            UPiSimSaveManager::LoadProfile(NewVehicle, ProfileName, OutMsg);
-            return true;
+            if (Vehicle->VehicleId == InVehicleId)
+            {
+                Vehicle->bIsFocusedVehicle = true;
+                FoundVehicle = Vehicle;
+            }
+            else
+            {
+                Vehicle->bIsFocusedVehicle = false;
+            }
         }
     }
 
+    if (FoundVehicle)
+    {
+        SetTargetVehicle(FoundVehicle);
+        if (PC)
+        {
+            PC->SetViewTargetWithBlend(FoundVehicle, 0.4f);
+        }
+        UE_LOG(LogTemp, Log, TEXT("🎯 [UPiSimModularGarageWidget] Araç %d Odaklandı!"), InVehicleId);
+        return true;
+    }
+
     return false;
+}
+
+// @state: WIP - Belirtilen aracın video yayını aboneliğini açıp kapatır (On-Demand Video)
+void UPiSimModularGarageWidget::SetVehicleVideoSubscribed(int32 InVehicleId, bool bSubscribe)
+{
+    for (APiSimVehicle* Vehicle : FleetVehicles)
+    {
+        if (Vehicle && Vehicle->VehicleId == InVehicleId)
+        {
+            if (Vehicle->Pi5Bridge)
+            {
+                Vehicle->Pi5Bridge->SetVideoSubscribed(bSubscribe);
+            }
+            return;
+        }
+    }
+}
+
+// @state: WIP - Belirtilen aracın 1 dakikalık periyotlarla kaydedilen telemetri tablosunu JSON olarak çeker
+FString UPiSimModularGarageWidget::GetTelemetryTableJson(int32 InVehicleId, int32 MaxRows)
+{
+    for (APiSimVehicle* Vehicle : FleetVehicles)
+    {
+        if (Vehicle && Vehicle->VehicleId == InVehicleId)
+        {
+            if (Vehicle->TelemetryLogger)
+            {
+                return Vehicle->TelemetryLogger->GetRecentTelemetryTableJson(MaxRows);
+            }
+        }
+    }
+
+    if (TargetVehicle && TargetVehicle->TelemetryLogger)
+    {
+        return TargetVehicle->TelemetryLogger->GetRecentTelemetryTableJson(MaxRows);
+    }
+
+    return TEXT("{\"total_logged\":0,\"rows\":[]}");
+}
+
+// @state: WIP - Tüm filodaki birikmiş telemetri satırlarını anında SQL dosyasına kaydeder
+void UPiSimModularGarageWidget::FlushTelemetryToSql()
+{
+    for (APiSimVehicle* Vehicle : FleetVehicles)
+    {
+        if (Vehicle && Vehicle->TelemetryLogger)
+        {
+            Vehicle->TelemetryLogger->FlushBatchToSql();
+        }
+    }
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(811, 3.5f, FColor::Cyan,
+            TEXT("💾 [SQL Telemetri] 1 Dakikalık Batch Veritabanına Başarıyla Yazıldı (Saved/Telemetry/flight_telemetry.sql)"));
+    }
 }
 
 // @state: WIP - WebUI sayfaları arasında geçiş yapar (garage.html <-> dashboardUnreal.html)

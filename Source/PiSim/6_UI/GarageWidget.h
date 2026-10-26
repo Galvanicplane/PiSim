@@ -115,9 +115,33 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
     bool SpawnVehicleAtCursor(const FString& ProfileName);
 
+    // WebUI: Aktif filodaki tüm araçların listesini (ID, portlar, odak durumu, video aboneliği) döner
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    FString GetActiveFleetJson();
+
+    // WebUI: Belirtilen araca kamera ve kontrol odağını geçirir
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    bool FocusVehicle(int32 InVehicleId);
+
+    // WebUI: İsteğe bağlı video yayını aboneliğini açıp kapatır (On-Demand Video Streaming)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void SetVehicleVideoSubscribed(int32 InVehicleId, bool bSubscribe);
+
+    // WebUI: 1 dakikalık periyotlarla kaydedilen telemetri tablosunu JSON olarak döner
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    FString GetTelemetryTableJson(int32 InVehicleId = 0, int32 MaxRows = 100);
+
+    // WebUI: Birikmiş telemetri satırlarını anında SQL dosyasına kaydeder (Flush)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void FlushTelemetryToSql();
+
     // WebUI: Sayfalar arası geçiş (garage.html <-> dashboardUnreal.html)
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
     void NavigateToPage(const FString& PageFileName);
+
+    // Aktif filodaki tüm araçlar
+    UPROPERTY()
+    TArray<APiSimVehicle*> FleetVehicles;
 
     // UI Aksiyon Tetikleyicileri
     FReply OnTogglePhysicsClicked();
