@@ -1,0 +1,11 @@
+{
+  "ProfileName": "Tarla_Rover_4x4",
+  "TotalMassKg": 18.0,
+  "Description": "4x4 Otonom Tarla ve Arazi İKA Robotu (Hazır Model)",
+  "Modules": [
+    { "Type": "Wheel", "BoneName": "M_Wheel_FL", "WheelMode": "SteeredWheel", "RadiusCm": 18.0, "Friction": 0.95, "Channel": 1 },
+    { "Type": "Wheel", "BoneName": "M_Wheel_FR", "WheelMode": "SteeredWheel", "RadiusCm": 18.0, "Friction": 0.95, "Channel": 1 },
+    { "Type": "Wheel", "BoneName": "M_Wheel_RL", "WheelMode": "DriveWheel", "RadiusCm": 18.0, "Friction": 0.95, "Channel": 3 },
+    { "Type": "Wheel", "BoneName": "M_Wheel_RR", "WheelMode": "DriveWheel", "RadiusCm": 18.0, "Friction": 0.95, "Channel": 3 }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "ProfileName": "Sabit_Kanat_Delta",
+  "TotalMassKg": 6.8,
+  "Description": "Uzun Menzil Sabit Kanat Keşif İHA (Hazır Model)",
+  "Modules": [
+    { "Type": "Servo", "BoneName": "M_Elevon_L", "MinAngle": -30.0, "MaxAngle": 30.0, "Channel": 1, "Function": "Elevon_Left" },
+    { "Type": "Servo", "BoneName": "M_Elevon_R", "MinAngle": -30.0, "MaxAngle": 30.0, "Channel": 2, "Function": "Elevon_Right" },
+    { "Type": "Propeller", "BoneName": "M_Prop_Main", "MaxThrust": 45.0, "Channel": 3 },
+    { "Type": "Servo", "BoneName": "M_Rudder", "MinAngle": -25.0, "MaxAngle": 25.0, "Channel": 4, "Function": "Rudder" },
+    { "Type": "LiftBody", "BoneName": "M_Wing_Main", "WingArea": 0.85 }
+  ]
+}

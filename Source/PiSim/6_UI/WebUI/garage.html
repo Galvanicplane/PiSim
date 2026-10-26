@@ -318,6 +318,13 @@
                 <div class="tooltip-popup"><span>Kemik çizgilerini ve teşhis yazılarını açıp kapatır ('U' tuşu).</span></div>
             </div>
 
+            <div class="tooltip-btn-wrapper" style="width: auto;">
+                <button id="btn-return-dashboard" class="tooltip-btn" onclick="returnToDashboard()">
+                    <span class="btn-inner" style="padding: 6px 12px; font-size: 11px; color: var(--accent-color); font-weight: 800;">◀ DASHBOARD'A DÖN</span>
+                </button>
+                <div class="tooltip-popup"><span>Garajdan çıkıp simülasyon kokpitine (Dashboard) geri döner.</span></div>
+            </div>
+
             <div style="flex: 1;"></div>
 
             <div class="tooltip-btn-wrapper" style="width: auto;">
@@ -672,6 +679,14 @@
                 e.preventDefault();
             }
         });
+
+        function returnToDashboard() {
+            if (window.ue && window.ue.garage && window.ue.garage.navigatetopage) {
+                window.ue.garage.navigatetopage('dashboardUnreal.html');
+            } else {
+                window.location.href = 'dashboardUnreal.html';
+            }
+        }
 
         // Sayfa yüklendiğinde araç iskeletini ve modül verilerini C++'tan talep et
         window.addEventListener('DOMContentLoaded', () => {

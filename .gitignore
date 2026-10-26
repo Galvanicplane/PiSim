@@ -2,7 +2,9 @@
 Binaries/
 DerivedDataCache/
 Intermediate/
-Saved/
+Saved/*
+!Saved/Vehicles/
+!Saved/Vehicles/**
 Build/
 .vscode/
 .vs/

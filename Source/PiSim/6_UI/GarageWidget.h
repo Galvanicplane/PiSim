@@ -107,6 +107,18 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
     void ToggleDebugDraw();
 
+    // WebUI: Saved/Vehicles/ altındaki kayıtlı tüm araç profillerini JSON listesi olarak döner
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    FString GetSavedProfilesJson();
+
+    // WebUI: Haritada fareyle tıklanan noktaya seçilen aracı ışınlar / konuşlandırır
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    bool SpawnVehicleAtCursor(const FString& ProfileName);
+
+    // WebUI: Sayfalar arası geçiş (garage.html <-> dashboardUnreal.html)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void NavigateToPage(const FString& PageFileName);
+
     // UI Aksiyon Tetikleyicileri
     FReply OnTogglePhysicsClicked();
     FReply OnToggleCollisionViewClicked();

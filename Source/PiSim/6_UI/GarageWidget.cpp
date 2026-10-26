@@ -64,15 +64,19 @@ void UPiSimModularGarageWidget::NativeTick(const FGeometry& MyGeometry, float In
     }
 }
 
-// @state: WIP - Slate / WebUI Widget ağacını oluşturur
+// @state: WIP - Slate / WebUI Widget ağacını oluşturur (Başlangıçta DashboardUnreal açılır)
 TSharedRef<SWidget> UPiSimModularGarageWidget::RebuildWidget()
 {
-    FString HtmlFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Source/PiSim/6_UI/WebUI/garage.html"));
+    FString HtmlFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Source/PiSim/6_UI/WebUI/dashboardUnreal.html"));
+    if (!FPaths::FileExists(HtmlFilePath))
+    {
+        HtmlFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Source/PiSim/6_UI/WebUI/garage.html"));
+    }
     FString FileUrl = FString::Printf(TEXT("file:///%s"), *HtmlFilePath);
 
     if (FPaths::FileExists(HtmlFilePath))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[UPiSimModularGarageWidget] 🚀 WebUI Garage HTML yukleniyor: %s"), *FileUrl);
+        UE_LOG(LogTemp, Warning, TEXT("[UPiSimModularGarageWidget] 🚀 WebUI DashboardUnreal HTML yukleniyor: %s"), *FileUrl);
 
         SAssignNew(WebBrowserWidget, SWebBrowser)
             .InitialURL(FileUrl)
@@ -1156,3 +1160,92 @@ void UPiSimModularGarageWidget::ToggleDebugDraw()
         TargetVehicle->MotorDebugComponent->ToggleDebugDraw();
     }
 }
+
+// @state: WIP - Saved/Vehicles/ altındaki kayıtlı tüm araç profillerini JSON listesi olarak döner
+FString UPiSimModularGarageWidget::GetSavedProfilesJson()
+{
+    TArray<FString> Profiles;
+    UPiSimSaveManager::GetSavedProfileNames(Profiles);
+
+    TArray<FString> Defaults = { TEXT("Quadcopter_X4"), TEXT("Sabit_Kanat_Delta"), TEXT("Tarla_Rover_4x4") };
+    for (const FString& Def : Defaults)
+    {
+        if (!Profiles.Contains(Def))
+        {
+            Profiles.Add(Def);
+        }
+    }
+
+    FString JsonStr = TEXT("[");
+    for (int32 i = 0; i < Profiles.Num(); ++i)
+    {
+        JsonStr += FString::Printf(TEXT("\"%s\""), *Profiles[i]);
+        if (i < Profiles.Num() - 1)
+        {
+            JsonStr += TEXT(",");
+        }
+    }
+    JsonStr += TEXT("]");
+    return JsonStr;
+}
+
+// @state: WIP - WebUI: Haritada fareyle tıklanan noktaya seçilen aracı ışınlar veya spawn eder
+bool UPiSimModularGarageWidget::SpawnVehicleAtCursor(const FString& ProfileName)
+{
+    APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+    if (!PC)
+    {
+        return false;
+    }
+
+    FHitResult HitResult;
+    bool bHit = PC->GetHitResultUnderCursor(ECC_Visibility, false, HitResult);
+    FVector TargetLocation = bHit ? (HitResult.ImpactPoint + FVector(0.0f, 0.0f, 60.0f)) : FVector(0.0f, 0.0f, 100.0f);
+
+    UE_LOG(LogTemp, Warning, TEXT("🚀 [UPiSimModularGarageWidget] Araç Işınlanıyor/Konuşlanıyor: '%s' -> (X=%.1f, Y=%.1f, Z=%.1f)"),
+        *ProfileName, TargetLocation.X, TargetLocation.Y, TargetLocation.Z);
+
+    if (TargetVehicle)
+    {
+        TargetVehicle->TeleportTo(TargetLocation, FRotator::ZeroRotator, false, true);
+
+        FString OutMsg;
+        UPiSimSaveManager::LoadProfile(TargetVehicle, ProfileName, OutMsg);
+
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(810, 4.0f, FColor::Green,
+                FString::Printf(TEXT("✅ [%s] Haritada seçilen noktaya konuşlandırıldı!"), *ProfileName));
+        }
+        return true;
+    }
+    else if (GetWorld())
+    {
+        FActorSpawnParameters SpawnParams;
+        SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        APiSimVehicle* NewVehicle = GetWorld()->SpawnActor<APiSimVehicle>(APiSimVehicle::StaticClass(), TargetLocation, FRotator::ZeroRotator, SpawnParams);
+        if (NewVehicle)
+        {
+            SetTargetVehicle(NewVehicle);
+            FString OutMsg;
+            UPiSimSaveManager::LoadProfile(NewVehicle, ProfileName, OutMsg);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// @state: WIP - WebUI sayfaları arasında geçiş yapar (garage.html <-> dashboardUnreal.html)
+void UPiSimModularGarageWidget::NavigateToPage(const FString& PageFileName)
+{
+    FString HtmlFilePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("Source/PiSim/6_UI/WebUI") / PageFileName);
+    FString FileUrl = FString::Printf(TEXT("file:///%s"), *HtmlFilePath);
+
+    if (WebBrowserWidget.IsValid() && FPaths::FileExists(HtmlFilePath))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[UPiSimModularGarageWidget] Sayfa Geçişi: %s"), *FileUrl);
+        WebBrowserWidget->LoadURL(FileUrl);
+    }
+}
+

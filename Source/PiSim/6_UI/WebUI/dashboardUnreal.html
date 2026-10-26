@@ -263,9 +263,111 @@
         }
 
         .target-device-pill:hover, .target-device-pill.selected {
+        /* ==================== ARAÇ SEÇİM MODAL PENCERESİ (%20-40 KARARTMALI BACKDROP) ==================== */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(4px);
+            z-index: 200;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            pointer-events: auto;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal-card {
+            width: 500px;
+            max-width: 90vw;
+            background: rgba(11, 15, 20, 0.98);
+            border: 1px solid var(--accent-color);
+            box-shadow: 0 0 35px var(--accent-glow), 0 20px 50px rgba(0, 0, 0, 0.95);
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+            animation: modalPop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes modalPop {
+            0% { transform: scale(0.92); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .saved-vehicle-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 240px;
+            overflow-y: auto;
+            margin: 4px 0;
+            padding-right: 4px;
+        }
+
+        .saved-vehicle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: var(--mono-dark);
+            border: 1px solid var(--mono-border);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+        }
+
+        .saved-vehicle-row:hover {
             border-color: var(--accent-color);
-            background: rgba(0, 223, 182, 0.08);
+            background: rgba(0, 223, 182, 0.12);
+            transform: translateX(4px);
+        }
+
+        .saved-vehicle-row .v-name {
+            font-size: 11px;
+            font-weight: 800;
             color: #ffffff;
+        }
+
+        .saved-vehicle-row .v-desc {
+            font-size: 8.5px;
+            color: var(--text-muted);
+            margin-top: 1px;
+        }
+
+        /* Taktik Konuşlandırma / Hedef Seçim Afişi */
+        .placement-banner {
+            position: fixed;
+            top: 48px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-150%);
+            z-index: 150;
+            background: rgba(11, 15, 20, 0.96);
+            border: 1px solid var(--accent-color);
+            box-shadow: 0 0 25px var(--accent-glow);
+            padding: 8px 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+            pointer-events: auto;
+        }
+
+        .placement-banner.show {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .placement-active-surface {
+            cursor: crosshair !important;
+            pointer-events: auto !important;
         }
     </style>
 </head>
@@ -297,7 +399,59 @@
     </header>
 
     <!-- 3D VİEWPORT ŞEFFAF ALANI (Kullanıcı 0 noktasındaki aracı rahatça fareyle kontrol eder) -->
-    <div class="unreal-viewport-canvas" id="viewport-touch-surface"></div>
+    <div class="unreal-viewport-canvas" id="viewport-touch-surface" onclick="onViewportClick(event)"></div>
+
+    <!-- ==================== HARİTA KONUŞLANDIRMA / IŞINLAMA AFİŞİ ==================== -->
+    <div id="placement-banner" class="placement-banner">
+        <div class="beacon-pulse-icon"></div>
+        <div style="display: flex; flex-direction: column;">
+            <div style="font-size: 11px; font-weight: 800; color: #ffffff;">
+                🎯 HEDEF SEÇİN: <span id="placement-profile-name" style="color:var(--accent-color);">Quadcopter_X4</span>
+            </div>
+            <div style="font-size: 9px; color: var(--text-muted);">
+                Haritada aracı ışınlamak istediğiniz zemine tıklayın. (İptal etmek için ESC tuşuna basın)
+            </div>
+        </div>
+        <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="cancelVehiclePlacement()">
+            ✕ İPTAL
+        </button>
+    </div>
+
+    <!-- ==================== ORTAYA AÇILAN ARAÇ SEÇİM MODALI (%20-40 KARARTMALI) ==================== -->
+    <div id="vehicle-select-modal" class="modal-overlay" onclick="onModalOverlayClick(event)">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--mono-border); padding-bottom: 6px;">
+                <div>
+                    <div style="font-size: 12px; font-weight: 900; color: #ffffff; letter-spacing: 0.5px;">
+                        // SİMÜLASYON FİLOSUNA ARAÇ EKLE
+                    </div>
+                    <div style="font-size: 9px; color: var(--accent-color); margin-top: 1px;">
+                        [ Kayıtlı Profiller & Varsayılan Kütüphane ]
+                    </div>
+                </div>
+                <button class="cod-btn" style="padding: 2px 7px; font-size: 10px;" onclick="closeAddVehicleModal()">✕</button>
+            </div>
+
+            <div style="font-size: 9.5px; color: var(--text-muted); line-height: 1.4;">
+                Aşağıdan konuşlandırmak istediğiniz kayıtlı aracı seçin. Seçtiğinizde bu pencere kapanacak ve haritada tıkladığınız zemin noktasına ışınlanacaktır.
+            </div>
+
+            <!-- Kayıtlı ve Varsayılan Araçlar Listesi -->
+            <div class="saved-vehicle-list" id="saved-vehicle-list-container">
+                <!-- JavaScript dinamik dolduracak -->
+            </div>
+
+            <!-- EN ALTTA: YENİ ARAÇ TASARLA / GARAJA GİT SEÇENEĞİ -->
+            <div style="margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--mono-border); display: flex; flex-direction: column; gap: 4px;">
+                <div style="font-size: 8.5px; color: var(--text-muted);">
+                    İstediğiniz araç listede yoksa, kendi modelinizi donatıp kaydedebilirsiniz:
+                </div>
+                <button class="cod-btn cod-btn-accent" style="width: 100%; padding: 8px; font-size: 11px; font-weight: 800;" onclick="navigateToGarage()">
+                    ➕ YENİ ARAÇ TASARLA / DÜZENLE (GARAJA GİT)
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- ==================== DIŞ TETİKLEYİCİ BUTONLAR ==================== -->
     <!-- Sol Açma Butonları (Üst & Alt) -->
@@ -403,8 +557,8 @@
         </div>
 
         <div style="margin-top: auto; padding-top: 8px; border-top: 1px solid var(--mono-border);">
-            <button class="cod-btn cod-btn-accent" style="width: 100%; padding: 6px; font-size: 10px;" onclick="addVehicleToFleet()">
-                ➕ FİLOYA YENİ ARAÇ EKLE
+            <button class="cod-btn cod-btn-accent" style="width: 100%; padding: 8px; font-size: 11px; font-weight: 800;" onclick="openAddVehicleModal()">
+                ➕ FİLOYA ARAÇ EKLE
             </button>
         </div>
     </aside>
@@ -916,13 +1070,125 @@
             addPacketLog(`EMERGENCY_STOP_DISARM_IMMEDIATE: kill_switch=TRUE`);
         }
 
-        function addVehicleToFleet() {
+        // ==================== ARAÇ SEÇİM MODALI & HARİTAYA IŞINLAMA SİSTEMİ ====================
+        let pendingPlacementProfile = null;
+
+        const defaultVehicleDescriptions = {
+            "Quadcopter_X4": { icon: "🚁", desc: "4 Rotorlu Taktik Gözetleme İHA (Hazır Model)" },
+            "Sabit_Kanat_Delta": { icon: "🛩️", desc: "Uzun Menzil Sabit Kanat Keşif İHA (Hazır Model)" },
+            "Tarla_Rover_4x4": { icon: "🚙", desc: "4x4 Otonom Tarla ve Arazi İKA Robotu (Hazır Model)" }
+        };
+
+        function openAddVehicleModal() {
+            const modal = document.getElementById('vehicle-select-modal');
+            const listContainer = document.getElementById('saved-vehicle-list-container');
+            listContainer.innerHTML = '';
+
+            let profiles = ["Quadcopter_X4", "Sabit_Kanat_Delta", "Tarla_Rover_4x4"];
+
+            // Unreal C++'tan Saved/Vehicles/ klasöründeki kayıtlı araçları oku
+            if (window.ue && window.ue.garage && window.ue.garage.getsavedprofilesjson) {
+                try {
+                    const ueProfilesJson = window.ue.garage.getsavedprofilesjson();
+                    if (ueProfilesJson) {
+                        const parsed = JSON.parse(ueProfilesJson);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            profiles = parsed;
+                        }
+                    }
+                } catch (err) {
+                    console.warn("[PiSim UI] C++ profilleri okunurken hata:", err);
+                }
+            }
+
+            profiles.forEach(pName => {
+                const info = defaultVehicleDescriptions[pName] || { icon: "🤖", desc: "Kullanıcı Tarafından Garajda Kaydedilmiş Özel Profil" };
+                const row = document.createElement('div');
+                row.className = 'saved-vehicle-row';
+                row.onclick = () => startVehiclePlacement(pName);
+                row.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <span style="font-size:18px;">${info.icon}</span>
+                        <div>
+                            <div class="v-name">${pName}</div>
+                            <div class="v-desc">${info.desc}</div>
+                        </div>
+                    </div>
+                    <div style="font-size:10px; font-weight:800; color:var(--accent-color); font-family:var(--font-mono);">
+                        IŞINLA ➔
+                    </div>
+                `;
+                listContainer.appendChild(row);
+            });
+
+            modal.classList.add('open');
+            addLog("📂 Araç Seçim Ekranı Açıldı (Saved/Vehicles kütüphanesi).");
+        }
+
+        function closeAddVehicleModal() {
+            document.getElementById('vehicle-select-modal').classList.remove('open');
+        }
+
+        function onModalOverlayClick(e) {
+            if (e.target.id === 'vehicle-select-modal') {
+                closeAddVehicleModal();
+            }
+        }
+
+        function navigateToGarage() {
+            closeAddVehicleModal();
+            addLog("🚀 Garaj Arayüzüne Geçiliyor (garage.html)...");
+            if (window.ue && window.ue.garage && window.ue.garage.navigatetopage) {
+                window.ue.garage.navigatetopage('garage.html');
+            } else {
+                window.location.href = 'garage.html';
+            }
+        }
+
+        function startVehiclePlacement(profileName) {
+            pendingPlacementProfile = profileName;
+            closeAddVehicleModal();
+
+            // Taktik Afişi Aç
+            document.getElementById('placement-profile-name').innerText = profileName;
+            document.getElementById('placement-banner').classList.add('show');
+
+            // 3D Viewport Tıklama Yüzeyini Aktif Et (Crosshair)
+            const surface = document.getElementById('viewport-touch-surface');
+            surface.classList.add('placement-active-surface');
+
+            addLog(`🎯 Konuşlandırma Modu: '${profileName}'. Haritada zemine tıklayarak ışınlayın.`);
+            addPacketLog(`PLACEMENT_MODE_ACTIVE: profile=${profileName}`);
+        }
+
+        function cancelVehiclePlacement() {
+            pendingPlacementProfile = null;
+            document.getElementById('placement-banner').classList.remove('show');
+            document.getElementById('viewport-touch-surface').classList.remove('placement-active-surface');
+            addLog("❌ Konuşlandırma iptal edildi.");
+        }
+
+        function onViewportClick(e) {
+            if (!pendingPlacementProfile) {
+                return;
+            }
+
+            const chosenProfile = pendingPlacementProfile;
+            addLog(`📍 Harita Zemini Tıklandı! '${chosenProfile}' koordinata ışınlanıyor...`);
+            addPacketLog(`SPAWN_AT_CURSOR_REQUEST: profile=${chosenProfile}`);
+
+            // Unreal C++'a Işınlanma Emri Gönder
+            if (window.ue && window.ue.garage && window.ue.garage.spawnvehicleatcursor) {
+                window.ue.garage.spawnvehicleatcursor(chosenProfile);
+            }
+
+            // Yeni Aracı Filo Listesine Ekle
             const newId = Object.keys(fleetData).length + 1;
             fleetData[newId] = {
-                name: `Araç ${newId} [YENİ-MODEL]`,
+                name: `Araç ${newId} [${chosenProfile}]`,
                 speed: "0 km/s",
                 battery: "24.0V (%100)",
-                mission: "Pistte",
+                mission: "Konuşlandı [Hazır]",
                 targetDevice: "sitl",
                 targetIp: "127.0.0.1",
                 targetPort: 9002 + (newId * 10)
@@ -930,23 +1196,37 @@
 
             const container = document.getElementById('vehicle-cards-container');
             const card = document.createElement('div');
-            card.className = 'vehicle-card';
+            card.className = 'vehicle-card active';
             card.onclick = () => selectVehicle(newId);
             card.innerHTML = `
                 <div class="vehicle-card-header">
                     <span class="vehicle-card-title">${fleetData[newId].name}</span>
-                    <span class="status-indicator online">● YENİ</span>
+                    <span class="status-indicator online">● AKTİF</span>
                 </div>
                 <div class="vehicle-card-body">
                     <span>Durum:</span>
-                    <span style="color: #ffffff; font-weight: 700;">Hazır</span>
+                    <span style="color: #ffffff; font-weight: 700;">Konuşlandı</span>
                     <span>Cihaz:</span>
                     <span style="color: var(--accent-color); font-weight: 700;">SITL (${fleetData[newId].targetPort})</span>
                 </div>
             `;
             container.appendChild(card);
-            addLog(`Filoya Yeni Araç Eklendi: Araç ${newId}`);
+            selectVehicle(newId);
+
+            cancelVehiclePlacement();
+            addLog(`✅ '${chosenProfile}' haritada seçtiğiniz noktaya başarıyla konuşlandırıldı!`);
         }
+
+        // ESC Tuşu ile Modal veya Konuşlandırma İptali
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (pendingPlacementProfile) {
+                    cancelVehiclePlacement();
+                } else {
+                    closeAddVehicleModal();
+                }
+            }
+        });
 
         // Tema Sistemi
         const themes = [

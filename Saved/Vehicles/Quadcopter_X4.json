@@ -1,0 +1,11 @@
+{
+  "ProfileName": "Quadcopter_X4",
+  "TotalMassKg": 4.5,
+  "Description": "4 Rotorlu Taktik Gözetleme İHA (Hazır Model)",
+  "Modules": [
+    { "Type": "Propeller", "BoneName": "M_Prop_FL", "MaxThrust": 22.0, "Channel": 1 },
+    { "Type": "Propeller", "BoneName": "M_Prop_FR", "MaxThrust": 22.0, "Channel": 2 },
+    { "Type": "Propeller", "BoneName": "M_Prop_RL", "MaxThrust": 22.0, "Channel": 3 },
+    { "Type": "Propeller", "BoneName": "M_Prop_RR", "MaxThrust": 22.0, "Channel": 4 }
+  ]
+}
