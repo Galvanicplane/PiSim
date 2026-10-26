@@ -926,13 +926,26 @@
             document.getElementById('detail-mission-val').innerText = "--";
             document.getElementById('detail-sensors-val').innerText = "-- Uydu";
             document.getElementById('detail-coords').innerText = "--° N, --° E";
+            document.querySelectorAll('.two-way-pipe-group').forEach(el => el.classList.remove('connected'));
             updateVideoSubscriptionUI();
+        }
+
+        function inspectChannel(chanId) {
+            document.querySelectorAll('.two-way-pipe-group').forEach(el => el.classList.remove('active-channel'));
+            const targetEl = document.getElementById('channel-' + chanId);
+            if (targetEl) targetEl.classList.add('active-channel');
+            const nameEl = document.getElementById('inspected-channel-name');
+            if (nameEl) {
+                nameEl.innerText = (chanId === 'sitl') ? 'PiSim ⇄ SITL' : 'SITL ⇄ UE5';
+            }
         }
 
         function selectVehicle(id) {
             currentVehicleId = id;
             const v = fleetData[id];
             if (!v) return;
+
+            document.querySelectorAll('.two-way-pipe-group').forEach(el => el.classList.add('connected'));
 
             document.querySelectorAll('.vehicle-card').forEach((c, idx) => {
                 c.classList.toggle('active', Object.keys(fleetData)[idx] == id);
