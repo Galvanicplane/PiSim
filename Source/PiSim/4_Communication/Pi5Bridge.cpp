@@ -123,12 +123,20 @@ bool UPiSimPi5Bridge::StartStreaming(const FString& InTargetIP, int32 InTelemetr
     TelemetrySocket = FUdpSocketBuilder(TEXT("PiSimPi5TelemetrySocket"))
         .AsNonBlocking()
         .AsReusable()
+        .WithBroadcast()
         .WithSendBufferSize(65535);
 
     VideoSocket = FUdpSocketBuilder(TEXT("PiSimPi5VideoSocket"))
         .AsNonBlocking()
         .AsReusable()
+        .WithBroadcast()
         .WithSendBufferSize(262144);
+
+    DiscoverySocket = FUdpSocketBuilder(TEXT("PiSimPi5DiscoverySocket"))
+        .AsNonBlocking()
+        .AsReusable()
+        .BoundToPort(7499)
+        .WithReceiveBufferSize(65535);
 
     // Thread 1: Telemetri Döngüsü
     TelemetryRunnable = new FPi5WorkerThread(this, false);
@@ -189,6 +197,11 @@ void UPiSimPi5Bridge::StopStreaming()
             SocketSubsystem->DestroySocket(VideoSocket);
             VideoSocket = nullptr;
         }
+        if (DiscoverySocket)
+        {
+            SocketSubsystem->DestroySocket(DiscoverySocket);
+            DiscoverySocket = nullptr;
+        }
     }
 }
 
@@ -197,12 +210,16 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
 {
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
     TSharedRef<FInternetAddr> TargetAddr = SocketSubsystem->CreateInternetAddr();
+    TSharedRef<FInternetAddr> BcastAddr = SocketSubsystem->CreateInternetAddr();
     bool bIsValid = false;
 
     FString CurrentTargetIP = TargetIP;
     int32 CurrentPort = TelemetryPort;
     TargetAddr->SetIp(*CurrentTargetIP, bIsValid);
     TargetAddr->SetPort(CurrentPort);
+
+    BcastAddr->SetIp(TEXT("255.255.255.255"), bIsValid);
+    BcastAddr->SetPort(CurrentPort);
 
     UE_LOG(LogTemp, Warning, TEXT("🚀 [Pi5Bridge] Telemetri Döngüsü Başladı -> Hedef: %s:%d (Araç ID: %d)"),
         *CurrentTargetIP, CurrentPort, VehicleId);
@@ -211,6 +228,33 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
 
     while (bRunning)
     {
+        // 1. Pi 5 Keşif Radarı: Port 7499 üzerinden gelen Beacon paketlerini dinle, Pi 5'i 100% otomatik eşleştir
+        if (DiscoverySocket)
+        {
+            uint32 PendingSize = 0;
+            while (DiscoverySocket->HasPendingData(PendingSize))
+            {
+                TArray<uint8> RecvBuffer;
+                RecvBuffer.SetNumUninitialized(FMath::Min(PendingSize, 2048u));
+                TSharedRef<FInternetAddr> SenderAddr = SocketSubsystem->CreateInternetAddr();
+                int32 BytesRead = 0;
+                if (DiscoverySocket->RecvFrom(RecvBuffer.GetData(), RecvBuffer.Num(), BytesRead, *SenderAddr) && BytesRead > 0)
+                {
+                    RecvBuffer.Add(0);
+                    FString RecvStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
+                    if (RecvStr.Contains(TEXT("PISIM_BEACON")) || RecvStr.Contains(TEXT("Raspberry Pi")))
+                    {
+                        FString SenderIpStr = SenderAddr->ToString(false);
+                        if (SenderIpStr != TEXT("127.0.0.1") && SenderIpStr != TEXT("0.0.0.0") && SenderIpStr != TargetIP)
+                        {
+                            TargetIP = SenderIpStr;
+                            UE_LOG(LogTemp, Warning, TEXT("⚡ [Pi5Bridge] 🎉 RASPBERRY PI 5 OTOMATİK EŞLEŞTİRİLDİ! IP: %s (Port: %d)"), *TargetIP, TelemetryPort);
+                        }
+                    }
+                }
+            }
+        }
+
         // IP veya Port dışarıdan (Beacon veya UI ile) güncellendiğinde soket hedefini anında yenile
         if (TargetIP != CurrentTargetIP || TelemetryPort != CurrentPort)
         {
@@ -218,6 +262,7 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
             CurrentPort = TelemetryPort;
             TargetAddr->SetIp(*CurrentTargetIP, bIsValid);
             TargetAddr->SetPort(CurrentPort);
+            BcastAddr->SetPort(CurrentPort);
             UE_LOG(LogTemp, Warning, TEXT("🔄 [Pi5Bridge] Hedef IP/Port Güncellendi: %s:%d"), *CurrentTargetIP, CurrentPort);
         }
 
@@ -231,13 +276,23 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
             FString JsonPayload = CachedGateway->BuildSitlJsonState();
             FTCHARToUTF8 Utf8(*JsonPayload);
             int32 BytesSent = 0;
+
+            // 1. Hedef IP'ye gönder
             TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *TargetAddr);
+
+            // 2. Pi 5 henüz keşfedilmediyse (veya TargetIP hala 127.0.0.1 ise),
+            // telemetriyi yerel ağ broadcast (255.255.255.255:7400) adresine de bas!
+            // Böylece ağdaki Raspberry Pi 5 İLK SANİYEDEN İTİBAREN hiç elle ayar yapmadan canlı veriyi alır!
+            if (CurrentTargetIP == TEXT("127.0.0.1"))
+            {
+                TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
+            }
 
             PacketCount++;
             if (PacketCount == 1 || PacketCount % 500 == 0)
             {
-                UE_LOG(LogTemp, Log, TEXT("📡 [Pi5Bridge] Telemetri Paketi Gönderildi (#%d) -> %s:%d"),
-                    PacketCount, *CurrentTargetIP, CurrentPort);
+                UE_LOG(LogTemp, Log, TEXT("📡 [Pi5Bridge] Telemetri Paketi Gönderildi (#%d) -> %s:%d (Broadcast: %s)"),
+                    PacketCount, *CurrentTargetIP, CurrentPort, CurrentTargetIP == TEXT("127.0.0.1") ? TEXT("AÇIK") : TEXT("KAPALI"));
             }
         }
 

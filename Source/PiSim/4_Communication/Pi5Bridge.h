@@ -84,6 +84,7 @@ protected:
 
     FSocket* TelemetrySocket = nullptr;
     FSocket* VideoSocket = nullptr;
+    FSocket* DiscoverySocket = nullptr;
 
     FPi5WorkerThread* TelemetryRunnable = nullptr;
     FRunnableThread* TelemetryThread = nullptr;
