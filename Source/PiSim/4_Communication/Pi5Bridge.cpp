@@ -56,6 +56,8 @@ void FPi5WorkerThread::Exit()
 
 // --- UPiSimPi5Bridge Bileşeni Mantığı ---
 
+FOnPi5BeaconDiscoveredNative UPiSimPi5Bridge::OnPi5BeaconDiscovered;
+
 // @state: WIP - Pi5 köprüsü bileşen yapıcısı
 UPiSimPi5Bridge::UPiSimPi5Bridge()
 {
@@ -136,6 +138,7 @@ bool UPiSimPi5Bridge::StartStreaming(const FString& InTargetIP, int32 InTelemetr
         .AsNonBlocking()
         .AsReusable()
         .BoundToPort(7499)
+        .WithBroadcast()
         .WithReceiveBufferSize(65535);
 
     // Thread 1: Telemetri Döngüsü
@@ -205,6 +208,42 @@ void UPiSimPi5Bridge::StopStreaming()
     }
 }
 
+// @state: WIP - KURAL: Unreal Engine aktif olarak port 7499 üzerinden ağa probe fırlatır
+void UPiSimPi5Bridge::TriggerBeaconProbe()
+{
+    if (!DiscoverySocket) return;
+
+    ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+    if (!SocketSubsystem) return;
+
+    TSharedRef<FInternetAddr> BroadcastAddr = SocketSubsystem->CreateInternetAddr();
+    bool bIsValid = false;
+    BroadcastAddr->SetIp(TEXT("255.255.255.255"), bIsValid);
+    BroadcastAddr->SetPort(7499);
+
+    FString ProbePayload = TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"msg\":\"HI FROM UNREAL\"}\n");
+    FTCHARToUTF8 Utf8(*ProbePayload);
+    int32 BytesSent = 0;
+    DiscoverySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BroadcastAddr);
+
+    if (!TargetIP.IsEmpty() && TargetIP != TEXT("127.0.0.1"))
+    {
+        TSharedRef<FInternetAddr> DirectAddr = SocketSubsystem->CreateInternetAddr();
+        DirectAddr->SetIp(*TargetIP, bIsValid);
+        DirectAddr->SetPort(7499);
+        DiscoverySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *DirectAddr);
+    }
+}
+
+// @state: WIP - Hedef IP ve portu günceller
+bool UPiSimPi5Bridge::SetTargetIP(const FString& InIP, int32 InPort)
+{
+    TargetIP = InIP;
+    TelemetryPort = InPort;
+    UE_LOG(LogTemp, Warning, TEXT("🎯 [Pi5Bridge] Hedef IP/Port Güncellendi: %s:%d"), *TargetIP, TelemetryPort);
+    return true;
+}
+
 // @state: WIP - Telemetri iş parçacığı döngüsü (Gateway'den okuyup UDP basar)
 void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
 {
@@ -225,30 +264,43 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
         *CurrentTargetIP, CurrentPort, VehicleId);
 
     int32 PacketCount = 0;
+    double LastProbeTimeSec = 0.0;
 
     while (bRunning)
     {
-        // 1. Pi 5 Keşif Radarı: Port 7499 üzerinden gelen Beacon paketlerini dinle, Pi 5'i 100% otomatik eşleştir
+        // 1. Periyodik Probe Fırlatma (Port 7499'a 1.5 saniyede bir probe fırlat)
+        double CurrentSec = FPlatformTime::Seconds();
+        if (CurrentSec - LastProbeTimeSec >= 1.5)
+        {
+            LastProbeTimeSec = CurrentSec;
+            TriggerBeaconProbe();
+        }
+
+        // 2. Pi 5 Keşif Radarı: Port 7499 üzerinden gelen Beacon ve Heartbeat paketlerini dinle
         if (DiscoverySocket)
         {
             uint32 PendingSize = 0;
             while (DiscoverySocket->HasPendingData(PendingSize))
             {
                 TArray<uint8> RecvBuffer;
-                RecvBuffer.SetNumUninitialized(FMath::Min(PendingSize, 2048u));
+                RecvBuffer.SetNumUninitialized(FMath::Min(PendingSize, 4096u));
                 TSharedRef<FInternetAddr> SenderAddr = SocketSubsystem->CreateInternetAddr();
                 int32 BytesRead = 0;
                 if (DiscoverySocket->RecvFrom(RecvBuffer.GetData(), RecvBuffer.Num(), BytesRead, *SenderAddr) && BytesRead > 0)
                 {
                     RecvBuffer.Add(0);
                     FString RecvStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
-                    if (RecvStr.Contains(TEXT("PISIM_BEACON")) || RecvStr.Contains(TEXT("Raspberry Pi")))
+                    if (RecvStr.Contains(TEXT("PISIM_BEACON")) || RecvStr.Contains(TEXT("Raspberry Pi")) || RecvStr.Contains(TEXT("HI FROM PI5")))
                     {
                         FString SenderIpStr = SenderAddr->ToString(false);
-                        if (SenderIpStr != TEXT("127.0.0.1") && SenderIpStr != TEXT("0.0.0.0") && SenderIpStr != TargetIP)
+                        if (SenderIpStr != TEXT("127.0.0.1") && SenderIpStr != TEXT("0.0.0.0"))
                         {
-                            TargetIP = SenderIpStr;
-                            UE_LOG(LogTemp, Warning, TEXT("⚡ [Pi5Bridge] 🎉 RASPBERRY PI 5 OTOMATİK EŞLEŞTİRİLDİ! IP: %s (Port: %d)"), *TargetIP, TelemetryPort);
+                            if (TargetIP != SenderIpStr)
+                            {
+                                TargetIP = SenderIpStr;
+                                UE_LOG(LogTemp, Warning, TEXT("⚡ [Pi5Bridge] 🎉 RASPBERRY PI 5 EŞLEŞTİRİLDİ! IP: %s (Port: %d)"), *TargetIP, TelemetryPort);
+                            }
+                            OnPi5BeaconDiscovered.Broadcast(RecvStr);
                         }
                     }
                 }

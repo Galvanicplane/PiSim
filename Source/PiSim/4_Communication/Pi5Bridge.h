@@ -11,9 +11,9 @@
 #include "HAL/RunnableThread.h"
 #include "Sockets.h"
 #include "SocketSubsystem.h"
-#include "Pi5Bridge.generated.h"
-
 class UPiSimTelemetryGateway;
+
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnPi5BeaconDiscoveredNative, const FString&);
 
 class FPi5WorkerThread : public FRunnable
 {
@@ -32,6 +32,8 @@ private:
     FThreadSafeBool bRunning;
 };
 
+#include "Pi5Bridge.generated.h"
+
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
 class PISIM_API UPiSimPi5Bridge : public UActorComponent
 {
@@ -42,6 +44,17 @@ public:
 
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+    // Pi 5 Beacon Keşif Olayı (Statik Multicast Delegate - UI ve alt sistemler dinler)
+    static FOnPi5BeaconDiscoveredNative OnPi5BeaconDiscovered;
+
+    // UDP Keşif Probu fırlatır (Port 7499)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Pi5")
+    void TriggerBeaconProbe();
+
+    // Hedef IP ve Port adresini günceller
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Pi5")
+    bool SetTargetIP(const FString& InIP, int32 InPort = 7400);
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Pi5")
     bool StartStreaming(const FString& InTargetIP = TEXT("127.0.0.1"), int32 InTelemetryPort = 7400, int32 InVideoPort = 7401);

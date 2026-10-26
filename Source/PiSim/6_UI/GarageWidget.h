@@ -189,7 +189,6 @@ protected:
     FString ActiveModelFileName = TEXT("robot_import_test.fbx");
     bool bSmoothNormals = true;
 
-    FSocket* DiscoverySocket = nullptr;
-    void InitDiscoverySocket();
-    void CheckIncomingBeacons();
+    // Pi5Bridge tarafından yakalanan beacon verisini WebUI'a ileten UI dinleyicisi
+    void HandlePi5BeaconReceived(const FString& BeaconJson);
 };
