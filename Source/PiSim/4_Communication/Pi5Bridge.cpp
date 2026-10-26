@@ -198,22 +198,54 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
     TSharedRef<FInternetAddr> TargetAddr = SocketSubsystem->CreateInternetAddr();
     bool bIsValid = false;
-    TargetAddr->SetIp(*TargetIP, bIsValid);
-    TargetAddr->SetPort(TelemetryPort);
+
+    FString CurrentTargetIP = TargetIP;
+    int32 CurrentPort = TelemetryPort;
+    TargetAddr->SetIp(*CurrentTargetIP, bIsValid);
+    TargetAddr->SetPort(CurrentPort);
+
+    UE_LOG(LogTemp, Warning, TEXT("🚀 [Pi5Bridge] Telemetri Döngüsü Başladı -> Hedef: %s:%d (Araç ID: %d)"),
+        *CurrentTargetIP, CurrentPort, VehicleId);
+
+    int32 PacketCount = 0;
 
     while (bRunning)
     {
+        // IP veya Port dışarıdan (Beacon veya UI ile) güncellendiğinde soket hedefini anında yenile
+        if (TargetIP != CurrentTargetIP || TelemetryPort != CurrentPort)
+        {
+            CurrentTargetIP = TargetIP;
+            CurrentPort = TelemetryPort;
+            TargetAddr->SetIp(*CurrentTargetIP, bIsValid);
+            TargetAddr->SetPort(CurrentPort);
+            UE_LOG(LogTemp, Warning, TEXT("🔄 [Pi5Bridge] Hedef IP/Port Güncellendi: %s:%d"), *CurrentTargetIP, CurrentPort);
+        }
+
+        if (!CachedGateway && GetOwner())
+        {
+            CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
+        }
+
         if (CachedGateway && TelemetrySocket)
         {
             FString JsonPayload = CachedGateway->BuildSitlJsonState();
             FTCHARToUTF8 Utf8(*JsonPayload);
             int32 BytesSent = 0;
             TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *TargetAddr);
+
+            PacketCount++;
+            if (PacketCount == 1 || PacketCount % 500 == 0)
+            {
+                UE_LOG(LogTemp, Log, TEXT("📡 [Pi5Bridge] Telemetri Paketi Gönderildi (#%d) -> %s:%d"),
+                    PacketCount, *CurrentTargetIP, CurrentPort);
+            }
         }
 
         float SleepSeconds = 1.0f / FMath::Max(1.0f, TelemetryRateHz);
         FPlatformProcess::Sleep(SleepSeconds);
     }
+
+    UE_LOG(LogTemp, Warning, TEXT("🛑 [Pi5Bridge] Telemetri Döngüsü Durduruldu."));
 }
 
 // @state: WIP - Canlı video akış iş parçacığı döngüsü (Sadece abone olunduğunda JPEG karelerini UDP basar)
@@ -222,13 +254,24 @@ void UPiSimPi5Bridge::ExecuteVideoLoop(FThreadSafeBool& bRunning)
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
     TSharedRef<FInternetAddr> TargetAddr = SocketSubsystem->CreateInternetAddr();
     bool bIsValid = false;
-    TargetAddr->SetIp(*TargetIP, bIsValid);
-    TargetAddr->SetPort(VideoPort);
+
+    FString CurrentTargetIP = TargetIP;
+    int32 CurrentPort = VideoPort;
+    TargetAddr->SetIp(*CurrentTargetIP, bIsValid);
+    TargetAddr->SetPort(CurrentPort);
 
     TArray<uint8> JpegBytes;
 
     while (bRunning)
     {
+        if (TargetIP != CurrentTargetIP || VideoPort != CurrentPort)
+        {
+            CurrentTargetIP = TargetIP;
+            CurrentPort = VideoPort;
+            TargetAddr->SetIp(*CurrentTargetIP, bIsValid);
+            TargetAddr->SetPort(CurrentPort);
+        }
+
         bool bSubscribed = false;
         {
             FScopeLock SubLock(&VideoSubscriptionLock);
