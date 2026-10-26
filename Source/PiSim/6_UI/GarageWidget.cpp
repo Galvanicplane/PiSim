@@ -1588,32 +1588,10 @@ void UPiSimModularGarageWidget::CheckIncomingBeacons()
     }
 }
 
-// @state: WIP - Sadece fiziksel yerel ağa PISIM_PROBE keşif paketi fırlatır (Port 7499 Broadcast)
+// @state: WIP - KURAL: Unreal probe fırlatmaz, sadece Pi 5'ten gelen sinyalleri dinler (Port 7499)
 void UPiSimModularGarageWidget::TriggerBeaconProbe()
 {
-    ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
-    if (!SocketSubsystem) return;
-
-    FSocket* ProbeSock = FUdpSocketBuilder(TEXT("PiSimProbeSenderSocket"))
-        .AsNonBlocking()
-        .AsReusable()
-        .WithBroadcast();
-
-    if (!ProbeSock) return;
-
-    FString ProbePayload = TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"timestamp\":0}");
-    FTCHARToUTF8 Utf8(*ProbePayload);
-    int32 BytesSent = 0;
-
-    // Sadece yerel ağ broadcast'i (Loopback'e gönderilmez, fiziksel cihaz hedeflenir)
-    TSharedRef<FInternetAddr> BcastAddr = SocketSubsystem->CreateInternetAddr();
-    bool bValid = false;
-    BcastAddr->SetIp(TEXT("255.255.255.255"), bValid);
-    BcastAddr->SetPort(7499);
-    ProbeSock->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
-
-    SocketSubsystem->DestroySocket(ProbeSock);
-    UE_LOG(LogTemp, Log, TEXT("📡 [GarageWidget] Keşif Probu Gönderildi (Port 7499 Broadcast)"));
+    UE_LOG(LogTemp, Log, TEXT("📡 [GarageWidget] Dinleyici aktif (Port 7499 üzerinden Pi 5 bekleniyor)"));
 }
 
 // @state: WIP - Seçili aracın Raspberry Pi 5 veya hedef IP adresini günceller ve yayını başlatır
