@@ -7,6 +7,7 @@
 #include "HAL/PlatformProcess.h"
 #include "GameFramework/Actor.h"
 #include "Vehicle.h"
+#include "TelemetryLogger.h"
 
 // --- FPi5WorkerThread İş Parçacığı Mantığı ---
 
@@ -344,6 +345,19 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
                                 UE_LOG(LogTemp, Warning, TEXT("⚡ [Pi5Bridge] 🎉 RASPBERRY PI 5 EŞLEŞTİRİLDİ! IP: %s (Port: %d)"), *TargetIP, TelemetryPort);
                             }
                             OnPi5BeaconDiscovered.Broadcast(RecvStr);
+                        }
+                    }
+                    else if (RecvStr.Contains(TEXT("PISIM_REQ_SQL_TABLE")))
+                    {
+                        APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
+                        if (OwnerVehicle && OwnerVehicle->TelemetryLogger)
+                        {
+                            FString TableJson = OwnerVehicle->TelemetryLogger->GetRecentTelemetryTableJson(50);
+                            FString RespPayload = FString::Printf(TEXT("{\"magic\":\"PISIM_RESP_SQL_TABLE\",\"data\":%s}\n"), *TableJson);
+                            FTCHARToUTF8 Utf8Resp(*RespPayload);
+                            int32 RespBytes = 0;
+                            DiscoverySocket->SendTo((const uint8*)Utf8Resp.Get(), Utf8Resp.Length(), RespBytes, *SenderAddr);
+                            UE_LOG(LogTemp, Warning, TEXT("📤 [Pi5Bridge] Pi 5'e SQL Telemetri Tablosu Gönderildi -> %s"), *SenderAddr->ToString(true));
                         }
                     }
                 }

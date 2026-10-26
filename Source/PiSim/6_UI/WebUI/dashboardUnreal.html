@@ -1096,10 +1096,11 @@
             if (!list || !dev || !dev.ip) return;
 
             const placeholder = list.querySelector('div');
-            if (placeholder && placeholder.innerText.includes('aranıyor')) {
+            if (placeholder && (placeholder.innerText.includes('aranıyor') || placeholder.innerText.includes('bekleniyor'))) {
                 list.innerHTML = '';
             }
 
+            const devPort = dev.port || dev.telemetry_port || 7400;
             const cleanId = `beacon-item-${String(dev.ip).replace(/[^a-zA-Z0-9]/g, '_')}`;
             let item = document.getElementById(cleanId);
             const msgText = dev.msg || "HI FROM PI5";
@@ -1115,20 +1116,24 @@
                 const ipInp = document.getElementById('ue-input-manual-target-ip');
                 const portInp = document.getElementById('ue-input-manual-target-port');
                 if (ipInp) ipInp.value = dev.ip;
-                if (portInp) portInp.value = dev.port || 7400;
+                if (portInp) portInp.value = devPort;
                 applyUeManualTargetConnection();
             };
 
             item.innerHTML = `
                 <div>
-                    <div class="dev-name" style="color: #ffffff; font-weight: 800;">🟢 ${dev.name || 'Raspberry Pi 5 (Companion)'}</div>
-                    <div class="dev-ip" style="color: var(--text-muted); font-size: 8.5px;">${dev.ip}:${dev.port || 7400}</div>
+                    <div class="dev-name" style="color: #00dfb6; font-weight: 800;">🟢 ${dev.name || 'Raspberry Pi 5 (Companion)'}</div>
+                    <div class="dev-ip" style="color: var(--text-muted); font-size: 8.5px;">${dev.ip}:${devPort}</div>
                 </div>
                 <div class="dev-ping" style="color: var(--accent-color); font-weight: 800; font-size: 9px;">${msgText}</div>
             `;
 
             const statusTag = document.getElementById('beacon-radar-status');
-            if (statusTag) statusTag.innerText = "[EŞLEŞTİ]";
+            if (statusTag) {
+                statusTag.innerText = `[BAĞLI: ${dev.ip}]`;
+                statusTag.style.color = "#00dfb6";
+                statusTag.style.fontWeight = "800";
+            }
         }
 
         function applyUeManualTargetConnection() {
@@ -1183,11 +1188,13 @@
                     return;
                 }
 
+                const devPort = dev.port || dev.telemetry_port || 7400;
+
                 // Alt paneldeki giriş kutularını güncelle
                 const ipInp = document.getElementById('ue-input-manual-target-ip');
                 const portInp = document.getElementById('ue-input-manual-target-port');
-                if (ipInp && !ipInp.value) ipInp.value = dev.ip;
-                if (portInp && !portInp.value) portInp.value = dev.port || 7400;
+                if (ipInp && (!ipInp.value || ipInp.value === "127.0.0.1")) ipInp.value = dev.ip;
+                if (portInp && !portInp.value) portInp.value = devPort;
 
                 // 4. KURAL: Alt panelin 3. sütunundaki cihazlar listesine ekle
                 addConnectedDeviceToList(dev);
@@ -1196,7 +1203,12 @@
                 addPacketLog(`RX ← PI5 (${dev.ip}) | <b style="color:var(--accent-color);">${dev.msg || 'HI FROM PI5'}</b>`);
 
                 // Pi 5 bulunduğunda düğümleri canlandır ve parlat
-                setUeBridgeNodesActive(true, dev.ip, dev.port || 7400);
+                setUeBridgeNodesActive(true, dev.ip, devPort);
+
+                // Kullanıcı paneli doğrudan görsün diye alt çekmeceyi otomatik aç
+                if (!isBottomBridgeOpen) {
+                    toggleBottomBridge();
+                }
             } catch (e) {
                 console.error("[PiSim UI] Beacon parse hatası:", e);
             }

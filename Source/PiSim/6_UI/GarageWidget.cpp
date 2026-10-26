@@ -76,6 +76,25 @@ void UPiSimModularGarageWidget::NativeTick(const FGeometry& MyGeometry, float In
         }
     }
 
+    // Aktif eşleşmiş Pi 5 cihazını düzenli olarak Web arayüzüne senkronize et
+    static float BeaconSyncTimer = 0.0f;
+    BeaconSyncTimer += InDeltaTime;
+    if (BeaconSyncTimer > 1.0f && WebBrowserWidget.IsValid())
+    {
+        BeaconSyncTimer = 0.0f;
+        APiSimVehicle* VehicleToCheck = TargetVehicle ? TargetVehicle : (FleetVehicles.Num() > 0 ? FleetVehicles[0] : nullptr);
+        if (VehicleToCheck && VehicleToCheck->Pi5Bridge)
+        {
+            FString Target = VehicleToCheck->Pi5Bridge->TargetIP;
+            if (!Target.IsEmpty() && Target != TEXT("127.0.0.1") && Target != TEXT("0.0.0.0"))
+            {
+                FString Script = FString::Printf(TEXT("if (typeof onBeaconDeviceDiscovered === 'function') { onBeaconDeviceDiscovered({name:'Raspberry Pi 5 (Companion)', ip:'%s', telemetry_port:%d, port:%d, msg:'HI FROM PI5', status:'ONLINE'}); }"),
+                    *Target, VehicleToCheck->Pi5Bridge->TelemetryPort, VehicleToCheck->Pi5Bridge->TelemetryPort);
+                WebBrowserWidget->ExecuteJavascript(Script);
+            }
+        }
+    }
+
     if (!TargetVehicle && GetWorld())
     {
         AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
@@ -1535,12 +1554,13 @@ bool UPiSimModularGarageWidget::SetTargetIP(const FString& InIP, int32 InPort)
 // @state: WIP - Pi5Bridge tarafından yakalanan beacon paketini WebUI arayüzüne iletir (Görsel Katman)
 void UPiSimModularGarageWidget::HandlePi5BeaconReceived(const FString& BeaconJson)
 {
+    UE_LOG(LogTemp, Warning, TEXT("📡 [GarageWidget] Pi 5 Beacon Alındı ve Web Arayüzüne İletiliyor: %s"), *BeaconJson);
     AsyncTask(ENamedThreads::GameThread, [this, BeaconJson]()
     {
         if (WebBrowserWidget.IsValid())
         {
-            FString EscapedJson = BeaconJson.Replace(TEXT("\n"), TEXT("")).Replace(TEXT("\r"), TEXT(""));
-            FString Script = FString::Printf(TEXT("if (typeof onBeaconDeviceDiscovered === 'function') { onBeaconDeviceDiscovered('%s'); }"), *EscapedJson);
+            FString CleanJson = BeaconJson.Replace(TEXT("\n"), TEXT(" ")).Replace(TEXT("\r"), TEXT(""));
+            FString Script = FString::Printf(TEXT("if (typeof onBeaconDeviceDiscovered === 'function') { onBeaconDeviceDiscovered(%s); }"), *CleanJson);
             WebBrowserWidget->ExecuteJavascript(Script);
         }
     });
