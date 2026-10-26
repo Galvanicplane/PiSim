@@ -626,16 +626,16 @@
                     </div>
                 </div>
 
-                <!-- 2. BİRLEŞİK 3 DÜĞÜM DİYAGRAMI -->
+                <!-- 2. BİRLEŞİK 3 DÜĞÜM DİYAGRAMI (Varsayılan: Gri / Sönük, Bağlanınca Aktif) -->
                 <div class="data-flow-container" style="padding: 4px 8px;">
-                    <div class="data-node-endpoint active-node" style="width: 110px; padding: 4px;">
-                        <div class="node-title" style="font-size: 10px;">PISIM WEBUI</div>
-                        <div class="node-sub" style="font-size: 8px;">PORT: 9002</div>
+                    <div class="data-node-endpoint" id="ue-node-endpoint-left" style="width: 120px; padding: 4px;">
+                        <div class="node-title" style="font-size: 10px;">RASPBERRY PI 5</div>
+                        <div class="node-sub" id="ue-node-left-sub" style="font-size: 8px;">PORT: 7400 RX</div>
                     </div>
 
                     <div class="data-flow-center-branches" style="gap: 4px;">
                         <div class="branch-tier" id="tier-sitl">
-                            <div class="two-way-pipe-group active-channel" id="channel-sitl" onclick="inspectChannel('sitl')">
+                            <div class="two-way-pipe-group" id="channel-sitl" onclick="inspectChannel('sitl')">
                                 <div class="pipe-lane">
                                     <span class="pipe-dir-tag" style="color:var(--accent-color);">TX→</span>
                                     <div class="data-pipe tx"><div class="data-pipe-packet"></div></div>
@@ -645,9 +645,9 @@
                                     <div class="data-pipe rx"><div class="data-pipe-packet"></div></div>
                                 </div>
                             </div>
-                            <div class="data-node active-node" style="min-width: 100px; padding: 3px 6px;">
-                                <div class="node-title" style="font-size: 9px;">ARDUPILOT SITL</div>
-                                <div class="node-sub" style="font-size: 8px;">MAVLINK / FCU</div>
+                            <div class="data-node" id="ue-node-center" style="min-width: 110px; padding: 3px 6px;">
+                                <div class="node-title" style="font-size: 9px;">UDP 7400 TELEMETRİ</div>
+                                <div class="node-sub" style="font-size: 8px;">JSON / SITL</div>
                             </div>
                             <div class="two-way-pipe-group" id="channel-ue5" onclick="inspectChannel('ue5')">
                                 <div class="pipe-lane">
@@ -662,9 +662,27 @@
                         </div>
                     </div>
 
-                    <div class="data-node-endpoint active-node" style="width: 110px; padding: 4px;">
+                    <div class="data-node-endpoint" id="ue-node-endpoint-right" style="width: 120px; padding: 4px;">
                         <div class="node-title" style="font-size: 10px;">UNREAL 5</div>
                         <div class="node-sub" style="font-size: 8px;">CHAOS FİZİK</div>
+                    </div>
+                </div>
+
+                <!-- MANUEL HEDEF IP & PORT AYARI VE KENDİ IP BİLGİSİ (ALT PANEL) -->
+                <div class="manual-connection-bar" style="display: flex; justify-content: space-between; align-items: center; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--mono-border); padding: 4px 10px; margin: 3px 0; font-family: var(--font-mono); font-size: 10px; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="color: var(--text-muted); font-weight: 700;">📡 BU PC (UNREAL) IP:</span>
+                        <span id="ue-label-local-ip" style="color: #00e5ff; font-weight: 800; background: rgba(0, 229, 255, 0.1); padding: 1px 6px; border: 1px solid rgba(0, 229, 255, 0.3);">192.168.1.3 / 127.0.0.1</span>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="color: var(--text-muted); font-weight: 700;">HEDEF (PI 5) IP:</span>
+                        <input type="text" id="ue-input-manual-target-ip" placeholder="192.168.1.X" style="width: 110px; background: #06090c; border: 1px solid var(--mono-border); color: #ffffff; padding: 2px 6px; font-size: 10px; font-family: var(--font-mono);">
+                        <span style="color: var(--text-muted); font-weight: 700;">PORT:</span>
+                        <input type="number" id="ue-input-manual-target-port" value="7400" style="width: 55px; background: #06090c; border: 1px solid var(--mono-border); color: var(--accent-color); padding: 2px 6px; font-size: 10px; font-family: var(--font-mono);">
+                        <button class="cod-btn cod-btn-accent" style="padding: 2px 8px; font-size: 9.5px;" onclick="applyUeManualTargetConnection()">
+                            UYGULA / YAYINI BAŞLAT
+                        </button>
                     </div>
                 </div>
 
@@ -1041,10 +1059,84 @@
             }
         }
 
+        function setUeLocalIp(ipStr) {
+            if (!ipStr) return;
+            const el = document.getElementById('ue-label-local-ip');
+            if (el) el.innerText = ipStr;
+        }
+
+        function setUeBridgeNodesActive(isActive, ip, port) {
+            const nLeft = document.getElementById('ue-node-endpoint-left');
+            const nCenter = document.getElementById('ue-node-center');
+            const nRight = document.getElementById('ue-node-endpoint-right');
+            const pipes = document.querySelectorAll('.drawer-bottom-bridge .data-pipe');
+
+            if (isActive) {
+                if (nLeft) nLeft.classList.add('active-node');
+                if (nCenter) nCenter.classList.add('active-node');
+                if (nRight) nRight.classList.add('active-node');
+                pipes.forEach(p => p.classList.add('connected'));
+                if (ip) {
+                    const sub = document.getElementById('ue-node-left-sub');
+                    if (sub) sub.innerText = `${ip}:${port || 7400} RX`;
+                }
+            } else {
+                if (nLeft) nLeft.classList.remove('active-node');
+                if (nCenter) nCenter.classList.remove('active-node');
+                if (nRight) nRight.classList.remove('active-node');
+                pipes.forEach(p => p.classList.remove('connected'));
+            }
+        }
+
+        function applyUeManualTargetConnection() {
+            const ipInp = document.getElementById('ue-input-manual-target-ip');
+            const portInp = document.getElementById('ue-input-manual-target-port');
+            const ip = ipInp ? ipInp.value.trim() : '';
+            const port = portInp ? parseInt(portInp.value) : 7400;
+
+            if (!ip) {
+                addLog("⚠️ Lütfen hedef IP adresini giriniz (örn: 192.168.1.50)");
+                return;
+            }
+
+            // Ayrıca sağ paneldeki manuel rota kutularını güncelle
+            const customIp = document.getElementById('input-custom-ip');
+            const customPort = document.getElementById('input-custom-port');
+            if (customIp) customIp.value = ip;
+            if (customPort) customPort.value = port;
+
+            if (currentVehicleId && fleetData[currentVehicleId]) {
+                fleetData[currentVehicleId].targetIp = ip;
+                fleetData[currentVehicleId].targetPort = port;
+            }
+
+            addLog(`[MANUEL HEDEF] Hedef IP ayarlandı: ${ip}:${port}`);
+            addPacketLog(`TARGET_OVERRIDE_TX: ${ip}:${port}`);
+
+            if (window.ue && window.ue.garage && window.ue.garage.settargetip) {
+                window.ue.garage.settargetip(ip, port);
+            } else if (window.garage && window.garage.SetTargetIP) {
+                window.garage.SetTargetIP(ip, port);
+            }
+
+            setUeBridgeNodesActive(true, ip, port);
+        }
+
         function onBeaconDeviceDiscovered(deviceJson) {
             try {
                 const dev = (typeof deviceJson === 'string') ? JSON.parse(deviceJson) : deviceJson;
                 if (!dev || !dev.ip) return;
+
+                // FARKLI FİZİKSEL CİHAZ KURALI: Loopback (127.0.0.1) veya Unreal kendisini asla eşleşme olarak eklemez
+                if (dev.ip === "127.0.0.1" || dev.source === "UE5_UNREAL" || (dev.name && dev.name.includes("Unreal"))) {
+                    return;
+                }
+
+                // Alt paneldeki manuel giriş alanını otomatik doldur
+                const ipInp = document.getElementById('ue-input-manual-target-ip');
+                const portInp = document.getElementById('ue-input-manual-target-port');
+                if (ipInp && !ipInp.value) ipInp.value = dev.ip;
+                if (portInp && !portInp.value) portInp.value = dev.port || 7400;
 
                 const list = document.getElementById('beacon-device-list');
                 if (list) {
@@ -1056,14 +1148,13 @@
                     const item = document.createElement('div');
                     item.className = 'beacon-device-item';
                     item.onclick = () => {
-                        document.getElementById('input-custom-ip').value = dev.ip;
-                        document.getElementById('input-custom-port').value = dev.port || 7400;
-                        setRoutingDevice('custom');
-                        applyCustomRouting();
+                        if (ipInp) ipInp.value = dev.ip;
+                        if (portInp) portInp.value = dev.port || 7400;
+                        applyUeManualTargetConnection();
                     };
                     item.innerHTML = `
                         <div>
-                            <div class="dev-name">🟢 ${dev.name || 'Bilinmeyen Cihaz'}</div>
+                            <div class="dev-name">🟢 ${dev.name || 'Raspberry Pi 5'}</div>
                             <div class="dev-ip">${dev.ip}:${dev.port || 7400}</div>
                         </div>
                         <div class="dev-ping">${dev.ping || 'LAN'}</div>
@@ -1072,17 +1163,16 @@
                 }
 
                 const statusTag = document.getElementById('beacon-radar-status');
-                if (statusTag) statusTag.innerText = "[BULUNDU]";
+                if (statusTag) statusTag.innerText = "[EŞLEŞTİ]";
 
-                addLog(`⚡ Cihaz Keşfedildi: ${dev.name || 'Cihaz'} (${dev.ip})`);
+                addLog(`⚡ Cihaz Keşfedildi: ${dev.name || 'Raspberry Pi 5'} (${dev.ip})`);
                 addPacketLog(`BEACON_DISCOVERED: ${dev.ip}:${dev.port || 7400}`);
+
+                // Pi 5 bulunduğunda düğümleri canlandır ve parlat
+                setUeBridgeNodesActive(true, dev.ip, dev.port || 7400);
             } catch (e) {
                 console.error("[PiSim UI] Beacon parse hatası:", e);
             }
-        }
-
-        function pairDiscoveredBeacon() {
-            // Toast kaldırıldı, eşleştirme alt radardan veya IP girişinden yapılır
         }
 
         function hideBeaconToast() {

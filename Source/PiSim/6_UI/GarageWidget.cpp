@@ -68,6 +68,25 @@ void UPiSimModularGarageWidget::NativeTick(const FGeometry& MyGeometry, float In
 
     CheckIncomingBeacons();
 
+    static float LocalIpPushTimer = 0.0f;
+    LocalIpPushTimer += InDeltaTime;
+    if (LocalIpPushTimer > 2.0f && WebBrowserWidget.IsValid())
+    {
+        LocalIpPushTimer = 0.0f;
+        ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+        if (SocketSubsystem)
+        {
+            bool bCanBindAll = false;
+            TSharedPtr<FInternetAddr> LocalAddr = SocketSubsystem->GetLocalHostAddr(*GLog, bCanBindAll);
+            if (LocalAddr.IsValid())
+            {
+                FString LocalIpStr = LocalAddr->ToString(false);
+                FString Script = FString::Printf(TEXT("if (typeof setUeLocalIp === 'function') { setUeLocalIp('%s'); }"), *LocalIpStr);
+                WebBrowserWidget->ExecuteJavascript(Script);
+            }
+        }
+    }
+
     if (!TargetVehicle && GetWorld())
     {
         AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
@@ -1538,6 +1557,13 @@ void UPiSimModularGarageWidget::CheckIncomingBeacons()
                 if (RecvStr.Contains(TEXT("PISIM_BEACON")) || RecvStr.Contains(TEXT("Raspberry Pi")))
                 {
                     FString SenderIpStr = SenderAddr->ToString(false);
+
+                    // FARKLI FİZİKSEL CİHAZ KURALI: Loopback (127.0.0.1) veya kendisini asla eşleşme olarak kabul etme!
+                    if (SenderIpStr == TEXT("127.0.0.1"))
+                    {
+                        continue;
+                    }
+
                     UE_LOG(LogTemp, Warning, TEXT("⚡ [GarageWidget] Yeni Beacon Yakalandı: %s (Gönderen: %s)"), *RecvStr, *SenderIpStr);
 
                     // Pi 5 ağ üzerinden yayın yapıyorsa ve mevcut hedef hala localhost ise otomatik eşleştir
@@ -1562,7 +1588,7 @@ void UPiSimModularGarageWidget::CheckIncomingBeacons()
     }
 }
 
-// @state: WIP - Ağa ve yerel loopback'e PISIM_PROBE keşif paketi fırlatır (Port 7499)
+// @state: WIP - Sadece fiziksel yerel ağa PISIM_PROBE keşif paketi fırlatır (Port 7499 Broadcast)
 void UPiSimModularGarageWidget::TriggerBeaconProbe()
 {
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
@@ -1579,21 +1605,15 @@ void UPiSimModularGarageWidget::TriggerBeaconProbe()
     FTCHARToUTF8 Utf8(*ProbePayload);
     int32 BytesSent = 0;
 
-    // 1. Ağ broadcast'i
+    // Sadece yerel ağ broadcast'i (Loopback'e gönderilmez, fiziksel cihaz hedeflenir)
     TSharedRef<FInternetAddr> BcastAddr = SocketSubsystem->CreateInternetAddr();
     bool bValid = false;
     BcastAddr->SetIp(TEXT("255.255.255.255"), bValid);
     BcastAddr->SetPort(7499);
     ProbeSock->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
 
-    // 2. Yerel döngü (Loopback)
-    TSharedRef<FInternetAddr> LocalAddr = SocketSubsystem->CreateInternetAddr();
-    LocalAddr->SetIp(TEXT("127.0.0.1"), bValid);
-    LocalAddr->SetPort(7499);
-    ProbeSock->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *LocalAddr);
-
     SocketSubsystem->DestroySocket(ProbeSock);
-    UE_LOG(LogTemp, Log, TEXT("📡 [GarageWidget] Keşif Probu Gönderildi (Port 7499)"));
+    UE_LOG(LogTemp, Log, TEXT("📡 [GarageWidget] Keşif Probu Gönderildi (Port 7499 Broadcast)"));
 }
 
 // @state: WIP - Seçili aracın Raspberry Pi 5 veya hedef IP adresini günceller ve yayını başlatır
@@ -1612,6 +1632,14 @@ bool UPiSimModularGarageWidget::SetTargetIP(const FString& InIP, int32 InPort)
         VehicleToConfig->Pi5Bridge->StartStreaming(InIP, InPort, InPort + 1);
         UE_LOG(LogTemp, Warning, TEXT("🎯 [GarageWidget] Araç %d Hedef IP Güncellendi: %s:%d"),
             VehicleToConfig->VehicleId, *InIP, InPort);
+
+        // Web arayüzündeki köprü kutularını anında canlandır ve parlat
+        if (WebBrowserWidget.IsValid())
+        {
+            FString Script = FString::Printf(TEXT("if (typeof setUeBridgeNodesActive === 'function') { setUeBridgeNodesActive(true, '%s', %d); }"), *InIP, InPort);
+            WebBrowserWidget->ExecuteJavascript(Script);
+        }
+
         return true;
     }
 
