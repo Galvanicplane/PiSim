@@ -45,8 +45,9 @@ void UPiSimServoComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
         // MinAngleDeg ile MaxAngleDeg arasında kesintisiz salın
         TargetAngleDeg = FMath::Lerp(MinAngleDeg, MaxAngleDeg, Alpha);
 
-        // Canlı Ekrana Debug Bilgisi Bas
-        if (GEngine)
+        // Canlı Ekrana Debug Bilgisi Bas (Sadece bShowDebugVisualsAndMessages aktifse)
+        APiSimVehicle* ParentVehicle = Cast<APiSimVehicle>(GetOwner());
+        if (ParentVehicle && ParentVehicle->bShowDebugVisualsAndMessages && GEngine)
         {
             int32 MsgKey = 910 + (GetUniqueID() % 50);
             FString BoneStr = TargetBoneName.ToString();
@@ -210,7 +211,8 @@ void UPiSimServoComponent::SetInspectablePropertyFloat(FName PropertyId, float N
         *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue,
         TargetSceneComponent ? *TargetSceneComponent->GetName() : TEXT("Bağlanmadı (Aranıyor...)"));
 
-    if (GEngine)
+    APiSimVehicle* ParentVehicle = Cast<APiSimVehicle>(GetOwner());
+    if (ParentVehicle && ParentVehicle->bShowDebugVisualsAndMessages && GEngine)
     {
         GEngine->AddOnScreenDebugMessage(910, 2.0f, FColor::Yellow,
             FString::Printf(TEXT("⚡ [SERVO DEBUG] %s (%s) = %.2f°"), *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue));

@@ -1035,17 +1035,69 @@ FReply UPiSimModularGarageWidget::OnAutoAssignMotorsClicked()
     return FReply::Handled();
 }
 
-FReply UPiSimModularGarageWidget::OnSaveProfileClicked()
+// @state: WIP - Aracı verilen veya mevcut isimle JSON profili olarak kaydeder
+bool UPiSimModularGarageWidget::SaveProfile(const FString& InProfileName)
 {
-    if (TargetVehicle && ProfileNameInput.IsValid())
+    if (!TargetVehicle && GetWorld())
     {
-        FString OutMsg;
-        UPiSimSaveManager::SaveProfile(TargetVehicle, ProfileNameInput->GetText().ToString(), OutMsg);
-        if (StatusMessageText.IsValid())
+        TArray<AActor*> FoundVehicles;
+        UGameplayStatics::GetAllActorsOfClass(GetWorld(), APiSimVehicle::StaticClass(), FoundVehicles);
+        if (FoundVehicles.Num() > 0)
         {
-            StatusMessageText->SetText(FText::FromString(OutMsg));
+            TargetVehicle = Cast<APiSimVehicle>(FoundVehicles[0]);
         }
     }
+
+    if (!TargetVehicle)
+    {
+        UE_LOG(LogTemp, Error, TEXT("❌ [UPiSimModularGarageWidget::SaveProfile] Hedef araç bulunamadı!"));
+        return false;
+    }
+
+    FString ActualProfileName = InProfileName.TrimStartAndEnd();
+    if (ActualProfileName.IsEmpty())
+    {
+        if (ProfileNameInput.IsValid() && !ProfileNameInput->GetText().IsEmpty())
+        {
+            ActualProfileName = ProfileNameInput->GetText().ToString().TrimStartAndEnd();
+        }
+        else if (!ActiveModelFileName.IsEmpty())
+        {
+            ActualProfileName = FPaths::GetBaseFilename(ActiveModelFileName);
+        }
+        else
+        {
+            ActualProfileName = FString::Printf(TEXT("Ozel_Model_%d"), FMath::RandRange(10, 99));
+        }
+    }
+
+    ActualProfileName = ActualProfileName.Replace(TEXT(" "), TEXT("_"));
+
+    FString OutMsg;
+    bool bSuccess = UPiSimSaveManager::SaveProfile(TargetVehicle, ActualProfileName, OutMsg);
+
+    UE_LOG(LogTemp, Warning, TEXT("💾 [GarageWidget::SaveProfile] Profil: '%s' -> Sonuç: %d (%s)"),
+        *ActualProfileName, bSuccess, *OutMsg);
+
+    if (StatusMessageText.IsValid())
+    {
+        StatusMessageText->SetText(FText::FromString(OutMsg));
+    }
+
+    if (WebBrowserWidget)
+    {
+        FString Script = FString::Printf(TEXT("if (typeof window.onProfileSaved === 'function') { window.onProfileSaved('%s', %s, '%s'); }"),
+            *ActualProfileName, bSuccess ? TEXT("true") : TEXT("false"), *OutMsg);
+        WebBrowserWidget->ExecuteJavascript(Script);
+    }
+
+    return bSuccess;
+}
+
+FReply UPiSimModularGarageWidget::OnSaveProfileClicked()
+{
+    FString NameToUse = ProfileNameInput.IsValid() ? ProfileNameInput->GetText().ToString() : TEXT("");
+    SaveProfile(NameToUse);
     return FReply::Handled();
 }
 
@@ -1191,6 +1243,13 @@ FString UPiSimModularGarageWidget::GetSavedProfilesJson()
         }
     }
     JsonStr += TEXT("]");
+
+    if (WebBrowserWidget.IsValid())
+    {
+        FString Script = FString::Printf(TEXT("if (typeof window.onSavedProfilesLoaded === 'function') { window.onSavedProfilesLoaded('%s'); }"), *JsonStr);
+        WebBrowserWidget->ExecuteJavascript(Script);
+    }
+
     return JsonStr;
 }
 
@@ -1235,11 +1294,18 @@ bool UPiSimModularGarageWidget::SpawnVehicleAtCursor(const FString& ProfileName)
 
     if (VehicleToInit)
     {
+        // Varsayılan olarak tüm kemik ve debug görsel/metinlerini kapat
+        VehicleToInit->SetDebugVisualsEnabled(false);
+
         FString OutMsg;
         UPiSimSaveManager::LoadProfile(VehicleToInit, ProfileName, OutMsg);
+
+        // Profil yüklendikten sonra da debug görsellerinin kapalı kaldığını garanti et
+        VehicleToInit->SetDebugVisualsEnabled(false);
+
         FocusVehicle(VehicleToInit->VehicleId);
 
-        if (GEngine)
+        if (VehicleToInit->bShowDebugVisualsAndMessages && GEngine)
         {
             GEngine->AddOnScreenDebugMessage(810, 4.0f, FColor::Green,
                 FString::Printf(TEXT("✅ [%s] Filoya Eklendi! (Araç ID: %d, SITL Rx:%d, Tx:%d)"),
@@ -1385,7 +1451,7 @@ void UPiSimModularGarageWidget::FlushTelemetryToSql()
         }
     }
 
-    if (GEngine)
+    if (TargetVehicle && TargetVehicle->bShowDebugVisualsAndMessages && GEngine)
     {
         GEngine->AddOnScreenDebugMessage(811, 3.5f, FColor::Cyan,
             TEXT("💾 [SQL Telemetri] 1 Dakikalık Batch Veritabanına Başarıyla Yazıldı (Saved/Telemetry/flight_telemetry.sql)"));

@@ -153,7 +153,8 @@ void UPiSimWheelComponent::SetInspectablePropertyFloat(FName PropertyId, float N
         *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue,
         TargetSceneComponent ? *TargetSceneComponent->GetName() : TEXT("Bağlanmadı (Aranıyor...)"));
 
-    if (GEngine)
+    APiSimVehicle* ParentVehicle = Cast<APiSimVehicle>(GetOwner());
+    if (ParentVehicle && ParentVehicle->bShowDebugVisualsAndMessages && GEngine)
     {
         GEngine->AddOnScreenDebugMessage(920, 2.0f, FColor::Cyan,
             FString::Printf(TEXT("⚡ [TEKERLEK DEBUG] %s (%s) = %.2f"), *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue));

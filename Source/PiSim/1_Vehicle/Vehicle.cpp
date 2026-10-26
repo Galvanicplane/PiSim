@@ -50,7 +50,30 @@ APiSimVehicle::APiSimVehicle()
 
     Pi5Bridge = CreateDefaultSubobject<UPiSimPi5Bridge>(TEXT("Pi5Bridge"));
 
+    bShowDebugVisualsAndMessages = false;
     MotorDebugComponent = CreateDefaultSubobject<UPiSimMotorDebugComponent>(TEXT("MotorDebugComponent"));
+    if (MotorDebugComponent)
+    {
+        MotorDebugComponent->bEnableDebugDraw = false;
+        MotorDebugComponent->bShow3DText = false;
+        MotorDebugComponent->bShowBoneAxes = false;
+        MotorDebugComponent->bShowBoneHierarchyLines = false;
+        MotorDebugComponent->bShowLineTraces = false;
+    }
+}
+
+// @state: WIP - Kemik ve motor teşhis görselleştirmelerini ve ekran mesajlarını açıp kapatır
+void APiSimVehicle::SetDebugVisualsEnabled(bool bEnable)
+{
+    bShowDebugVisualsAndMessages = bEnable;
+    if (MotorDebugComponent)
+    {
+        MotorDebugComponent->bEnableDebugDraw = bEnable;
+        MotorDebugComponent->bShow3DText = bEnable;
+        MotorDebugComponent->bShowBoneAxes = bEnable;
+        MotorDebugComponent->bShowBoneHierarchyLines = bEnable;
+        MotorDebugComponent->bShowLineTraces = bEnable;
+    }
 }
 
 // @state: WIP - Başlangıçta fare kontrollerini açar, hedef modeli arar ve uygun arayüzü ekrana basar
@@ -679,8 +702,8 @@ void APiSimVehicle::SetMotorTestValue(FName BoneName, float Value)
     FRotator CompRelRot = TargetComp ? TargetComp->GetRelativeRotation() : FRotator::ZeroRotator;
     FRotator CompWorldRot = TargetComp ? TargetComp->GetComponentRotation() : FRotator::ZeroRotator;
 
-    // 1) Canlı Ekrana Debug Mesajları (Yeşil: Başarılı, Turuncu/Kırmızı: Eksik)
-    if (GEngine)
+    // 1) Canlı Ekrana Debug Mesajları (Sadece bShowDebugVisualsAndMessages aktifse)
+    if (bShowDebugVisualsAndMessages && GEngine)
     {
         // Temel Test Logu
         GEngine->AddOnScreenDebugMessage(923, 3.0f, TargetComp ? FColor::Green : FColor::Red,
@@ -845,7 +868,7 @@ void APiSimVehicle::SetVehiclePhysicsEnabled(bool bEnable)
             CameraSpringArm->TargetArmLength = 350.0f;
         }
 
-        if (GEngine)
+        if (bShowDebugVisualsAndMessages && GEngine)
         {
             GEngine->AddOnScreenDebugMessage(801, 8.0f, FColor::Orange, TEXT("🛑 >>> [FİZİK SİMÜLASYONU DURDURULDU] Robot Statik Moda Alındı <<<"));
         }
@@ -1046,8 +1069,8 @@ void APiSimVehicle::SetVehiclePhysicsEnabled(bool bEnable)
         }
     }
 
-    // Ekran Bildirimleri (PiSimModelImporter lines 3676-3686)
-    if (GEngine)
+    // Ekran Bildirimleri (Sadece bShowDebugVisualsAndMessages aktifse)
+    if (bShowDebugVisualsAndMessages && GEngine)
     {
         GEngine->AddOnScreenDebugMessage(801, 10.0f, FColor::Cyan,
             FString::Printf(TEXT("🚀 >>> [CHAOS FİZİK AKTİF!] %d Parça Canlı Simüle Ediliyor <<<"), VisualMeshComponents.Num()));

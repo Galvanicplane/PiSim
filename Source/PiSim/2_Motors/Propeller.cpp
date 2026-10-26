@@ -124,7 +124,8 @@ void UPiSimPropellerComponent::SetInspectablePropertyFloat(FName PropertyId, flo
         *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue,
         TargetSceneComponent ? *TargetSceneComponent->GetName() : TEXT("Bağlanmadı (Aranıyor...)"));
 
-    if (GEngine)
+    APiSimVehicle* ParentVehicle = Cast<APiSimVehicle>(GetOwner());
+    if (ParentVehicle && ParentVehicle->bShowDebugVisualsAndMessages && GEngine)
     {
         GEngine->AddOnScreenDebugMessage(930, 2.0f, FColor::Emerald,
             FString::Printf(TEXT("⚡ [PERVANE DEBUG] %s (%s) = %.2f"), *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue));

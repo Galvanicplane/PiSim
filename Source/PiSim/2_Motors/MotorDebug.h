@@ -28,7 +28,7 @@ public:
 
     /** 3D Kemik Çizgileri ve Teşhis Metinlerini Genel Aç/Kapa Anahtarı ('U' tuşu ile tetiklenir) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Debug")
-    bool bEnableDebugDraw = true;
+    bool bEnableDebugDraw = false;
 
     // @state: WIP - 'U' tuşu ile kemik teşhis çizgilerini ve ekrandaki debug metinlerini açıp kapatır
     UFUNCTION(BlueprintCallable, Category = "PiSim|Debug")
@@ -36,19 +36,19 @@ public:
 
     /** 3D Kemik Eksenlerini Göster (X: Kırmızı İleri, Y: Yeşil Sağ, Z: Mavi Yukarı) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Debug")
-    bool bShowBoneAxes = true;
+    bool bShowBoneAxes = false;
 
     /** Kemik Ebeveyn-Çocuk Bağlantı Çizgilerini Göster (Sarı Çizgiler) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Debug")
-    bool bShowBoneHierarchyLines = true;
+    bool bShowBoneHierarchyLines = false;
 
     /** Her Kemikten İleriye Doğru Kanal Bazlı Line Trace Yap ve Işın Çiz (Kanal: Visibility) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Debug")
-    bool bShowLineTraces = true;
+    bool bShowLineTraces = false;
 
     /** Dünyada Kemik Üzerine 3D Bilgi Metni Yaz (Açı, Visual Verts, UCX Verts) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Debug")
-    bool bShow3DText = true;
+    bool bShow3DText = false;
 
     /** Eksen Çizgi Uzunluğu (cm) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Debug")

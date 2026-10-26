@@ -209,6 +209,14 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Debug")
     class UPiSimMotorDebugComponent* MotorDebugComponent;
 
+    /** Kemik çizgileri, eksen okları ve ekrana basılan debug metinlerinin genel anahtarı (Varsayılan: KAPALI) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Debug")
+    bool bShowDebugVisualsAndMessages = false;
+
+    // @state: WIP - Kemik ve motor teşhis görselleştirmelerini ve ekran mesajlarını açıp kapatır
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Debug")
+    void SetDebugVisualsEnabled(bool bEnable);
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
     float TotalMassKg = 25.0f;
 

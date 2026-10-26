@@ -42,6 +42,10 @@ void UPiSimMotorDebugComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 void UPiSimMotorDebugComponent::ToggleDebugDraw()
 {
     bEnableDebugDraw = !bEnableDebugDraw;
+    bShowBoneAxes = bEnableDebugDraw;
+    bShowBoneHierarchyLines = bEnableDebugDraw;
+    bShowLineTraces = bEnableDebugDraw;
+    bShow3DText = bEnableDebugDraw;
 
     if (GEngine)
     {
@@ -203,7 +207,7 @@ void UPiSimMotorDebugComponent::DrawBoneDiagnostics()
         }
 
         // 6) EKRANA CANLI DEBUG BİLGİSİ
-        if (GEngine && BoneIdx < 12)
+        if (bEnableDebugDraw && GEngine && BoneIdx < 12)
         {
             GEngine->AddOnScreenDebugMessage(960 + BoneIdx, 0.15f, FColor::Emerald,
                 FString::Printf(TEXT("🦴 [KEMİK: %s] Yaw: %+.1f° | Vis: %d verts | UCX: %d verts | %s"),

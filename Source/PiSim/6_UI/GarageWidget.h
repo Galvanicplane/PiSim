@@ -83,7 +83,7 @@ public:
     void AutoAssignMotors() { OnAutoAssignMotorsClicked(); }
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
-    void SaveProfile() { OnSaveProfileClicked(); }
+    bool SaveProfile(const FString& InProfileName = TEXT(""));
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
     void BakeModel() { OnBakeClicked(); }
