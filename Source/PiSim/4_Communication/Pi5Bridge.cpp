@@ -78,6 +78,9 @@ void UPiSimPi5Bridge::BeginPlay()
             VideoPort = 7401 + (VehicleId * 10);
         }
     }
+
+    // Başlangıçta simülasyon başlar başlamaz telemetri akışını otomatik başlat (Port 7400)
+    StartStreaming(TargetIP, TelemetryPort, VideoPort);
 }
 
 // @state: WIP - İsteğe bağlı video aboneliğini açıp kapatır (On-Demand Video Streaming)

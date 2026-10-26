@@ -1537,7 +1537,19 @@ void UPiSimModularGarageWidget::CheckIncomingBeacons()
 
                 if (RecvStr.Contains(TEXT("PISIM_BEACON")) || RecvStr.Contains(TEXT("Raspberry Pi")))
                 {
-                    UE_LOG(LogTemp, Warning, TEXT("⚡ [GarageWidget] Yeni Beacon Yakalandı: %s"), *RecvStr);
+                    FString SenderIpStr = SenderAddr->ToString(false);
+                    UE_LOG(LogTemp, Warning, TEXT("⚡ [GarageWidget] Yeni Beacon Yakalandı: %s (Gönderen: %s)"), *RecvStr, *SenderIpStr);
+
+                    // Pi 5 ağ üzerinden yayın yapıyorsa ve mevcut hedef hala localhost ise otomatik eşleştir
+                    APiSimVehicle* VehicleToConfig = TargetVehicle ? TargetVehicle : (FleetVehicles.Num() > 0 ? FleetVehicles[0] : nullptr);
+                    if (VehicleToConfig && VehicleToConfig->Pi5Bridge)
+                    {
+                        if (VehicleToConfig->Pi5Bridge->TargetIP == TEXT("127.0.0.1") && SenderIpStr != TEXT("127.0.0.1"))
+                        {
+                            SetTargetIP(SenderIpStr, 7400);
+                        }
+                    }
+
                     if (WebBrowserWidget.IsValid())
                     {
                         FString EscapedJson = RecvStr.Replace(TEXT("\n"), TEXT("")).Replace(TEXT("\r"), TEXT(""));
