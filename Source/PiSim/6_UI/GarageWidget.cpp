@@ -68,6 +68,14 @@ void UPiSimModularGarageWidget::NativeTick(const FGeometry& MyGeometry, float In
 
     CheckIncomingBeacons();
 
+    static float BeaconProbeTimer = 0.0f;
+    BeaconProbeTimer += InDeltaTime;
+    if (BeaconProbeTimer > 1.5f)
+    {
+        BeaconProbeTimer = 0.0f;
+        TriggerBeaconProbe();
+    }
+
     static float LocalIpPushTimer = 0.0f;
     LocalIpPushTimer += InDeltaTime;
     if (LocalIpPushTimer > 2.0f && WebBrowserWidget.IsValid())
@@ -1512,7 +1520,7 @@ void UPiSimModularGarageWidget::NavigateToPage(const FString& PageFileName)
     }
 }
 
-// @state: WIP - Port 7499 üzerinden UDP beacon dinleyicisini başlatır
+// @state: WIP - Port 7499 üzerinden UDP beacon dinleyicisini ve prob fırlatıcısını başlatır
 void UPiSimModularGarageWidget::InitDiscoverySocket()
 {
     if (DiscoverySocket) return;
@@ -1524,15 +1532,16 @@ void UPiSimModularGarageWidget::InitDiscoverySocket()
         .AsNonBlocking()
         .AsReusable()
         .BoundToPort(7499)
+        .WithBroadcast()
         .WithReceiveBufferSize(65535);
 
     if (DiscoverySocket)
     {
-        UE_LOG(LogTemp, Log, TEXT("📡 [GarageWidget] UDP Keşif Dinleyicisi Hazır (Port 7499)"));
+        UE_LOG(LogTemp, Log, TEXT("📡 [GarageWidget] UDP Keşif & Prob Dinleyicisi Hazır (Port 7499)"));
     }
 }
 
-// @state: WIP - Gelen Pi5 Beacon paketlerini denetler ve WebUI'a iletir
+// @state: WIP - Gelen Pi5 Beacon ve Heartbeat paketlerini denetler ve WebUI'a iletir
 void UPiSimModularGarageWidget::CheckIncomingBeacons()
 {
     if (!DiscoverySocket) return;
@@ -1554,7 +1563,7 @@ void UPiSimModularGarageWidget::CheckIncomingBeacons()
                 RecvBuffer.Add(0); // Null terminator
                 FString RecvStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
 
-                if (RecvStr.Contains(TEXT("PISIM_BEACON")) || RecvStr.Contains(TEXT("Raspberry Pi")))
+                if (RecvStr.Contains(TEXT("PISIM_BEACON")) || RecvStr.Contains(TEXT("Raspberry Pi")) || RecvStr.Contains(TEXT("HI FROM PI5")))
                 {
                     FString SenderIpStr = SenderAddr->ToString(false);
 
@@ -1564,9 +1573,9 @@ void UPiSimModularGarageWidget::CheckIncomingBeacons()
                         continue;
                     }
 
-                    UE_LOG(LogTemp, Warning, TEXT("⚡ [GarageWidget] Yeni Beacon Yakalandı: %s (Gönderen: %s)"), *RecvStr, *SenderIpStr);
+                    UE_LOG(LogTemp, Warning, TEXT("⚡ [GarageWidget] Pi 5 Yanıtı/Heartbeat: %s (Kaynak: %s)"), *RecvStr, *SenderIpStr);
 
-                    // Pi 5 ağ üzerinden yayın yapıyorsa ve mevcut hedef hala localhost ise otomatik eşleştir
+                    // Pi 5 ağ üzerinden yayın yapıyorsa ve mevcut hedef henüz atanmadıysa otomatik eşleştir
                     APiSimVehicle* VehicleToConfig = TargetVehicle ? TargetVehicle : (FleetVehicles.Num() > 0 ? FleetVehicles[0] : nullptr);
                     if (VehicleToConfig && VehicleToConfig->Pi5Bridge)
                     {
@@ -1588,10 +1597,38 @@ void UPiSimModularGarageWidget::CheckIncomingBeacons()
     }
 }
 
-// @state: WIP - KURAL: Unreal probe fırlatmaz, sadece Pi 5'ten gelen sinyalleri dinler (Port 7499)
+// @state: WIP - KURAL: Unreal Engine broadcast probe atar (Port 7499), Pi 5 dinler ve yanıtlar
 void UPiSimModularGarageWidget::TriggerBeaconProbe()
 {
-    UE_LOG(LogTemp, Log, TEXT("📡 [GarageWidget] Dinleyici aktif (Port 7499 üzerinden Pi 5 bekleniyor)"));
+    InitDiscoverySocket();
+    if (!DiscoverySocket) return;
+
+    ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+    if (!SocketSubsystem) return;
+
+    TSharedRef<FInternetAddr> BroadcastAddr = SocketSubsystem->CreateInternetAddr();
+    bool bIsValid = false;
+    BroadcastAddr->SetIp(TEXT("255.255.255.255"), bIsValid);
+    BroadcastAddr->SetPort(7499);
+
+    FString ProbePayload = TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"msg\":\"HI FROM UNREAL\"}\n");
+    FTCHARToUTF8 Utf8(*ProbePayload);
+    int32 BytesSent = 0;
+    DiscoverySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BroadcastAddr);
+
+    // Eğer atanmış hedef IP varsa doğrudan ona da probe yolla
+    APiSimVehicle* VehicleToConfig = TargetVehicle ? TargetVehicle : (FleetVehicles.Num() > 0 ? FleetVehicles[0] : nullptr);
+    if (VehicleToConfig && VehicleToConfig->Pi5Bridge)
+    {
+        FString TargetIP = VehicleToConfig->Pi5Bridge->TargetIP;
+        if (!TargetIP.IsEmpty() && TargetIP != TEXT("127.0.0.1"))
+        {
+            TSharedRef<FInternetAddr> DirectAddr = SocketSubsystem->CreateInternetAddr();
+            DirectAddr->SetIp(*TargetIP, bIsValid);
+            DirectAddr->SetPort(7499);
+            DiscoverySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *DirectAddr);
+        }
+    }
 }
 
 // @state: WIP - Seçili aracın Raspberry Pi 5 veya hedef IP adresini günceller ve yayını başlatır

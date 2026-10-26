@@ -1050,9 +1050,9 @@
         // ==================== GERÇEK BEACON KEŞİF SİSTEMİ ====================
         function triggerBeaconProbe() {
             addLog("📡 UDP Cihaz Keşfi (Probe) Başlatıldı (Port 7499)...");
-            addPacketLog("PISIM_DISCOVERY_PROBE_TX: target=UDP 7499 (Broadcast)");
+            addPacketLog("TX → PI5 (UDP 7499 Broadcast) | <b style=\"color:#00e5ff;\">HI FROM UNREAL</b>");
             const statusTag = document.getElementById('beacon-radar-status');
-            if (statusTag) statusTag.innerText = "[TARANIYOR...]";
+            if (statusTag && statusTag.innerText !== "[EŞLEŞTİ]") statusTag.innerText = "[TARANIYOR...]";
 
             if (window.garage && window.garage.TriggerBeaconProbe) {
                 window.garage.TriggerBeaconProbe();
@@ -1090,6 +1090,47 @@
             }
         }
 
+        // ALT PANELİN 3. SÜTUNU: BAĞLANILAN CİHAZLAR LİSTESİNE EKLEME & GÜNCELLEME
+        function addConnectedDeviceToList(dev) {
+            const list = document.getElementById('beacon-device-list');
+            if (!list || !dev || !dev.ip) return;
+
+            const placeholder = list.querySelector('div');
+            if (placeholder && placeholder.innerText.includes('aranıyor')) {
+                list.innerHTML = '';
+            }
+
+            const cleanId = `beacon-item-${String(dev.ip).replace(/[^a-zA-Z0-9]/g, '_')}`;
+            let item = document.getElementById(cleanId);
+            const msgText = dev.msg || "HI FROM PI5";
+
+            if (!item) {
+                item = document.createElement('div');
+                item.id = cleanId;
+                item.className = 'beacon-device-item active-paired';
+                list.appendChild(item);
+            }
+
+            item.onclick = () => {
+                const ipInp = document.getElementById('ue-input-manual-target-ip');
+                const portInp = document.getElementById('ue-input-manual-target-port');
+                if (ipInp) ipInp.value = dev.ip;
+                if (portInp) portInp.value = dev.port || 7400;
+                applyUeManualTargetConnection();
+            };
+
+            item.innerHTML = `
+                <div>
+                    <div class="dev-name" style="color: #ffffff; font-weight: 800;">🟢 ${dev.name || 'Raspberry Pi 5 (Companion)'}</div>
+                    <div class="dev-ip" style="color: var(--text-muted); font-size: 8.5px;">${dev.ip}:${dev.port || 7400}</div>
+                </div>
+                <div class="dev-ping" style="color: var(--accent-color); font-weight: 800; font-size: 9px;">${msgText}</div>
+            `;
+
+            const statusTag = document.getElementById('beacon-radar-status');
+            if (statusTag) statusTag.innerText = "[EŞLEŞTİ]";
+        }
+
         function applyUeManualTargetConnection() {
             const ipInp = document.getElementById('ue-input-manual-target-ip');
             const portInp = document.getElementById('ue-input-manual-target-port');
@@ -1101,7 +1142,7 @@
                 return;
             }
 
-            // Ayrıca sağ paneldeki manuel rota kutularını güncelle
+            // Sağ paneldeki manuel rota kutularını güncelle
             const customIp = document.getElementById('input-custom-ip');
             const customPort = document.getElementById('input-custom-port');
             if (customIp) customIp.value = ip;
@@ -1113,13 +1154,21 @@
             }
 
             addLog(`[MANUEL HEDEF] Hedef IP ayarlandı: ${ip}:${port}`);
-            addPacketLog(`TARGET_OVERRIDE_TX: ${ip}:${port}`);
+            addPacketLog(`TX → PI5 (${ip}:${port}) | <b style="color:#00e5ff;">HI FROM UNREAL</b>`);
 
             if (window.ue && window.ue.garage && window.ue.garage.settargetip) {
                 window.ue.garage.settargetip(ip, port);
             } else if (window.garage && window.garage.SetTargetIP) {
                 window.garage.SetTargetIP(ip, port);
             }
+
+            // Alt panelin 3. sütunundaki cihazlar listesine ekle
+            addConnectedDeviceToList({
+                name: "Raspberry Pi 5 (Companion)",
+                ip: ip,
+                port: port,
+                msg: "HI FROM PI5"
+            });
 
             setUeBridgeNodesActive(true, ip, port);
         }
@@ -1134,41 +1183,17 @@
                     return;
                 }
 
-                // Alt paneldeki manuel giriş alanını otomatik doldur
+                // Alt paneldeki giriş kutularını güncelle
                 const ipInp = document.getElementById('ue-input-manual-target-ip');
                 const portInp = document.getElementById('ue-input-manual-target-port');
                 if (ipInp && !ipInp.value) ipInp.value = dev.ip;
                 if (portInp && !portInp.value) portInp.value = dev.port || 7400;
 
-                const list = document.getElementById('beacon-device-list');
-                if (list) {
-                    const placeholder = list.querySelector('div');
-                    if (placeholder && placeholder.innerText.includes('aranıyor')) {
-                        list.innerHTML = '';
-                    }
-
-                    const item = document.createElement('div');
-                    item.className = 'beacon-device-item';
-                    item.onclick = () => {
-                        if (ipInp) ipInp.value = dev.ip;
-                        if (portInp) portInp.value = dev.port || 7400;
-                        applyUeManualTargetConnection();
-                    };
-                    item.innerHTML = `
-                        <div>
-                            <div class="dev-name">🟢 ${dev.name || 'Raspberry Pi 5'}</div>
-                            <div class="dev-ip">${dev.ip}:${dev.port || 7400}</div>
-                        </div>
-                        <div class="dev-ping">${dev.ping || 'LAN'}</div>
-                    `;
-                    list.appendChild(item);
-                }
-
-                const statusTag = document.getElementById('beacon-radar-status');
-                if (statusTag) statusTag.innerText = "[EŞLEŞTİ]";
+                // 4. KURAL: Alt panelin 3. sütunundaki cihazlar listesine ekle
+                addConnectedDeviceToList(dev);
 
                 addLog(`⚡ Cihaz Keşfedildi: ${dev.name || 'Raspberry Pi 5'} (${dev.ip})`);
-                addPacketLog(`BEACON_DISCOVERED: ${dev.ip}:${dev.port || 7400}`);
+                addPacketLog(`RX ← PI5 (${dev.ip}) | <b style="color:var(--accent-color);">${dev.msg || 'HI FROM PI5'}</b>`);
 
                 // Pi 5 bulunduğunda düğümleri canlandır ve parlat
                 setUeBridgeNodesActive(true, dev.ip, dev.port || 7400);
@@ -1203,6 +1228,9 @@
             const div = document.createElement('div');
             div.innerHTML = `[${time}] <b style="color:var(--accent-color);">UDP</b> | ${line}`;
             stream.appendChild(div);
+            if (stream.children.length > 30) {
+                stream.removeChild(stream.children[0]);
+            }
             stream.scrollTop = stream.scrollHeight;
         }
 

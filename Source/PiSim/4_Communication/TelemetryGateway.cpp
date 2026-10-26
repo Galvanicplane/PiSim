@@ -129,6 +129,11 @@ FString UPiSimTelemetryGateway::BuildSitlJsonState(double SimTimestampSec)
     RootObject->SetBoolField(TEXT("no_time_sync"), true);
     RootObject->SetBoolField(TEXT("no_lockstep"), true);
 
+    // Heartbeat identification
+    RootObject->SetStringField(TEXT("magic"), TEXT("PISIM_TELEMETRY"));
+    RootObject->SetStringField(TEXT("source"), TEXT("UE5_UNREAL"));
+    RootObject->SetStringField(TEXT("msg"), TEXT("HI FROM UNREAL"));
+
     FString OutputString;
     TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
         TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&OutputString);
