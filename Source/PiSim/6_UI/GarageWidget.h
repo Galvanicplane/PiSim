@@ -16,6 +16,7 @@ class APiSimVehicle;
 class SScrollBox;
 class STextBlock;
 class SEditableTextBox;
+class FSocket;
 
 UCLASS()
 class PISIM_API UPiSimModularGarageWidget : public UUserWidget
@@ -24,8 +25,17 @@ class PISIM_API UPiSimModularGarageWidget : public UUserWidget
 
 public:
     virtual void NativeConstruct() override;
+    virtual void NativeDestruct() override;
     virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
     virtual TSharedRef<SWidget> RebuildWidget() override;
+
+    // WebUI: Raspberry Pi 5 veya harici Companion donanım keşif probu fırlatır (Port 7499)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Communication")
+    void TriggerBeaconProbe();
+
+    // WebUI: Seçili aracın Raspberry Pi 5 veya hedef IP adresini günceller
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Communication")
+    bool SetTargetIP(const FString& InIP, int32 InPort = 7400);
 
     // Hedef aracı bağlar
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
@@ -178,4 +188,8 @@ protected:
     float CurrentScaleMultiplier = 1.0f;
     FString ActiveModelFileName = TEXT("robot_import_test.fbx");
     bool bSmoothNormals = true;
+
+    FSocket* DiscoverySocket = nullptr;
+    void InitDiscoverySocket();
+    void CheckIncomingBeacons();
 };

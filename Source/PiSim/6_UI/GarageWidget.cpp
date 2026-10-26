@@ -25,11 +25,16 @@
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "Sockets.h"
+#include "SocketSubsystem.h"
+#include "Common/UdpSocketBuilder.h"
 
 // @state: WIP - NativeConstruct: Sahnedeki aracı bulur ve bağlar
 void UPiSimModularGarageWidget::NativeConstruct()
 {
     Super::NativeConstruct();
+
+    InitDiscoverySocket();
 
     if (!TargetVehicle && GetWorld())
     {
@@ -41,10 +46,27 @@ void UPiSimModularGarageWidget::NativeConstruct()
     }
 }
 
+void UPiSimModularGarageWidget::NativeDestruct()
+{
+    if (DiscoverySocket)
+    {
+        ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+        if (SocketSubsystem)
+        {
+            SocketSubsystem->DestroySocket(DiscoverySocket);
+        }
+        DiscoverySocket = nullptr;
+    }
+
+    Super::NativeDestruct();
+}
+
 // @state: WIP - NativeTick: Durum metinlerini ve buton etiketlerini günceller
 void UPiSimModularGarageWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
     Super::NativeTick(MyGeometry, InDeltaTime);
+
+    CheckIncomingBeacons();
 
     if (!TargetVehicle && GetWorld())
     {
@@ -1469,5 +1491,118 @@ void UPiSimModularGarageWidget::NavigateToPage(const FString& PageFileName)
         UE_LOG(LogTemp, Warning, TEXT("[UPiSimModularGarageWidget] Sayfa Geçişi: %s"), *FileUrl);
         WebBrowserWidget->LoadURL(FileUrl);
     }
+}
+
+// @state: WIP - Port 7499 üzerinden UDP beacon dinleyicisini başlatır
+void UPiSimModularGarageWidget::InitDiscoverySocket()
+{
+    if (DiscoverySocket) return;
+
+    ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+    if (!SocketSubsystem) return;
+
+    DiscoverySocket = FUdpSocketBuilder(TEXT("PiSimBeaconDiscoverySocket"))
+        .AsNonBlocking()
+        .AsReusable()
+        .BoundToPort(7499)
+        .WithReceiveBufferSize(65535);
+
+    if (DiscoverySocket)
+    {
+        UE_LOG(LogTemp, Log, TEXT("📡 [GarageWidget] UDP Keşif Dinleyicisi Hazır (Port 7499)"));
+    }
+}
+
+// @state: WIP - Gelen Pi5 Beacon paketlerini denetler ve WebUI'a iletir
+void UPiSimModularGarageWidget::CheckIncomingBeacons()
+{
+    if (!DiscoverySocket) return;
+
+    uint32 PendingSize = 0;
+    while (DiscoverySocket->HasPendingData(PendingSize))
+    {
+        TArray<uint8> RecvBuffer;
+        RecvBuffer.SetNumUninitialized(FMath::Min(PendingSize, 4096u));
+
+        ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+        TSharedRef<FInternetAddr> SenderAddr = SocketSubsystem->CreateInternetAddr();
+        int32 BytesRead = 0;
+
+        if (DiscoverySocket->RecvFrom(RecvBuffer.GetData(), RecvBuffer.Num(), BytesRead, *SenderAddr))
+        {
+            if (BytesRead > 0)
+            {
+                RecvBuffer.Add(0); // Null terminator
+                FString RecvStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
+
+                if (RecvStr.Contains(TEXT("PISIM_BEACON")) || RecvStr.Contains(TEXT("Raspberry Pi")))
+                {
+                    UE_LOG(LogTemp, Warning, TEXT("⚡ [GarageWidget] Yeni Beacon Yakalandı: %s"), *RecvStr);
+                    if (WebBrowserWidget.IsValid())
+                    {
+                        FString EscapedJson = RecvStr.Replace(TEXT("\n"), TEXT("")).Replace(TEXT("\r"), TEXT(""));
+                        FString Script = FString::Printf(TEXT("if (typeof onBeaconDeviceDiscovered === 'function') { onBeaconDeviceDiscovered('%s'); }"), *EscapedJson);
+                        WebBrowserWidget->ExecuteJavascript(Script);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// @state: WIP - Ağa ve yerel loopback'e PISIM_PROBE keşif paketi fırlatır (Port 7499)
+void UPiSimModularGarageWidget::TriggerBeaconProbe()
+{
+    ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+    if (!SocketSubsystem) return;
+
+    FSocket* ProbeSock = FUdpSocketBuilder(TEXT("PiSimProbeSenderSocket"))
+        .AsNonBlocking()
+        .AsReusable()
+        .WithBroadcast();
+
+    if (!ProbeSock) return;
+
+    FString ProbePayload = TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"timestamp\":0}");
+    FTCHARToUTF8 Utf8(*ProbePayload);
+    int32 BytesSent = 0;
+
+    // 1. Ağ broadcast'i
+    TSharedRef<FInternetAddr> BcastAddr = SocketSubsystem->CreateInternetAddr();
+    bool bValid = false;
+    BcastAddr->SetIp(TEXT("255.255.255.255"), bValid);
+    BcastAddr->SetPort(7499);
+    ProbeSock->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
+
+    // 2. Yerel döngü (Loopback)
+    TSharedRef<FInternetAddr> LocalAddr = SocketSubsystem->CreateInternetAddr();
+    LocalAddr->SetIp(TEXT("127.0.0.1"), bValid);
+    LocalAddr->SetPort(7499);
+    ProbeSock->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *LocalAddr);
+
+    SocketSubsystem->DestroySocket(ProbeSock);
+    UE_LOG(LogTemp, Log, TEXT("📡 [GarageWidget] Keşif Probu Gönderildi (Port 7499)"));
+}
+
+// @state: WIP - Seçili aracın Raspberry Pi 5 veya hedef IP adresini günceller ve yayını başlatır
+bool UPiSimModularGarageWidget::SetTargetIP(const FString& InIP, int32 InPort)
+{
+    APiSimVehicle* VehicleToConfig = TargetVehicle;
+    if (!VehicleToConfig && FleetVehicles.Num() > 0)
+    {
+        VehicleToConfig = FleetVehicles[0];
+    }
+
+    if (VehicleToConfig && VehicleToConfig->Pi5Bridge)
+    {
+        VehicleToConfig->Pi5Bridge->TargetIP = InIP;
+        VehicleToConfig->Pi5Bridge->TelemetryPort = InPort;
+        VehicleToConfig->Pi5Bridge->StartStreaming(InIP, InPort, InPort + 1);
+        UE_LOG(LogTemp, Warning, TEXT("🎯 [GarageWidget] Araç %d Hedef IP Güncellendi: %s:%d"),
+            VehicleToConfig->VehicleId, *InIP, InPort);
+        return true;
+    }
+
+    return false;
 }
 
