@@ -8,6 +8,8 @@
 #include "GameFramework/Actor.h"
 #include "Vehicle.h"
 #include "TelemetryLogger.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
 
 // --- FPi5WorkerThread İş Parçacığı Mantığı ---
 
@@ -77,10 +79,11 @@ void UPiSimPi5Bridge::BeginPlay()
         if (VehicleOwner)
         {
             VehicleId = VehicleOwner->VehicleId;
-            TelemetryPort = 7400 + (VehicleId * 10);
-            VideoPort = 7401 + (VehicleId * 10);
         }
     }
+
+    TelemetryPort = 7400; // Sabit standart telemetri portu (Artık 10 ofsetli port karmaşası yok)
+    VideoPort = 7401;     // Sabit standart canlı video portu
 
     // Başlangıçta simülasyon başlar başlamaz telemetri akışını otomatik başlat (Port 7400)
     StartStreaming(TargetIP, TelemetryPort, VideoPort);
@@ -355,9 +358,75 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
                 {
                     RecvBuffer.Add(0);
                     FString RecvStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
-                    if (RecvStr.Contains(TEXT("PISIM_BEACON")) || RecvStr.Contains(TEXT("Raspberry Pi")) || RecvStr.Contains(TEXT("HI FROM PI5")))
+                    FString SenderIpStr = SenderAddr->ToString(false);
+                    APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
+
+                    if (RecvStr.Contains(TEXT("SUB_VEHICLE")))
                     {
-                        FString SenderIpStr = SenderAddr->ToString(false);
+                        // Pi 5 Dinamik Araç Abonelik Komutu: {"cmd":"SUB_VEHICLE", "vehicle_code":"rover_01_...", "target_ip":"...", "telemetry_port":7400}
+                        TSharedPtr<FJsonObject> JsonObj;
+                        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RecvStr);
+                        if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid())
+                        {
+                            FString TargetCode = JsonObj->HasField(TEXT("vehicle_code")) ? JsonObj->GetStringField(TEXT("vehicle_code")) : TEXT("");
+                            int32 TargetId = JsonObj->HasField(TEXT("vehicle_id")) ? JsonObj->GetIntegerField(TEXT("vehicle_id")) : -1;
+                            FString ClientIp = JsonObj->HasField(TEXT("client_ip")) ? JsonObj->GetStringField(TEXT("client_ip")) : SenderIpStr;
+                            int32 ClientPort = JsonObj->HasField(TEXT("telemetry_port")) ? JsonObj->GetIntegerField(TEXT("telemetry_port")) : 7400;
+
+                            if (OwnerVehicle)
+                            {
+                                if ((!TargetCode.IsEmpty() && OwnerVehicle->VehicleCode == TargetCode) ||
+                                    (TargetId >= 0 && OwnerVehicle->VehicleId == TargetId))
+                                {
+                                    OwnerVehicle->AddTelemetrySubscriber(ClientIp, ClientPort);
+                                    TargetIP = ClientIp;
+                                    TelemetryPort = ClientPort;
+                                    UE_LOG(LogTemp, Warning, TEXT("🎯 [Pi5Bridge] Araç [%s] (%d) CANLI TELEMETRİ ABONESİ EKLENDİ -> %s:%d"),
+                                        *OwnerVehicle->VehicleCode, OwnerVehicle->VehicleId, *ClientIp, ClientPort);
+                                }
+                                else
+                                {
+                                    OwnerVehicle->RemoveTelemetrySubscriber(ClientIp, ClientPort);
+                                }
+                            }
+                        }
+                    }
+                    else if (RecvStr.Contains(TEXT("SUB_VIDEO")))
+                    {
+                        // Pi 5 Canlı Video Açma/Kapatma Komutu: {"cmd":"SUB_VIDEO", "vehicle_code":"...", "subscribe":true/false, "video_port":7401}
+                        TSharedPtr<FJsonObject> JsonObj;
+                        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RecvStr);
+                        if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid())
+                        {
+                            FString TargetCode = JsonObj->HasField(TEXT("vehicle_code")) ? JsonObj->GetStringField(TEXT("vehicle_code")) : TEXT("");
+                            int32 TargetId = JsonObj->HasField(TEXT("vehicle_id")) ? JsonObj->GetIntegerField(TEXT("vehicle_id")) : -1;
+                            bool bSub = JsonObj->HasField(TEXT("subscribe")) ? JsonObj->GetBoolField(TEXT("subscribe")) : true;
+                            FString ClientIp = JsonObj->HasField(TEXT("client_ip")) ? JsonObj->GetStringField(TEXT("client_ip")) : SenderIpStr;
+                            int32 ClientPort = JsonObj->HasField(TEXT("video_port")) ? JsonObj->GetIntegerField(TEXT("video_port")) : 7401;
+
+                            if (OwnerVehicle)
+                            {
+                                if ((!TargetCode.IsEmpty() && OwnerVehicle->VehicleCode == TargetCode) ||
+                                    (TargetId >= 0 && OwnerVehicle->VehicleId == TargetId))
+                                {
+                                    if (bSub)
+                                    {
+                                        OwnerVehicle->AddVideoSubscriber(ClientIp, ClientPort);
+                                        bIsVideoSubscribed = true;
+                                    }
+                                    else
+                                    {
+                                        OwnerVehicle->RemoveVideoSubscriber(ClientIp, ClientPort);
+                                        bIsVideoSubscribed = false;
+                                    }
+                                    UE_LOG(LogTemp, Warning, TEXT("📹 [Pi5Bridge] Araç [%s] (%d) Video Aboneliği: %s -> %s:%d"),
+                                        *OwnerVehicle->VehicleCode, OwnerVehicle->VehicleId, bSub ? TEXT("AÇIK") : TEXT("KAPALI"), *ClientIp, ClientPort);
+                                }
+                            }
+                        }
+                    }
+                    else if (RecvStr.Contains(TEXT("PISIM_BEACON")) || RecvStr.Contains(TEXT("Raspberry Pi")) || RecvStr.Contains(TEXT("HI FROM PI5")))
+                    {
                         if (SenderIpStr != TEXT("127.0.0.1") && SenderIpStr != TEXT("0.0.0.0"))
                         {
                             if (TargetIP != SenderIpStr)
@@ -370,7 +439,6 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
                     }
                     else if (RecvStr.Contains(TEXT("PISIM_REQ_SQL_TABLE")))
                     {
-                        APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
                         if (OwnerVehicle && OwnerVehicle->TelemetryLogger)
                         {
                             FString TableJson = OwnerVehicle->TelemetryLogger->GetRecentTelemetryTableJson(50);
@@ -403,54 +471,57 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
 
         if (CachedGateway && TelemetrySocket)
         {
-            FString JsonPayload = CachedGateway->BuildSitlJsonState();
-            FTCHARToUTF8 Utf8(*JsonPayload);
-            int32 BytesSent = 0;
+            APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
+            bool bHasSubscribers = VehicleOwner && (VehicleOwner->Subscriptions.TelemetrySubscribers.Num() > 0);
+            // İlk araç ve odaklı araç henüz açıkça başka bir araca geçilmediyse varsayılan yayında kalsın
+            bool bDefaultBroadcast = VehicleOwner && (VehicleOwner->VehicleId == 0 || VehicleOwner->bIsFocusedVehicle);
 
-            // 1. Hedef IP'ye gönder
-            TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *TargetAddr);
-
-            // 2. Pi 5 henüz keşfedilmediyse (veya TargetIP hala 127.0.0.1 ise),
-            // telemetriyi yerel ağ broadcast (255.255.255.255:7400) ve alt ağ broadcast (192.168.1.255 vb.) adreslerine de bas!
-            // Böylece ağdaki Raspberry Pi 5 İLK SANİYEDEN İTİBAREN hiç elle ayar yapmadan canlı veriyi alır!
-            if (CurrentTargetIP == TEXT("127.0.0.1"))
+            if (bHasSubscribers)
             {
-                TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
+                FString JsonPayload = CachedGateway->BuildSitlJsonState();
+                FTCHARToUTF8 Utf8(*JsonPayload);
+                int32 BytesSent = 0;
 
-                TArray<TSharedPtr<FInternetAddr>> LocalAddrs;
-                if (SocketSubsystem->GetLocalAdapterAddresses(LocalAddrs))
+                for (const FPiSimClientEndpoint& Sub : VehicleOwner->Subscriptions.TelemetrySubscribers)
                 {
-                    for (const TSharedPtr<FInternetAddr>& Addr : LocalAddrs)
+                    TSharedRef<FInternetAddr> SubAddr = SocketSubsystem->CreateInternetAddr();
+                    bool bValid = false;
+                    SubAddr->SetIp(*Sub.IPAddress, bValid);
+                    SubAddr->SetPort(Sub.Port > 0 ? Sub.Port : 7400);
+                    if (bValid)
                     {
-                        if (Addr.IsValid())
-                        {
-                            FString IpStr = Addr->ToString(false);
-                            if (!IpStr.StartsWith(TEXT("127.")) && !IpStr.StartsWith(TEXT("169.254.")))
-                            {
-                                TArray<FString> Parts;
-                                IpStr.ParseIntoArray(Parts, TEXT("."));
-                                if (Parts.Num() == 4)
-                                {
-                                    TSharedRef<FInternetAddr> SbAddr = SocketSubsystem->CreateInternetAddr();
-                                    bool bValid = false;
-                                    SbAddr->SetIp(*FString::Printf(TEXT("%s.%s.%s.255"), *Parts[0], *Parts[1], *Parts[2]), bValid);
-                                    SbAddr->SetPort(CurrentPort);
-                                    if (bValid)
-                                    {
-                                        TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *SbAddr);
-                                    }
-                                }
-                            }
-                        }
+                        TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *SubAddr);
                     }
                 }
-            }
 
-            PacketCount++;
-            if (PacketCount == 1 || PacketCount % 500 == 0)
+                PacketCount++;
+                if (PacketCount == 1 || PacketCount % 500 == 0)
+                {
+                    UE_LOG(LogTemp, Log, TEXT("📡 [Pi5Bridge] Aboneye Canlı Telemetri İletildi (#%d) -> Araç %s (%d Abone)"),
+                        PacketCount, *VehicleOwner->VehicleCode, VehicleOwner->Subscriptions.TelemetrySubscribers.Num());
+                }
+            }
+            else if (bDefaultBroadcast)
             {
-                UE_LOG(LogTemp, Log, TEXT("📡 [Pi5Bridge] Telemetri Paketi Gönderildi (#%d) -> %s:%d (Broadcast: %s)"),
-                    PacketCount, *CurrentTargetIP, CurrentPort, CurrentTargetIP == TEXT("127.0.0.1") ? TEXT("AÇIK") : TEXT("KAPALI"));
+                FString JsonPayload = CachedGateway->BuildSitlJsonState();
+                FTCHARToUTF8 Utf8(*JsonPayload);
+                int32 BytesSent = 0;
+
+                // 1. Hedef IP'ye gönder (Port 7400)
+                TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *TargetAddr);
+
+                // 2. Broadcast
+                if (CurrentTargetIP == TEXT("127.0.0.1"))
+                {
+                    TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
+                }
+
+                PacketCount++;
+                if (PacketCount == 1 || PacketCount % 500 == 0)
+                {
+                    UE_LOG(LogTemp, Log, TEXT("📡 [Pi5Bridge] Varsayılan Telemetri Yayını (#%d) -> %s:%d (Araç: %s)"),
+                        PacketCount, *CurrentTargetIP, CurrentPort, VehicleOwner ? *VehicleOwner->VehicleCode : TEXT("Bilinmeyen"));
+                }
             }
         }
 
@@ -509,7 +580,7 @@ void UPiSimPi5Bridge::ExecuteVideoLoop(FThreadSafeBool& bRunning)
                         TSharedRef<FInternetAddr> SubAddr = SocketSubsystem->CreateInternetAddr();
                         bool bValid = false;
                         SubAddr->SetIp(*Sub.IPAddress, bValid);
-                        SubAddr->SetPort(Sub.Port);
+                        SubAddr->SetPort(Sub.Port > 0 ? Sub.Port : 7401);
                         if (bValid)
                         {
                             int32 BytesSent = 0;

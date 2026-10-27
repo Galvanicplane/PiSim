@@ -1337,7 +1337,7 @@ bool UPiSimModularGarageWidget::SpawnVehicleAtCursor(const FString& ProfileName)
         VehicleToInit = GetWorld()->SpawnActor<APiSimVehicle>(APiSimVehicle::StaticClass(), TargetLocation, FRotator::ZeroRotator, SpawnParams);
         if (VehicleToInit)
         {
-            VehicleToInit->VehicleId = FleetVehicles.Num();
+            VehicleToInit->InitVehicleIdentity(FleetVehicles.Num());
             FleetVehicles.Add(VehicleToInit);
         }
     }
@@ -1358,8 +1358,8 @@ bool UPiSimModularGarageWidget::SpawnVehicleAtCursor(const FString& ProfileName)
         if (VehicleToInit->bShowDebugVisualsAndMessages && GEngine)
         {
             GEngine->AddOnScreenDebugMessage(810, 4.0f, FColor::Green,
-                FString::Printf(TEXT("✅ [%s] Filoya Eklendi! (Araç ID: %d, SITL Rx:%d, Tx:%d)"),
-                    *ProfileName, VehicleToInit->VehicleId, 9002 + VehicleToInit->VehicleId * 10, 9003 + VehicleToInit->VehicleId * 10));
+                FString::Printf(TEXT("✅ [%s] Filoya Eklendi! (Kod: %s, ID: %d)"),
+                    *ProfileName, *VehicleToInit->VehicleCode, VehicleToInit->VehicleId));
         }
         return true;
     }
@@ -1381,13 +1381,14 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
 
         TSharedPtr<FJsonObject> VObj = MakeShareable(new FJsonObject);
         VObj->SetNumberField(TEXT("id"), Vehicle->VehicleId);
-        VObj->SetStringField(TEXT("name"), FString::Printf(TEXT("Araç %d"), Vehicle->VehicleId + 1));
+        VObj->SetStringField(TEXT("code"), Vehicle->VehicleCode);
+        VObj->SetStringField(TEXT("name"), Vehicle->VehicleName.IsEmpty() ? FString::Printf(TEXT("Araç %d"), Vehicle->VehicleId + 1) : Vehicle->VehicleName);
         VObj->SetBoolField(TEXT("is_focused"), Vehicle->bIsFocusedVehicle);
 
         int32 SitlListen = Vehicle->AutopilotBridge ? Vehicle->AutopilotBridge->ListenPort : (9002 + Vehicle->VehicleId * 10);
         int32 SitlSend = Vehicle->AutopilotBridge ? Vehicle->AutopilotBridge->SendPort : (9003 + Vehicle->VehicleId * 10);
-        int32 TelemetryPort = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->TelemetryPort : (7400 + Vehicle->VehicleId * 10);
-        int32 VideoPort = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->VideoPort : (7401 + Vehicle->VehicleId * 10);
+        int32 TelemetryPort = 7400; // Standart sabit port 7400 (Artık 10 ofsetli port karmaşası yok)
+        int32 VideoPort = 7401;     // Standart sabit port 7401 (İsteğe bağlı canlı yayın)
         bool bVideoSub = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->IsVideoSubscribed() : false;
 
         VObj->SetNumberField(TEXT("sitl_listen_port"), SitlListen);

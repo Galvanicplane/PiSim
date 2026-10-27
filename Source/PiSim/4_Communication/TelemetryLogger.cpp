@@ -82,6 +82,7 @@ void UPiSimTelemetryLogger::SampleCurrentState()
     FPiSimTelemetryRow Row;
     Row.TimestampSec = (GetWorld()) ? GetWorld()->GetTimeSeconds() : 0.0;
     Row.VehicleId = (CachedVehicle) ? CachedVehicle->VehicleId : 0;
+    Row.VehicleCode = (CachedVehicle && !CachedVehicle->VehicleCode.IsEmpty()) ? CachedVehicle->VehicleCode : FString::Printf(TEXT("rover_%02d"), Row.VehicleId + 1);
 
     if (CachedGateway)
     {
@@ -147,8 +148,9 @@ void UPiSimTelemetryLogger::FlushBatchToSql()
     for (const FPiSimTelemetryRow& Row : PendingBatch)
     {
         SqlBatch.Append(FString::Printf(
-            TEXT("INSERT INTO vehicle_telemetry (timestamp_sec, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode) VALUES (%.2f, %d, %.2f, %.2f, %.2f, %.2f, %.2f, %.1f, %.6f, %.6f, '%s');\n"),
+            TEXT("INSERT INTO vehicle_telemetry (timestamp_sec, vehicle_code, vehicle_id, roll_deg, pitch_deg, yaw_deg, altitude_m, airspeed_ms, battery_pct, lat, lon, flight_mode) VALUES (%.2f, '%s', %d, %.2f, %.2f, %.2f, %.2f, %.2f, %.1f, %.6f, %.6f, '%s');\n"),
             Row.TimestampSec,
+            *Row.VehicleCode,
             Row.VehicleId,
             Row.RollDeg,
             Row.PitchDeg,
@@ -196,6 +198,7 @@ FString UPiSimTelemetryLogger::GetRecentTelemetryTableJson(int32 MaxRows) const
         const FPiSimTelemetryRow& Row = RecentRows[i];
         TSharedPtr<FJsonObject> RowObj = MakeShareable(new FJsonObject);
         RowObj->SetNumberField(TEXT("time"), Row.TimestampSec);
+        RowObj->SetStringField(TEXT("vehicle_code"), Row.VehicleCode);
         RowObj->SetNumberField(TEXT("vehicle_id"), Row.VehicleId);
         RowObj->SetNumberField(TEXT("roll"), Row.RollDeg);
         RowObj->SetNumberField(TEXT("pitch"), Row.PitchDeg);
@@ -254,6 +257,7 @@ void UPiSimTelemetryLogger::ResetSqlFile(const FString& FilePath)
                           TEXT("CREATE TABLE IF NOT EXISTS vehicle_telemetry (\n")
                           TEXT("    id INTEGER PRIMARY KEY AUTOINCREMENT,\n")
                           TEXT("    timestamp_sec REAL NOT NULL,\n")
+                          TEXT("    vehicle_code TEXT NOT NULL,\n")
                           TEXT("    vehicle_id INTEGER NOT NULL,\n")
                           TEXT("    roll_deg REAL,\n")
                           TEXT("    pitch_deg REAL,\n")
@@ -266,6 +270,7 @@ void UPiSimTelemetryLogger::ResetSqlFile(const FString& FilePath)
                           TEXT("    flight_mode TEXT\n")
                           TEXT(");\n\n")
                           TEXT("CREATE INDEX IF NOT EXISTS idx_telemetry_time ON vehicle_telemetry(timestamp_sec);\n")
+                          TEXT("CREATE INDEX IF NOT EXISTS idx_telemetry_code ON vehicle_telemetry(vehicle_code);\n")
                           TEXT("CREATE INDEX IF NOT EXISTS idx_telemetry_vehicle ON vehicle_telemetry(vehicle_id);\n\n");
 
     FFileHelper::SaveStringToFile(TableSchema, *FilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);

@@ -3,6 +3,7 @@
 
 #include "PiSimSpectator.h"
 #include "Vehicle.h"
+#include "GarageWidget.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
 #include "GameFramework/SpectatorPawnMovement.h"
@@ -41,7 +42,7 @@ APiSimSpectatorPawn::APiSimSpectatorPawn()
     }
 }
 
-// @state: WIP - Başlangıçta yay kolunu konumlandırır ve dünyadaki ilk aracı bulur
+// @state: WIP - Başlangıçta fare girişini ayarlar, DashboardUnreal'ı açar ve araç arar
 void APiSimSpectatorPawn::BeginPlay()
 {
     Super::BeginPlay();
@@ -51,13 +52,41 @@ void APiSimSpectatorPawn::BeginPlay()
         SpectatorSpringArm->SetRelativeRotation(CurrentOrbitRotation);
     }
 
-    // Dünyadaki ilk aracı otomatik olarak varsayılan odak hedefi yap (Serbest uçuş modunu bozmadan)
+    APlayerController* PC = Cast<APlayerController>(GetController());
+    if (!PC && GetWorld())
+    {
+        PC = GetWorld()->GetFirstPlayerController();
+    }
+
+    if (PC)
+    {
+        PC->bShowMouseCursor = true;
+        PC->bEnableClickEvents = true;
+        PC->bEnableMouseOverEvents = true;
+        FInputModeGameAndUI InputMode;
+        InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+        InputMode.SetHideCursorDuringCapture(false);
+        PC->SetInputMode(InputMode);
+
+        // Dashboard Unreal Arayüzünü Spectator üzerinde başlat ve ekrana ekle
+        if (!DashboardWidget)
+        {
+            DashboardWidget = CreateWidget<UPiSimModularGarageWidget>(PC, UPiSimModularGarageWidget::StaticClass());
+            if (DashboardWidget)
+            {
+                DashboardWidget->AddToViewport(10);
+                UE_LOG(LogTemp, Log, TEXT("🚀 [PiSimSpectator] Dashboard Unreal arayüzü Spectator'a başarıyla bağlandı ve açıldı."));
+            }
+        }
+    }
+
+    // Dünyadaki ilk aracı otomatik olarak varsayılan odak hedefi yap
     if (!FocusedVehicle && GetWorld())
     {
         AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
         if (Found)
         {
-            FocusedVehicle = Cast<APiSimVehicle>(Found);
+            SetFocusedVehicle(Cast<APiSimVehicle>(Found));
         }
     }
 }
@@ -122,19 +151,43 @@ void APiSimSpectatorPawn::SetupPlayerInputComponent(UInputComponent* PlayerInput
     PlayerInputComponent->BindKey(EKeys::F, IE_Pressed, this, &APiSimSpectatorPawn::HandleKeyFocus);
     PlayerInputComponent->BindKey(EKeys::V, IE_Pressed, this, &APiSimSpectatorPawn::HandleKeyFreeFlight);
     PlayerInputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &APiSimSpectatorPawn::HandleKeyFreeFlight);
+    PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &APiSimSpectatorPawn::HandleKeyTab);
 
     // Zoom
     PlayerInputComponent->BindAxisKey(EKeys::MouseWheelAxis, this, &APiSimSpectatorPawn::AddZoomDelta);
 }
 
-// @state: WIP - Odaklanılan aracı günceller
+// @state: WIP - Dashboard Unreal arayüzünü açar/kapatır (Tab tuşu)
+void APiSimSpectatorPawn::ToggleDashboardVisibility()
+{
+    if (DashboardWidget)
+    {
+        ESlateVisibility CurrentVis = DashboardWidget->GetVisibility();
+        if (CurrentVis == ESlateVisibility::Visible || CurrentVis == ESlateVisibility::SelfHitTestInvisible)
+        {
+            DashboardWidget->SetVisibility(ESlateVisibility::Collapsed);
+            UE_LOG(LogTemp, Log, TEXT("👁️ [PiSimSpectator] Dashboard Gizlendi (Tab)."));
+        }
+        else
+        {
+            DashboardWidget->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+            UE_LOG(LogTemp, Log, TEXT("👁️ [PiSimSpectator] Dashboard Gösterildi (Tab)."));
+        }
+    }
+}
+
+// @state: WIP - Odaklanılan aracı günceller ve Dashboard'a bağlar
 void APiSimSpectatorPawn::SetFocusedVehicle(APiSimVehicle* InVehicle)
 {
     FocusedVehicle = InVehicle;
     if (FocusedVehicle)
     {
         bIsOrbitingVehicle = true;
-        UE_LOG(LogTemp, Log, TEXT("🎯 [PiSimSpectator] Araç %d Odaklandı ve Orbit Moduna Geçildi."), FocusedVehicle->VehicleId);
+        if (DashboardWidget)
+        {
+            DashboardWidget->SetTargetVehicle(FocusedVehicle);
+        }
+        UE_LOG(LogTemp, Log, TEXT("🎯 [PiSimSpectator] Araç %d Odaklandı ve Dashboard'a bağlandı."), FocusedVehicle->VehicleId);
     }
 }
 
@@ -253,4 +306,9 @@ void APiSimSpectatorPawn::HandleLookUp(float Val)
     {
         AddControllerPitchInput(Val);
     }
+}
+
+void APiSimSpectatorPawn::HandleKeyTab()
+{
+    ToggleDashboardVisibility();
 }

@@ -76,30 +76,26 @@ void APiSimVehicle::SetDebugVisualsEnabled(bool bEnable)
     }
 }
 
+// @state: WIP - Araç kimliğini ve kodunu yapılandırır (Örn: rover_01_2710262359)
+void APiSimVehicle::InitVehicleIdentity(int32 InId)
+{
+    VehicleId = InId;
+    FDateTime Now = FDateTime::Now();
+    VehicleCode = FString::Printf(TEXT("rover_%02d_%s"), VehicleId + 1, *Now.ToString(TEXT("%d%m%y%H%M")));
+    VehicleName = FString::Printf(TEXT("Rover %02d"), VehicleId + 1);
+}
+
 // @state: WIP - Başlangıçta fare kontrollerini açar, hedef modeli arar ve uygun arayüzü ekrana basar
 void APiSimVehicle::BeginPlay()
 {
     Super::BeginPlay();
 
-    // 1. Fare İmlecini ve UI Girişini Aktifleştir
-    APlayerController* PC = Cast<APlayerController>(GetController());
-    if (!PC && GetWorld())
+    if (VehicleCode.IsEmpty())
     {
-        PC = GetWorld()->GetFirstPlayerController();
+        InitVehicleIdentity(VehicleId);
     }
 
-    if (PC)
-    {
-        PC->bShowMouseCursor = true;
-        PC->bEnableClickEvents = true;
-        PC->bEnableMouseOverEvents = true;
-        FInputModeGameAndUI InputMode;
-        InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
-        InputMode.SetHideCursorDuringCapture(false);
-        PC->SetInputMode(InputMode);
-    }
-
-    // 2. Hedef Modeli Kontrol Et (SADECE açıkça hedeflenen dosya varsa yükle)
+    // 1. Hedef Modeli Kontrol Et (SADECE açıkça hedeflenen dosya varsa yükle)
     FString DefaultModelPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_import_test.fbx");
     bool bModelLoaded = false;
 
@@ -111,17 +107,6 @@ void APiSimVehicle::BeginPlay()
     else
     {
         UE_LOG(LogTemp, Warning, TEXT("[APiSimVehicle] 'robot_import_test.fbx' bulunamadi. Güvenlik gereği otomatik model atanmadi, araç boş başlatildi."));
-    }
-
-    // 3. Garaj / WebUI Arayüzünü Ekrana Çıkar (Yalnızca ilk araçta veya henüz widget yoksa)
-    if (PC && VehicleId == 0)
-    {
-        UPiSimModularGarageWidget* GarageUI = CreateWidget<UPiSimModularGarageWidget>(PC, UPiSimModularGarageWidget::StaticClass());
-        if (GarageUI)
-        {
-            GarageUI->SetTargetVehicle(this);
-            GarageUI->AddToViewport(10);
-        }
     }
 
     if (MotorDebugComponent)
@@ -139,49 +124,6 @@ void APiSimVehicle::BeginPlay()
 void APiSimVehicle::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
-
-    // =========================================================================
-    // ESKİ KODDAN ALINAN FARE İLE 360° ORBIT, PAN VE ZOOM KAMERA KONTROLLERİ
-    // =========================================================================
-    APlayerController* PC = Cast<APlayerController>(GetController());
-    if (!PC && GetWorld())
-    {
-        PC = GetWorld()->GetFirstPlayerController();
-    }
-
-    if (PC && CameraSpringArm && bIsFocusedVehicle)
-    {
-        float MouseX = 0.0f, MouseY = 0.0f;
-        PC->GetInputMouseDelta(MouseX, MouseY);
-
-        // 1) Sol Fare Tuşu Sürükleme -> 360° Orbit Kamera
-        if (PC->IsInputKeyDown(EKeys::LeftMouseButton) && (FMath::Abs(MouseX) > 0.001f || FMath::Abs(MouseY) > 0.001f))
-        {
-            FRotator ArmRot = CameraSpringArm->GetRelativeRotation();
-            ArmRot.Yaw += MouseX * 2.5f;
-            ArmRot.Pitch = FMath::Clamp(ArmRot.Pitch + MouseY * 2.0f, -80.0f, 80.0f);
-            CameraSpringArm->SetRelativeRotation(ArmRot);
-        }
-
-        // 2) Sağ Fare Tuşu Sürükleme -> Pan (Kamera Hedef Noktasını Kaydır)
-        if (PC->IsInputKeyDown(EKeys::RightMouseButton) && (FMath::Abs(MouseX) > 0.001f || FMath::Abs(MouseY) > 0.001f))
-        {
-            FVector ArmLoc = CameraSpringArm->GetRelativeLocation();
-            ArmLoc.Y += MouseX * 1.5f;
-            ArmLoc.Z += MouseY * 1.5f;
-            CameraSpringArm->SetRelativeLocation(ArmLoc);
-        }
-
-        // 3) Fare Tekerleği -> Zoom In / Zoom Out
-        if (PC->WasInputKeyJustPressed(EKeys::MouseScrollUp))
-        {
-            CameraSpringArm->TargetArmLength = FMath::Clamp(CameraSpringArm->TargetArmLength - 35.0f, 30.0f, 2500.0f);
-        }
-        else if (PC->WasInputKeyJustPressed(EKeys::MouseScrollDown))
-        {
-            CameraSpringArm->TargetArmLength = FMath::Clamp(CameraSpringArm->TargetArmLength + 35.0f, 30.0f, 2500.0f);
-        }
-    }
 
     // =========================================================================
     // CANLI MOTOR / EYLEYİCİ DÖNÜŞ VE KONTROL BLOĞU (PiSimModelImporter pattern)

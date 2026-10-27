@@ -236,6 +236,18 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|MultiVehicle")
     int32 VehicleId = 0;
 
+    /** Benzersiz Araç Kodu (Örn: rover_01_2710262359) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|MultiVehicle")
+    FString VehicleCode;
+
+    /** Görünen Araç Adı (Örn: Rover 01) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|MultiVehicle")
+    FString VehicleName;
+
+    // @state: WIP - Araç kimliğini ve kodunu yapılandırır (Örn: rover_01_2710262359)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|MultiVehicle")
+    void InitVehicleIdentity(int32 InId);
+
     /** Bu araç kullanıcının anlık kamera ve kontrol odağında mı? */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|MultiVehicle")
     bool bIsFocusedVehicle = true;

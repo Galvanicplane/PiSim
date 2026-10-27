@@ -12,6 +12,7 @@
 class USpringArmComponent;
 class UCameraComponent;
 class APiSimVehicle;
+class UPiSimModularGarageWidget;
 
 UCLASS(ClassGroup = (PiSim), BlueprintType, Blueprintable)
 class PISIM_API APiSimSpectatorPawn : public ASpectatorPawn
@@ -24,6 +25,10 @@ public:
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaTime) override;
     virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+
+    // @state: WIP - Dashboard Unreal arayüzünü açar/kapatır (Tab tuşu)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Spectator")
+    void ToggleDashboardVisibility();
 
     // @state: WIP - Odaklanılan aracı günceller
     UFUNCTION(BlueprintCallable, Category = "PiSim|Spectator")
@@ -61,6 +66,10 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Camera")
     UCameraComponent* SpectatorCamera;
 
+    /** Spectator'a ait ve tüm filoyu yöneten Dashboard Unreal arayüzü */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|UI")
+    UPiSimModularGarageWidget* DashboardWidget = nullptr;
+
     /** İzlenen / Odaklanılan araç referansı */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Spectator")
     APiSimVehicle* FocusedVehicle = nullptr;
@@ -95,4 +104,5 @@ protected:
     void HandleLookUp(float Val);
     void HandleKeyFocus();
     void HandleKeyFreeFlight();
+    void HandleKeyTab();
 };

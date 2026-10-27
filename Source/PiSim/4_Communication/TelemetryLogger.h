@@ -23,6 +23,9 @@ struct PISIM_API FPiSimTelemetryRow
     double TimestampSec = 0.0;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Telemetry")
+    FString VehicleCode = TEXT("rover_01");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Telemetry")
     int32 VehicleId = 0;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Telemetry")

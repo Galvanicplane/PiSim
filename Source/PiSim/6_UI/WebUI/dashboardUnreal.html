@@ -847,7 +847,8 @@
 
             if (jsonStr && jsonStr.length > 2) {
                 try {
-                    const backendFleet = JSON.parse(jsonStr);
+                    const rawParsed = JSON.parse(jsonStr);
+                    const backendFleet = Array.isArray(rawParsed) ? rawParsed : (rawParsed.fleet || []);
                     if (Array.isArray(backendFleet) && backendFleet.length > 0) {
                         fleetData = {};
                         backendFleet.forEach(item => {
@@ -855,13 +856,14 @@
                             fleetData[uiId] = {
                                 id: uiId,
                                 backendId: item.id,
+                                code: item.code || `rover_${uiId < 10 ? '0' + uiId : uiId}`,
                                 name: item.name || `Araç ${uiId}`,
                                 speed: item.speed ? `${item.speed} km/s` : `-- km/s`,
                                 battery: item.battery ? `${item.battery}%` : `--%`,
                                 mission: item.flight_mode || "BEKLEMEDE",
                                 targetDevice: "sitl",
                                 targetIp: "127.0.0.1",
-                                targetPort: 9002 + (item.id * 10),
+                                targetPort: item.telemetry_port || 7400,
                                 isFocused: !!item.is_focused
                             };
                         });
@@ -911,7 +913,10 @@
                 card.onclick = () => selectVehicle(id);
                 card.innerHTML = `
                     <div class="vehicle-card-header">
-                        <span class="vehicle-card-title">${v.name}</span>
+                        <span class="vehicle-card-title">
+                            ${v.name}
+                            <span style="font-size: 8.5px; opacity: 0.75; font-family: var(--font-mono); color: #00e5ff; display: block;">[${v.code}]</span>
+                        </span>
                         <span class="status-indicator online">● AKTİF</span>
                     </div>
                     <div class="vehicle-card-body">
