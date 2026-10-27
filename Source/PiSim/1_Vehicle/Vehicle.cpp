@@ -60,6 +60,8 @@ APiSimVehicle::APiSimVehicle()
         MotorDebugComponent->bShowBoneHierarchyLines = false;
         MotorDebugComponent->bShowLineTraces = false;
     }
+
+    InitVehicleIdentity(0);
 }
 
 // @state: WIP - Kemik ve motor teşhis görselleştirmelerini ve ekran mesajlarını açıp kapatır
