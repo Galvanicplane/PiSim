@@ -3,6 +3,7 @@
 
 #include "GarageWidget.h"
 #include "Vehicle.h"
+#include "PiSimSpectator.h"
 #include "MotorConfigurator.h"
 #include "MotorDebug.h"
 #include "ModelFbxImporter.h"
@@ -1442,7 +1443,15 @@ bool UPiSimModularGarageWidget::FocusVehicle(int32 InVehicleId)
         SetTargetVehicle(FoundVehicle);
         if (PC)
         {
-            PC->SetViewTargetWithBlend(FoundVehicle, 0.4f);
+            APiSimSpectatorPawn* Spectator = Cast<APiSimSpectatorPawn>(PC->GetPawn());
+            if (Spectator)
+            {
+                Spectator->SetFocusedVehicle(FoundVehicle);
+            }
+            else
+            {
+                PC->SetViewTargetWithBlend(FoundVehicle, 0.4f);
+            }
         }
         UE_LOG(LogTemp, Log, TEXT("🎯 [UPiSimModularGarageWidget] Araç %d Odaklandı!"), InVehicleId);
         return true;
@@ -1458,6 +1467,17 @@ void UPiSimModularGarageWidget::SetVehicleVideoSubscribed(int32 InVehicleId, boo
     {
         if (Vehicle && Vehicle->VehicleId == InVehicleId)
         {
+            FString TargetIp = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->TargetIP : TEXT("127.0.0.1");
+            int32 VideoPort = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->VideoPort : (7401 + Vehicle->VehicleId * 10);
+            if (bSubscribe)
+            {
+                Vehicle->AddVideoSubscriber(TargetIp, VideoPort);
+            }
+            else
+            {
+                Vehicle->RemoveVideoSubscriber(TargetIp, VideoPort);
+            }
+
             if (Vehicle->Pi5Bridge)
             {
                 Vehicle->Pi5Bridge->SetVideoSubscribed(bSubscribe);
@@ -1534,18 +1554,23 @@ void UPiSimModularGarageWidget::TriggerBeaconProbe()
 bool UPiSimModularGarageWidget::SetTargetIP(const FString& InIP, int32 InPort)
 {
     APiSimVehicle* VehicleToConfig = TargetVehicle ? TargetVehicle : (FleetVehicles.Num() > 0 ? FleetVehicles[0] : nullptr);
-    if (VehicleToConfig && VehicleToConfig->Pi5Bridge)
+    if (VehicleToConfig)
     {
-        bool bSuccess = VehicleToConfig->Pi5Bridge->SetTargetIP(InIP, InPort);
-        VehicleToConfig->Pi5Bridge->StartStreaming(InIP, InPort, InPort + 1);
+        VehicleToConfig->AddTelemetrySubscriber(InIP, InPort);
 
-        if (WebBrowserWidget.IsValid())
+        if (VehicleToConfig->Pi5Bridge)
         {
-            FString Script = FString::Printf(TEXT("if (typeof setUeBridgeNodesActive === 'function') { setUeBridgeNodesActive(true, '%s', %d); }"), *InIP, InPort);
-            WebBrowserWidget->ExecuteJavascript(Script);
-        }
+            bool bSuccess = VehicleToConfig->Pi5Bridge->SetTargetIP(InIP, InPort);
+            VehicleToConfig->Pi5Bridge->StartStreaming(InIP, InPort, InPort + 1);
 
-        return bSuccess;
+            if (WebBrowserWidget.IsValid())
+            {
+                FString Script = FString::Printf(TEXT("if (typeof setUeBridgeNodesActive === 'function') { setUeBridgeNodesActive(true, '%s', %d); }"), *InIP, InPort);
+                WebBrowserWidget->ExecuteJavascript(Script);
+            }
+
+            return bSuccess;
+        }
     }
 
     return false;

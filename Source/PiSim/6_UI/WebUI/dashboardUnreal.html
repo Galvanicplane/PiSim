@@ -1010,24 +1010,28 @@
             const v = fleetData[currentVehicleId];
 
             if (devKey === 'pi5') {
-                document.getElementById('input-custom-ip').value = "192.168.1.105";
-                document.getElementById('input-custom-port').value = "7400";
+                const targetIp = (window.discoveredPi5 && window.discoveredPi5.ip) ? window.discoveredPi5.ip : (v.targetIp && v.targetIp !== "127.0.0.1" ? v.targetIp : "192.168.1.105");
+                const targetPort = (window.discoveredPi5 && window.discoveredPi5.port) ? window.discoveredPi5.port : (v.targetPort || 7400);
+                document.getElementById('input-custom-ip').value = targetIp;
+                document.getElementById('input-custom-port').value = targetPort;
                 badge.innerText = "PI5 EŞLEŞTİ";
                 badge.style.color = "var(--accent-color)";
                 badge.style.background = "var(--accent-dim)";
-                if (logIt) addLog(`Araç ${currentVehicleId} -> Raspberry Pi 5 donanımına bağlandı.`);
+                if (logIt) addLog(`Araç ${currentVehicleId} -> Raspberry Pi 5 (${targetIp}:${targetPort}) donanımına bağlandı.`);
+                applyCustomRouting();
             } else if (devKey === 'sitl') {
                 document.getElementById('input-custom-ip').value = "127.0.0.1";
-                document.getElementById('input-custom-port').value = v.targetPort || 9002;
+                document.getElementById('input-custom-port').value = v.sitlListenPort || 9002;
                 badge.innerText = "SITL AKTİF";
                 badge.style.color = "#ffaa00";
                 badge.style.background = "rgba(255, 170, 0, 0.15)";
                 if (logIt) addLog(`Araç ${currentVehicleId} -> ArduPilot SITL simülatörüne bağlandı.`);
+                applyCustomRouting();
             } else {
                 badge.innerText = "CUSTOM IP";
                 badge.style.color = "#00e5ff";
                 badge.style.background = "rgba(0, 229, 255, 0.15)";
-                if (logIt) addLog(`Araç ${currentVehicleId} -> Özel IP hedefine bağlandı.`);
+                if (logIt) addLog(`Araç ${currentVehicleId} -> Özel IP hedefine ayarlandı. 'UYGULA' butonuna basınız.`);
             }
         }
 
@@ -1035,14 +1039,16 @@
             if (!currentVehicleId || !fleetData[currentVehicleId]) return;
 
             const ip = document.getElementById('input-custom-ip').value;
-            const port = parseInt(document.getElementById('input-custom-port').value);
+            const port = parseInt(document.getElementById('input-custom-port').value) || 7400;
             fleetData[currentVehicleId].targetIp = ip;
             fleetData[currentVehicleId].targetPort = port;
 
             addLog(`Rota Güncellendi: Araç ${currentVehicleId} ──► ${ip}:${port}`);
             addPacketLog(`ROUTING_OVERRIDE_APPLIED: ${ip}:${port}`);
 
-            if (window.ue && window.ue.garage && window.ue.garage.settargetip) {
+            if (window.garage && window.garage.SetTargetIP) {
+                window.garage.SetTargetIP(ip, port);
+            } else if (window.ue && window.ue.garage && window.ue.garage.settargetip) {
                 window.ue.garage.settargetip(ip, port);
             }
         }
@@ -1189,6 +1195,13 @@
                 }
 
                 const devPort = dev.port || dev.telemetry_port || 7400;
+
+                // Keşfedilen Pi5 donanımını hafızada tut ve sağ panel hapını güncelle
+                window.discoveredPi5 = { ip: dev.ip, port: devPort };
+                const pi5PillSub = document.querySelector('#pill-dev-pi5 span:last-child');
+                if (pi5PillSub) {
+                    pi5PillSub.innerText = `${dev.ip}:${devPort}`;
+                }
 
                 // Alt paneldeki giriş kutularını güncelle
                 const ipInp = document.getElementById('ue-input-manual-target-ip');

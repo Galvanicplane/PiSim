@@ -1318,3 +1318,55 @@ void APiSimVehicle::GetVehicleBoneNames(TArray<FName>& OutBoneNames) const
         }
     }
 }
+
+// @state: WIP - Telemetri abonesi ekler
+void APiSimVehicle::AddTelemetrySubscriber(const FString& InIP, int32 InPort)
+{
+    FPiSimClientEndpoint NewEp;
+    NewEp.IPAddress = InIP;
+    NewEp.Port = InPort;
+    NewEp.LastActiveTime = (GetWorld()) ? GetWorld()->GetTimeSeconds() : 0.0;
+
+    Subscriptions.TelemetrySubscribers.RemoveAll([&](const FPiSimClientEndpoint& Ep) {
+        return Ep.IPAddress == InIP && Ep.Port == InPort;
+    });
+
+    Subscriptions.TelemetrySubscribers.Add(NewEp);
+    UE_LOG(LogTemp, Log, TEXT("📡 [APiSimVehicle %d] Telemetri Abonesi Eklendi: %s:%d (Toplam Abone: %d)"),
+        VehicleId, *InIP, InPort, Subscriptions.TelemetrySubscribers.Num());
+}
+
+// @state: WIP - Telemetri abonesini çıkarır
+void APiSimVehicle::RemoveTelemetrySubscriber(const FString& InIP, int32 InPort)
+{
+    Subscriptions.TelemetrySubscribers.RemoveAll([&](const FPiSimClientEndpoint& Ep) {
+        return Ep.IPAddress == InIP && Ep.Port == InPort;
+    });
+    UE_LOG(LogTemp, Log, TEXT("🔌 [APiSimVehicle %d] Telemetri Abonesi Çıkarıldı: %s:%d"), VehicleId, *InIP, InPort);
+}
+
+// @state: WIP - Canlı video abonesi ekler (On-Demand)
+void APiSimVehicle::AddVideoSubscriber(const FString& InIP, int32 InPort)
+{
+    FPiSimClientEndpoint NewEp;
+    NewEp.IPAddress = InIP;
+    NewEp.Port = InPort;
+    NewEp.LastActiveTime = (GetWorld()) ? GetWorld()->GetTimeSeconds() : 0.0;
+
+    Subscriptions.VideoSubscribers.RemoveAll([&](const FPiSimClientEndpoint& Ep) {
+        return Ep.IPAddress == InIP && Ep.Port == InPort;
+    });
+
+    Subscriptions.VideoSubscribers.Add(NewEp);
+    UE_LOG(LogTemp, Log, TEXT("📹 [APiSimVehicle %d] Canlı Video Abonesi Eklendi: %s:%d (Toplam Video İzleyici: %d)"),
+        VehicleId, *InIP, InPort, Subscriptions.VideoSubscribers.Num());
+}
+
+// @state: WIP - Canlı video abonesini çıkarır
+void APiSimVehicle::RemoveVideoSubscriber(const FString& InIP, int32 InPort)
+{
+    Subscriptions.VideoSubscribers.RemoveAll([&](const FPiSimClientEndpoint& Ep) {
+        return Ep.IPAddress == InIP && Ep.Port == InPort;
+    });
+    UE_LOG(LogTemp, Log, TEXT("⏹️ [APiSimVehicle %d] Canlı Video Abonesi Çıkarıldı: %s:%d"), VehicleId, *InIP, InPort);
+}

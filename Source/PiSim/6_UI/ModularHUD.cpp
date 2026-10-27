@@ -1,17 +1,20 @@
 // ModularHUD.cpp
 
 #include "ModularHUD.h"
+#include "PiSimSpectator.h"
+#include "Vehicle.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
+#include "Kismet/GameplayStatics.h"
 
 // @state: WIP - HUD yapıcısı
 APiSimModularHUD::APiSimModularHUD()
 {
 }
 
-// @state: WIP - Her frame HUD çizimini gerçekleştirir
+// @state: WIP - Her frame HUD çizimini gerçekleştirir (Spectator ve odaklı aracı destekler)
 void APiSimModularHUD::DrawHUD()
 {
     Super::DrawHUD();
@@ -21,12 +24,26 @@ void APiSimModularHUD::DrawHUD()
         return;
     }
 
-    if (!CachedGateway)
+    APawn* PlayerPawn = GetOwningPawn();
+    if (PlayerPawn)
     {
-        APawn* PlayerPawn = GetOwningPawn();
-        if (PlayerPawn)
+        APiSimSpectatorPawn* Spectator = Cast<APiSimSpectatorPawn>(PlayerPawn);
+        if (Spectator && Spectator->GetFocusedVehicle())
+        {
+            CachedGateway = Spectator->GetFocusedVehicle()->FindComponentByClass<UPiSimTelemetryGateway>();
+        }
+        else
         {
             CachedGateway = PlayerPawn->FindComponentByClass<UPiSimTelemetryGateway>();
+        }
+    }
+
+    if (!CachedGateway && GetWorld())
+    {
+        AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
+        if (Found)
+        {
+            CachedGateway = Found->FindComponentByClass<UPiSimTelemetryGateway>();
         }
     }
 

@@ -17,8 +17,15 @@ Geliştirme yaparken körlemesine arama (grep) yapmak yerine bu haritayı ve ilg
     - Araç fiziğini (`SetVehiclePhysicsEnabled`) açma/kapama: KESİNLİKLE Visual Mesh'e fizik ve collision vermez; fiziği ve yerçekimini SADECE UCX zırh gövdesine (`CollisionMeshComponents[0]`) verir. UCX yoksa kırmızı hata fırlatır.
     - Fare ile 360° Orbit (Sol tık), Pan (Sağ tık) ve Zoom (Tekerlek) kontrollerini `Tick()` içinde yürütmek.
     - UCX çarpışma zırhı inceleme görünürlüğünü (`SetCollisionMeshViewEnabled`) yönetmek.
-    - Başlangıçta hedef model bulunamazsa asla rastgele/fallback model atamama emniyeti.
-  - Kesinlikle dosya ayrıştırma veya doğrudan garaj Slate UI kodu içermez.
+    - Kesinlikle dosya ayrıştırma veya doğrudan garaj Slate UI kodu içermez.
+    - Birleşik İstemci Abonelikleri (`Subscriptions` / `FPiSimVehicleSubscriptions`): Telemetri (`TelemetrySubscribers`) ve Canlı Video (`VideoSubscribers`) istemcilerini doğrudan araç nesnesi üzerinde tekil olarak tutar. Video asla depolanmaz, sadece talep eden abonelere basılır.
+- **`PiSimSpectator.h / .cpp` (`APiSimSpectatorPawn`):**
+  - Bağımsız gözlemci ve filo yöneticisi Pawn'ı (`ASpectatorPawn` türevi).
+  - Sorumlulukları:
+    - Sahnede noclip / serbest uçuş kontrolleri (WASD + Mouse look).
+    - `FocusedVehicle` referansı tutarak `F` tuşuyla veya UI üzerinden seçilen aracı merkez alan 360° yumuşak Orbit/Takip moduna geçmek.
+    - `V` veya `ESC` tuşu ile serbest uçuşa geri dönmek.
+    - UI ve avionik göstergelerin (`ModularHUD`) oyuncuyu araca possess etmeden izlenen araçtan beslenmesini sağlamak.
 
 ---
 

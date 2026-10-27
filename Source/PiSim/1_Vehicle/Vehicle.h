@@ -16,6 +16,40 @@ class UPiSimTelemetryGateway;
 class UPhysicsConstraintComponent;
 
 USTRUCT(BlueprintType)
+struct PISIM_API FPiSimClientEndpoint
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Subscription")
+    FString IPAddress = TEXT("127.0.0.1");
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Subscription")
+    int32 Port = 7400;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Subscription")
+    double LastActiveTime = 0.0;
+
+    bool operator==(const FPiSimClientEndpoint& Other) const
+    {
+        return IPAddress == Other.IPAddress && Port == Other.Port;
+    }
+};
+
+USTRUCT(BlueprintType)
+struct PISIM_API FPiSimVehicleSubscriptions
+{
+    GENERATED_BODY()
+
+    /** Bu aracın telemetri ve sensör verilerini (JSON / SITL UDP) dinleyen aktif istemciler (Pi 5, ArduPilot SITL, GCS) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Subscription")
+    TArray<FPiSimClientEndpoint> TelemetrySubscribers;
+
+    /** Bu aracın canlı JPEG video yayınını izleyen aktif istemciler (Web Dashboard, Harici Ekran) - KESİNLİKLE DEPOLANMAZ */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Subscription")
+    TArray<FPiSimClientEndpoint> VideoSubscribers;
+};
+
+USTRUCT(BlueprintType)
 struct FPiSimBoneHierarchyNode
 {
     GENERATED_BODY()
@@ -205,6 +239,30 @@ public:
     /** Bu araç kullanıcının anlık kamera ve kontrol odağında mı? */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|MultiVehicle")
     bool bIsFocusedVehicle = true;
+
+    /** Aracın telemetri ve canlı video abonelikleri (Birleşik, tekil veri yapısı) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|MultiVehicle")
+    FPiSimVehicleSubscriptions Subscriptions;
+
+    // @state: WIP - Telemetri abonesi ekler (Pi5, SITL veya GCS)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Subscription")
+    void AddTelemetrySubscriber(const FString& InIP, int32 InPort);
+
+    // @state: WIP - Telemetri abonesini çıkarır
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Subscription")
+    void RemoveTelemetrySubscriber(const FString& InIP, int32 InPort);
+
+    // @state: WIP - Canlı video abonesi ekler (On-Demand, depolanmaz)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Subscription")
+    void AddVideoSubscriber(const FString& InIP, int32 InPort);
+
+    // @state: WIP - Canlı video abonesini çıkarır
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Subscription")
+    void RemoveVideoSubscriber(const FString& InIP, int32 InPort);
+
+    // @state: WIP - Canlı video izleyen aktif abone var mı?
+    UFUNCTION(BlueprintPure, Category = "PiSim|Subscription")
+    bool HasVideoSubscribers() const { return Subscriptions.VideoSubscribers.Num() > 0; }
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Debug")
     class UPiSimMotorDebugComponent* MotorDebugComponent;

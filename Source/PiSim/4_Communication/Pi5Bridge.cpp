@@ -91,6 +91,20 @@ void UPiSimPi5Bridge::SetVideoSubscribed(bool bSubscribe)
 {
     FScopeLock Lock(&VideoSubscriptionLock);
     bIsVideoSubscribed = bSubscribe;
+
+    APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
+    if (VehicleOwner)
+    {
+        if (bSubscribe)
+        {
+            VehicleOwner->AddVideoSubscriber(TargetIP, VideoPort);
+        }
+        else
+        {
+            VehicleOwner->RemoveVideoSubscriber(TargetIP, VideoPort);
+        }
+    }
+
     UE_LOG(LogTemp, Log, TEXT("📹 [UPiSimPi5Bridge] Araç ID %d Video Aboneliği: %s (Port: %d)"),
         VehicleId, bSubscribe ? TEXT("AÇIK (Canlı Yayında)") : TEXT("KAPALI (Bant Genişliği Tasarrufu)"), VideoPort);
 }
@@ -284,6 +298,13 @@ bool UPiSimPi5Bridge::SetTargetIP(const FString& InIP, int32 InPort)
 {
     TargetIP = InIP;
     TelemetryPort = InPort;
+
+    APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
+    if (VehicleOwner)
+    {
+        VehicleOwner->AddTelemetrySubscriber(InIP, InPort);
+    }
+
     UE_LOG(LogTemp, Warning, TEXT("🎯 [Pi5Bridge] Hedef IP/Port Güncellendi: %s:%d"), *TargetIP, TelemetryPort);
     return true;
 }
@@ -465,18 +486,42 @@ void UPiSimPi5Bridge::ExecuteVideoLoop(FThreadSafeBool& bRunning)
         }
 
         bool bSubscribed = false;
+        APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
+        if (VehicleOwner)
+        {
+            bSubscribed = VehicleOwner->HasVideoSubscribers() || bIsVideoSubscribed;
+        }
+        else
         {
             FScopeLock SubLock(&VideoSubscriptionLock);
             bSubscribed = bIsVideoSubscribed;
         }
 
-        // On-demand: Sadece kullanıcı veya uç cihaz video izleme talebinde bulunduysa UDP paketi bas
+        // On-demand: Sadece kullanıcı veya uç cihaz video izleme talebinde bulunduysa UDP paketi bas (ASLA DEPOLANMAZ)
         if (bSubscribed && CachedGateway && VideoSocket)
         {
             if (CachedGateway->GetLatestCameraFrame(JpegBytes) && JpegBytes.Num() > 0)
             {
-                int32 BytesSent = 0;
-                VideoSocket->SendTo(JpegBytes.GetData(), JpegBytes.Num(), BytesSent, *TargetAddr);
+                if (VehicleOwner && VehicleOwner->Subscriptions.VideoSubscribers.Num() > 0)
+                {
+                    for (const FPiSimClientEndpoint& Sub : VehicleOwner->Subscriptions.VideoSubscribers)
+                    {
+                        TSharedRef<FInternetAddr> SubAddr = SocketSubsystem->CreateInternetAddr();
+                        bool bValid = false;
+                        SubAddr->SetIp(*Sub.IPAddress, bValid);
+                        SubAddr->SetPort(Sub.Port);
+                        if (bValid)
+                        {
+                            int32 BytesSent = 0;
+                            VideoSocket->SendTo(JpegBytes.GetData(), JpegBytes.Num(), BytesSent, *SubAddr);
+                        }
+                    }
+                }
+                else
+                {
+                    int32 BytesSent = 0;
+                    VideoSocket->SendTo(JpegBytes.GetData(), JpegBytes.Num(), BytesSent, *TargetAddr);
+                }
             }
         }
 

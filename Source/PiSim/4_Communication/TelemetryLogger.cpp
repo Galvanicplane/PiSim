@@ -31,11 +31,21 @@ void UPiSimTelemetryLogger::BeginPlay()
         CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
     }
 
-    // SQL dosyasının ve klasörünün varlığını doğrula, tablo yapısını hazırla
+    // SQL dosyasını ve oturumunu sıfırla, eski oturum verilerini temizle
     if (bEnableSqlLogging)
     {
-        EnsureSqlHeaderExists(GetSqlFilePath());
+        ResetSqlFile(GetSqlFilePath());
     }
+}
+
+// @state: WIP - EndPlay: Simülasyon kapatılırken SQL dosyasını temizler
+void UPiSimTelemetryLogger::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if (bEnableSqlLogging)
+    {
+        ResetSqlFile(GetSqlFilePath());
+    }
+    Super::EndPlay(EndPlayReason);
 }
 
 // @state: WIP - Tick: Belirlenen frekansta örnek toplar, her 60 saniyede bir batch SQL yazar
@@ -219,6 +229,16 @@ FString UPiSimTelemetryLogger::GetSqlFilePath() const
 void UPiSimTelemetryLogger::EnsureSqlHeaderExists(const FString& FilePath)
 {
     IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+    if (!PlatformFile.FileExists(*FilePath))
+    {
+        ResetSqlFile(FilePath);
+    }
+}
+
+// @state: WIP - SQL dosyasını sıfırlar ve temiz bir tablo şeması oluşturur
+void UPiSimTelemetryLogger::ResetSqlFile(const FString& FilePath)
+{
+    IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
     FString Directory = FPaths::GetPath(FilePath);
 
     if (!PlatformFile.DirectoryExists(*Directory))
@@ -226,30 +246,28 @@ void UPiSimTelemetryLogger::EnsureSqlHeaderExists(const FString& FilePath)
         PlatformFile.CreateDirectoryTree(*Directory);
     }
 
-    if (!PlatformFile.FileExists(*FilePath))
-    {
-        FString TableSchema = TEXT("-- =========================================================================\n")
-                              TEXT("-- PiSim Uçuş Telemetri Veritabanı (SQLite & SQL Standart Uyumlu)\n")
-                              TEXT("-- Her 1 dakikada bir otomatik batch olarak güncellenir.\n")
-                              TEXT("-- =========================================================================\n\n")
-                              TEXT("CREATE TABLE IF NOT EXISTS vehicle_telemetry (\n")
-                              TEXT("    id INTEGER PRIMARY KEY AUTOINCREMENT,\n")
-                              TEXT("    timestamp_sec REAL NOT NULL,\n")
-                              TEXT("    vehicle_id INTEGER NOT NULL,\n")
-                              TEXT("    roll_deg REAL,\n")
-                              TEXT("    pitch_deg REAL,\n")
-                              TEXT("    yaw_deg REAL,\n")
-                              TEXT("    altitude_m REAL,\n")
-                              TEXT("    airspeed_ms REAL,\n")
-                              TEXT("    battery_pct REAL,\n")
-                              TEXT("    lat REAL,\n")
-                              TEXT("    lon REAL,\n")
-                              TEXT("    flight_mode TEXT\n")
-                              TEXT(");\n\n")
-                              TEXT("CREATE INDEX IF NOT EXISTS idx_telemetry_time ON vehicle_telemetry(timestamp_sec);\n")
-                              TEXT("CREATE INDEX IF NOT EXISTS idx_telemetry_vehicle ON vehicle_telemetry(vehicle_id);\n\n");
+    FString TableSchema = TEXT("-- =========================================================================\n")
+                          TEXT("-- PiSim Uçuş Telemetri Veritabanı (SQLite & SQL Standart Uyumlu)\n")
+                          TEXT("-- Oturum Başlangıcında Otomatik Sıfırlanır (Eski veriler temizlenir)\n")
+                          TEXT("-- =========================================================================\n\n")
+                          TEXT("DROP TABLE IF EXISTS vehicle_telemetry;\n")
+                          TEXT("CREATE TABLE IF NOT EXISTS vehicle_telemetry (\n")
+                          TEXT("    id INTEGER PRIMARY KEY AUTOINCREMENT,\n")
+                          TEXT("    timestamp_sec REAL NOT NULL,\n")
+                          TEXT("    vehicle_id INTEGER NOT NULL,\n")
+                          TEXT("    roll_deg REAL,\n")
+                          TEXT("    pitch_deg REAL,\n")
+                          TEXT("    yaw_deg REAL,\n")
+                          TEXT("    altitude_m REAL,\n")
+                          TEXT("    airspeed_ms REAL,\n")
+                          TEXT("    battery_pct REAL,\n")
+                          TEXT("    lat REAL,\n")
+                          TEXT("    lon REAL,\n")
+                          TEXT("    flight_mode TEXT\n")
+                          TEXT(");\n\n")
+                          TEXT("CREATE INDEX IF NOT EXISTS idx_telemetry_time ON vehicle_telemetry(timestamp_sec);\n")
+                          TEXT("CREATE INDEX IF NOT EXISTS idx_telemetry_vehicle ON vehicle_telemetry(vehicle_id);\n\n");
 
-        FFileHelper::SaveStringToFile(TableSchema, *FilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
-        UE_LOG(LogTemp, Log, TEXT("📄 [UPiSimTelemetryLogger] Yeni Telemetri SQL Veritabanı Tablosu Oluşturuldu: %s"), *FilePath);
-    }
+    FFileHelper::SaveStringToFile(TableSchema, *FilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
+    UE_LOG(LogTemp, Log, TEXT("🧹 [UPiSimTelemetryLogger] Telemetri SQL Veritabanı Temizlendi ve Sıfırlandı: %s"), *FilePath);
 }
