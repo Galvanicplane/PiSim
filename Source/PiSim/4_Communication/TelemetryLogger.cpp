@@ -15,8 +15,8 @@
 UPiSimTelemetryLogger::UPiSimTelemetryLogger()
 {
     PrimaryComponentTick.bCanEverTick = true;
-    FlushIntervalSec = 60.0f; // 1 Dakikada bir SQL'e yaz
-    SampleRateHz = 2.0f;      // Saniyede 2 örnek
+    FlushIntervalSec = 2.0f;  // 2 Saniyede bir SQL'e yaz (Hızlı senkronizasyon)
+    SampleRateHz = 5.0f;      // Saniyede 5 örnek
     bEnableSqlLogging = true;
 }
 
@@ -31,19 +31,19 @@ void UPiSimTelemetryLogger::BeginPlay()
         CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
     }
 
-    // SQL dosyasını ve oturumunu sıfırla, eski oturum verilerini temizle
+    // SQL dosyasını ve başlığını hazırla (Mevcut araçların kayıtlarını silme!)
     if (bEnableSqlLogging)
     {
-        ResetSqlFile(GetSqlFilePath());
+        EnsureSqlHeaderExists(GetSqlFilePath());
     }
 }
 
-// @state: WIP - EndPlay: Simülasyon kapatılırken SQL dosyasını temizler
+// @state: WIP - EndPlay: Kalan son batch verilerini SQL'e yazar
 void UPiSimTelemetryLogger::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     if (bEnableSqlLogging)
     {
-        ResetSqlFile(GetSqlFilePath());
+        FlushBatchToSql();
     }
     Super::EndPlay(EndPlayReason);
 }

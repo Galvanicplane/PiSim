@@ -1378,6 +1378,21 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
 
     FleetVehicles.RemoveAll([](APiSimVehicle* V) { return !IsValid(V); });
 
+    // Sahnede yer alan tüm araçları topla (Editörden eklenen veya sonradan doğan araçları da dahil et)
+    if (GetWorld())
+    {
+        TArray<AActor*> AllWorldVehicles;
+        UGameplayStatics::GetAllActorsOfClass(GetWorld(), APiSimVehicle::StaticClass(), AllWorldVehicles);
+        for (AActor* Act : AllWorldVehicles)
+        {
+            APiSimVehicle* V = Cast<APiSimVehicle>(Act);
+            if (V && !FleetVehicles.Contains(V))
+            {
+                FleetVehicles.Add(V);
+            }
+        }
+    }
+
     for (APiSimVehicle* Vehicle : FleetVehicles)
     {
         if (!Vehicle) continue;

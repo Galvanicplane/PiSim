@@ -473,56 +473,39 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
         if (CachedGateway && TelemetrySocket)
         {
             APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
-            bool bHasSubscribers = VehicleOwner && (VehicleOwner->Subscriptions.TelemetrySubscribers.Num() > 0);
-            // İlk araç ve odaklı araç henüz açıkça başka bir araca geçilmediyse varsayılan yayında kalsın
-            bool bDefaultBroadcast = VehicleOwner && (VehicleOwner->VehicleId == 0 || VehicleOwner->bIsFocusedVehicle);
+            FString JsonPayload = CachedGateway->BuildSitlJsonState();
+            FTCHARToUTF8 Utf8(*JsonPayload);
+            int32 BytesSent = 0;
 
-            if (bHasSubscribers)
+            // KURAL: Sahnedeki her araç kendi kimliğiyle (VehicleCode) UDP 7400 üzerinden telemetrisini basar!
+            // Böylece Pi 5 ve SQL veritabanı tüm araçları anında listeler ve kayıt altına alır.
+            TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *TargetAddr);
+            TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
+
+            // Varsa kayıtlı özel abonelere ilet
+            if (VehicleOwner && VehicleOwner->Subscriptions.TelemetrySubscribers.Num() > 0)
             {
-                FString JsonPayload = CachedGateway->BuildSitlJsonState();
-                FTCHARToUTF8 Utf8(*JsonPayload);
-                int32 BytesSent = 0;
-
                 for (const FPiSimClientEndpoint& Sub : VehicleOwner->Subscriptions.TelemetrySubscribers)
                 {
-                    TSharedRef<FInternetAddr> SubAddr = SocketSubsystem->CreateInternetAddr();
-                    bool bValid = false;
-                    SubAddr->SetIp(*Sub.IPAddress, bValid);
-                    SubAddr->SetPort(Sub.Port > 0 ? Sub.Port : 7400);
-                    if (bValid)
+                    if (Sub.IPAddress != CurrentTargetIP)
                     {
-                        TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *SubAddr);
+                        TSharedRef<FInternetAddr> SubAddr = SocketSubsystem->CreateInternetAddr();
+                        bool bValid = false;
+                        SubAddr->SetIp(*Sub.IPAddress, bValid);
+                        SubAddr->SetPort(Sub.Port > 0 ? Sub.Port : 7400);
+                        if (bValid)
+                        {
+                            TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *SubAddr);
+                        }
                     }
                 }
-
-                PacketCount++;
-                if (PacketCount == 1 || PacketCount % 500 == 0)
-                {
-                    UE_LOG(LogTemp, Log, TEXT("📡 [Pi5Bridge] Aboneye Canlı Telemetri İletildi (#%d) -> Araç %s (%d Abone)"),
-                        PacketCount, *VehicleOwner->VehicleCode, VehicleOwner->Subscriptions.TelemetrySubscribers.Num());
-                }
             }
-            else if (bDefaultBroadcast)
+
+            PacketCount++;
+            if (PacketCount == 1 || PacketCount % 500 == 0)
             {
-                FString JsonPayload = CachedGateway->BuildSitlJsonState();
-                FTCHARToUTF8 Utf8(*JsonPayload);
-                int32 BytesSent = 0;
-
-                // 1. Hedef IP'ye gönder (Port 7400)
-                TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *TargetAddr);
-
-                // 2. Broadcast
-                if (CurrentTargetIP == TEXT("127.0.0.1"))
-                {
-                    TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
-                }
-
-                PacketCount++;
-                if (PacketCount == 1 || PacketCount % 500 == 0)
-                {
-                    UE_LOG(LogTemp, Log, TEXT("📡 [Pi5Bridge] Varsayılan Telemetri Yayını (#%d) -> %s:%d (Araç: %s)"),
-                        PacketCount, *CurrentTargetIP, CurrentPort, VehicleOwner ? *VehicleOwner->VehicleCode : TEXT("Bilinmeyen"));
-                }
+                UE_LOG(LogTemp, Log, TEXT("📡 [Pi5Bridge] Canlı Telemetri İletildi (#%d) -> Araç %s (ID: %d)"),
+                    PacketCount, VehicleOwner ? *VehicleOwner->VehicleCode : TEXT("?"), VehicleOwner ? VehicleOwner->VehicleId : -1);
             }
         }
 

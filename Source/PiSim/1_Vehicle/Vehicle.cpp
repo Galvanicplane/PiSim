@@ -92,9 +92,19 @@ void APiSimVehicle::BeginPlay()
 {
     Super::BeginPlay();
 
-    if (VehicleCode.IsEmpty())
+    if (GetWorld())
     {
-        InitVehicleIdentity(VehicleId);
+        TArray<AActor*> AllVehicles;
+        UGameplayStatics::GetAllActorsOfClass(GetWorld(), APiSimVehicle::StaticClass(), AllVehicles);
+        int32 MyIdx = AllVehicles.IndexOfByKey(this);
+        if (MyIdx != INDEX_NONE && VehicleId == 0 && MyIdx > 0)
+        {
+            InitVehicleIdentity(MyIdx);
+        }
+        else if (VehicleCode.IsEmpty())
+        {
+            InitVehicleIdentity(VehicleId);
+        }
     }
 
     // 1. Hedef Modeli Kontrol Et (SADECE açıkça hedeflenen dosya varsa yükle)
