@@ -44,6 +44,9 @@ void UPiSimModularGarageWidget::NativeConstruct()
             SetTargetVehicle(Cast<APiSimVehicle>(Found));
         }
     }
+
+    // Başlangıçta Pi 5'e Unreal Engine varlığını duyurmak için prob fırlat
+    TriggerBeaconProbe();
 }
 
 void UPiSimModularGarageWidget::NativeDestruct()
@@ -1548,6 +1551,31 @@ void UPiSimModularGarageWidget::TriggerBeaconProbe()
     if (VehicleToConfig && VehicleToConfig->Pi5Bridge)
     {
         VehicleToConfig->Pi5Bridge->TriggerBeaconProbe();
+    }
+    else
+    {
+        // Sahne seviyesinde keşif probu fırlat (Henüz araç spawn edilmemiş olsa dahi Pi 5 Unreal Engine'i keşfetsin)
+        ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+        if (SocketSubsystem)
+        {
+            FSocket* TempSocket = SocketSubsystem->CreateSocket(NAME_DGram, TEXT("PiSimSimBeacon"), true);
+            if (TempSocket)
+            {
+                TempSocket->SetBroadcast(true);
+                FString ProbePayload = TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"vehicle_code\":\"unreal_sim\",\"msg\":\"HI FROM UNREAL_SIM\"}\n");
+                FTCHARToUTF8 Utf8(*ProbePayload);
+                int32 BytesSent = 0;
+                TSharedRef<FInternetAddr> BcastAddr = SocketSubsystem->CreateInternetAddr();
+                bool bValid = false;
+                BcastAddr->SetIp(TEXT("255.255.255.255"), bValid);
+                BcastAddr->SetPort(7499);
+                if (bValid)
+                {
+                    TempSocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
+                }
+                SocketSubsystem->DestroySocket(TempSocket);
+            }
+        }
     }
 }
 

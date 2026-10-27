@@ -242,10 +242,11 @@ FString UPiSimTelemetryGateway::BuildSitlJsonState(double SimTimestampSec)
     RootObject->SetBoolField(TEXT("no_time_sync"), true);
     RootObject->SetBoolField(TEXT("no_lockstep"), true);
 
-    // Heartbeat identification
+    // Heartbeat identification & Dinamik Araç Selamlaması
     RootObject->SetStringField(TEXT("magic"), TEXT("PISIM_TELEMETRY"));
     RootObject->SetStringField(TEXT("source"), TEXT("UE5_UNREAL"));
-    RootObject->SetStringField(TEXT("msg"), TEXT("HI FROM UNREAL"));
+    FString MsgContent = FString::Printf(TEXT("HI FROM %s"), *VehicleCode);
+    RootObject->SetStringField(TEXT("msg"), MsgContent);
 
     FString OutputString;
     TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =

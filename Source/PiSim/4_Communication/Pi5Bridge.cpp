@@ -232,9 +232,10 @@ void UPiSimPi5Bridge::TriggerBeaconProbe()
     if (!DiscoverySocket) return;
 
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
-    if (!SocketSubsystem) return;
-
-    FString ProbePayload = TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"msg\":\"HI FROM UNREAL\"}\n");
+    APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
+    FString VCode = VehicleOwner ? VehicleOwner->VehicleCode : TEXT("rover_01");
+    FString MsgContent = FString::Printf(TEXT("HI FROM %s"), *VCode);
+    FString ProbePayload = FString::Printf(TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"vehicle_code\":\"%s\",\"msg\":\"%s\"}\n"), *VCode, *MsgContent);
     FTCHARToUTF8 Utf8(*ProbePayload);
     int32 BytesSent = 0;
 
