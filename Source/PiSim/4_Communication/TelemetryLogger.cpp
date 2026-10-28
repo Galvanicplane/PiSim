@@ -15,7 +15,7 @@
 UPiSimTelemetryLogger::UPiSimTelemetryLogger()
 {
     PrimaryComponentTick.bCanEverTick = true;
-    FlushIntervalSec = 30.0f; // 30 Saniyede bir SQL'e yaz (30-60sn kuralı)
+    FlushIntervalSec = 10.0f; // 10 Saniyede bir SQL'e yaz (Kullanıcı talebi)
     SampleRateHz = 5.0f;      // Saniyede 5 örnek
     bEnableSqlLogging = true;
 }
@@ -35,6 +35,9 @@ void UPiSimTelemetryLogger::BeginPlay()
     if (bEnableSqlLogging)
     {
         EnsureSqlHeaderExists(GetSqlFilePath());
+        // Yeni araç açılır açılmaz ilk kaydını SQL'e yazarak Pi 5'in hemen görmesini sağla
+        SampleCurrentState();
+        FlushBatchToSql();
     }
 }
 
@@ -170,7 +173,7 @@ void UPiSimTelemetryLogger::FlushBatchToSql()
     if (FFileHelper::SaveStringToFile(SqlBatch, *FilePath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM, &IFileManager::Get(), FILEWRITE_Append))
     {
         TotalLoggedRows += PendingBatch.Num();
-        UE_LOG(LogTemp, Log, TEXT("💾 [UPiSimTelemetryLogger] 1 Dakikalık Telemetri Batch SQL Veritabanına Yazıldı: %d satır (Toplam: %d). Dosya: %s"),
+        UE_LOG(LogTemp, Log, TEXT("💾 [UPiSimTelemetryLogger] 10 Saniyelik Telemetri Batch SQL Veritabanına Yazıldı: %d satır (Toplam: %d). Dosya: %s"),
             PendingBatch.Num(), TotalLoggedRows, *FilePath);
     }
     else

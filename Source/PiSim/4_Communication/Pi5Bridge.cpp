@@ -232,10 +232,7 @@ void UPiSimPi5Bridge::TriggerBeaconProbe()
     if (!DiscoverySocket) return;
 
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
-    APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
-    FString VCode = VehicleOwner ? VehicleOwner->VehicleCode : TEXT("rover_01");
-    FString MsgContent = FString::Printf(TEXT("HI FROM %s"), *VCode);
-    FString ProbePayload = FString::Printf(TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"vehicle_code\":\"%s\",\"msg\":\"%s\"}\n"), *VCode, *MsgContent);
+    FString ProbePayload = TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\"}\n");
     FTCHARToUTF8 Utf8(*ProbePayload);
     int32 BytesSent = 0;
 
@@ -339,7 +336,7 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
     {
         // 1. Periyodik Probe Fırlatma (Port 7499'a 1.5 saniyede bir probe fırlat)
         double CurrentSec = FPlatformTime::Seconds();
-        if (CurrentSec - LastProbeTimeSec >= 1.5)
+        if (CurrentSec - LastProbeTimeSec >= 4.0)
         {
             LastProbeTimeSec = CurrentSec;
             // Sadece 0. araç periyodik probe fırlatsın, çoklu araçlarda soket kirliliği oluşmasın
