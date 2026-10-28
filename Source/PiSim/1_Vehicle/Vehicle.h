@@ -253,6 +253,9 @@ public:
     static TArray<APiSimVehicle*> ActiveFleet;
     static FCriticalSection FleetLock;
 
+    /** Oturum boyunca tüm dünyadaki araçların benzersiz ID sayacı (Garaja gidip gelince asla sıfırlanmaz) */
+    static int32 GlobalVehicleSequence;
+
     /** Bu araç kullanıcının anlık kamera ve kontrol odağında mı? */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|MultiVehicle")
     bool bIsFocusedVehicle = true;
