@@ -317,6 +317,36 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
     float AngularDamping = 0.1f;
 
+    // =========================================================================
+    // Profesyonel Sürü & Bağımsız Komut Alıcısı (UDP Port 7402 - SO_REUSEADDR)
+    // =========================================================================
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Swarm")
+    void SetTwistVelocity(float InLinearX, float InAngularZ, float InTimeoutSec = 0.5f);
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Swarm")
+    void StopVehicle();
+
+    void ProcessCommandJson(const FString& JsonStr);
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Swarm")
+    float TargetLinearVelocity = 0.0f; // m/s (İleri/Geri)
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Swarm")
+    float TargetAngularVelocity = 0.0f; // rad/s (Dönüş)
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Swarm")
+    float CommandWatchdogTimer = 0.0f; // Saniye
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Swarm")
+    int32 CommandPort = 7402;
+
+protected:
+    class FSocket* CommandSocket = nullptr;
+    void InitCommandSocket();
+    void CloseCommandSocket();
+    void PollCommandSocket();
+    void UpdateKinematicsAndMotors(float DeltaTime);
+
 protected:
     UPROPERTY()
     TMap<FName, UActorComponent*> BoneSlotRegistry;
