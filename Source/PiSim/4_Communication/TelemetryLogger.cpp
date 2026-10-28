@@ -175,6 +175,12 @@ void UPiSimTelemetryLogger::FlushBatchToSql()
         TotalLoggedRows += PendingBatch.Num();
         UE_LOG(LogTemp, Log, TEXT("💾 [UPiSimTelemetryLogger] 10 Saniyelik Telemetri Batch SQL Veritabanına Yazıldı: %d satır (Toplam: %d). Dosya: %s"),
             PendingBatch.Num(), TotalLoggedRows, *FilePath);
+        if (GEngine)
+        {
+            FString ScreenMsg = FString::Printf(TEXT("💾 [SQL BATCH] %s: %d satır SQL'e yazıldı (Toplam: %d) -> flight_telemetry.sql"),
+                (CachedVehicle ? *CachedVehicle->VehicleCode : TEXT("rover")), PendingBatch.Num(), TotalLoggedRows);
+            GEngine->AddOnScreenDebugMessage(-1, 3.5f, FColor::Cyan, ScreenMsg);
+        }
     }
     else
     {
