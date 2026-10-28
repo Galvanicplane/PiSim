@@ -73,6 +73,7 @@ public:
     APiSimVehicle();
 
     virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
     virtual void Tick(float DeltaTime) override;
 
     // @state: WIP - Fiziği açıp kapatma fonksiyonu (Chaos parametreleri ve kütle uygulaması)
@@ -247,6 +248,10 @@ public:
     // @state: WIP - Araç kimliğini ve kodunu yapılandırır (Örn: rover_01_2710262359)
     UFUNCTION(BlueprintCallable, Category = "PiSim|MultiVehicle")
     void InitVehicleIdentity(int32 InId);
+
+    /** Seviyedeki tüm aktif araçların statik listesi (Thread-safe çoklu filo yönetimi için) */
+    static TArray<APiSimVehicle*> ActiveFleet;
+    static FCriticalSection FleetLock;
 
     /** Bu araç kullanıcının anlık kamera ve kontrol odağında mı? */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|MultiVehicle")

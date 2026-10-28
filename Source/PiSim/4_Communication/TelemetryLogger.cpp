@@ -15,7 +15,7 @@
 UPiSimTelemetryLogger::UPiSimTelemetryLogger()
 {
     PrimaryComponentTick.bCanEverTick = true;
-    FlushIntervalSec = 2.0f;  // 2 Saniyede bir SQL'e yaz (Hızlı senkronizasyon)
+    FlushIntervalSec = 30.0f; // 30 Saniyede bir SQL'e yaz (30-60sn kuralı)
     SampleRateHz = 5.0f;      // Saniyede 5 örnek
     bEnableSqlLogging = true;
 }

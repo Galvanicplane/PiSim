@@ -16,7 +16,11 @@
 #include "Camera/CameraComponent.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "Misc/Paths.h"
+
+TArray<APiSimVehicle*> APiSimVehicle::ActiveFleet;
+FCriticalSection APiSimVehicle::FleetLock;
 
 // @state: WIP - Araç Pawn yapıcısı, iskelet, köprüler, logger ve kamera bileşenlerini kurar
 APiSimVehicle::APiSimVehicle()
@@ -82,8 +86,8 @@ void APiSimVehicle::SetDebugVisualsEnabled(bool bEnable)
 void APiSimVehicle::InitVehicleIdentity(int32 InId)
 {
     VehicleId = InId;
-    FDateTime Now = FDateTime::Now();
-    VehicleCode = FString::Printf(TEXT("rover_%02d_%s"), VehicleId + 1, *Now.ToString(TEXT("%d%m%y%H%M")));
+
+    VehicleCode = FString::Printf(TEXT("rover_%02d"), VehicleId + 1);
     VehicleName = FString::Printf(TEXT("Rover %02d"), VehicleId + 1);
 }
 
@@ -91,6 +95,11 @@ void APiSimVehicle::InitVehicleIdentity(int32 InId)
 void APiSimVehicle::BeginPlay()
 {
     Super::BeginPlay();
+
+    {
+        FScopeLock Lock(&APiSimVehicle::FleetLock);
+        APiSimVehicle::ActiveFleet.AddUnique(this);
+    }
 
     if (GetWorld())
     {
@@ -133,6 +142,16 @@ void APiSimVehicle::BeginPlay()
 }
 
 // @state: WIP - Her frame araç durumunu günceller ve fare ile kamera orbit/pan/zoom kontrollerini yürütür
+// @state: WIP - EndPlay: Araç seviyeden kaldırıldığında filodan temizler
+void APiSimVehicle::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    {
+        FScopeLock Lock(&APiSimVehicle::FleetLock);
+        APiSimVehicle::ActiveFleet.Remove(this);
+    }
+    Super::EndPlay(EndPlayReason);
+}
+
 void APiSimVehicle::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
