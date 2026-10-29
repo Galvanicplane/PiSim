@@ -249,7 +249,7 @@ FString UPiSimTelemetryGateway::BuildSitlJsonState(double SimTimestampSec)
     // Heartbeat identification & Dinamik Araç Selamlaması
     RootObject->SetStringField(TEXT("magic"), TEXT("PISIM_TELEMETRY"));
     RootObject->SetStringField(TEXT("source"), TEXT("UE5_UNREAL"));
-    FString MsgContent = FString::Printf(TEXT("HI FROM %s"), *VehicleCode);
+    FString MsgContent = FString::Printf(TEXT("HI FROM %s"), *VehicleName);
     RootObject->SetStringField(TEXT("msg"), MsgContent);
 
     FString OutputString;
@@ -278,7 +278,12 @@ void UPiSimTelemetryGateway::BroadcastProbe(const FString& InMsg)
     }
 
     TempSocket->SetBroadcast(true);
-    FString ProbePayload = FString::Printf(TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"vehicle_code\":\"unreal_sim\",\"msg\":\"%s\"}\n"), *InMsg);
+    APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
+    FString VCode = OwnerVehicle && !OwnerVehicle->VehicleCode.IsEmpty() ? OwnerVehicle->VehicleCode : TEXT("rover_01");
+    FString VName = OwnerVehicle && !OwnerVehicle->VehicleName.IsEmpty() ? OwnerVehicle->VehicleName : TEXT("Rover 01");
+    FString OutMsg = InMsg.IsEmpty() ? FString::Printf(TEXT("HI FROM %s"), *VName) : InMsg;
+    FString ProbePayload = FString::Printf(TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"vehicle_code\":\"%s\",\"vehicle_name\":\"%s\",\"msg\":\"%s\"}\n"),
+        *VCode, *VName, *OutMsg);
     FTCHARToUTF8 Utf8(*ProbePayload);
     int32 BytesSent = 0;
 
