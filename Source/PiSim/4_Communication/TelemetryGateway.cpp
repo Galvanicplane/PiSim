@@ -278,9 +278,16 @@ void UPiSimTelemetryGateway::BroadcastProbe(const FString& InMsg)
     }
 
     TempSocket->SetBroadcast(true);
-    APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
-    FString VCode = OwnerVehicle && !OwnerVehicle->VehicleCode.IsEmpty() ? OwnerVehicle->VehicleCode : TEXT("rover_01");
-    FString VName = OwnerVehicle && !OwnerVehicle->VehicleName.IsEmpty() ? OwnerVehicle->VehicleName : TEXT("Rover 01");
+    FString VCode = TEXT("rover_01");
+    FString VName = TEXT("Rover 01");
+    {
+        FScopeLock Lock(&APiSimVehicle::FleetLock);
+        if (APiSimVehicle::ActiveFleet.Num() > 0 && IsValid(APiSimVehicle::ActiveFleet[0]))
+        {
+            VCode = APiSimVehicle::ActiveFleet[0]->VehicleCode;
+            VName = APiSimVehicle::ActiveFleet[0]->VehicleName;
+        }
+    }
     FString OutMsg = InMsg.IsEmpty() ? FString::Printf(TEXT("HI FROM %s"), *VName) : InMsg;
     FString ProbePayload = FString::Printf(TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"vehicle_code\":\"%s\",\"vehicle_name\":\"%s\",\"msg\":\"%s\"}\n"),
         *VCode, *VName, *OutMsg);
