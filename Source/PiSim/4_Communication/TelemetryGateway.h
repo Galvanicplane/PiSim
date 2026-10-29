@@ -110,6 +110,10 @@ public:
     // ArduPilot / SITL için JSON çıktı üretici
     FString BuildSitlJsonState(double SimTimestampSec = 0.0);
 
+    // @state: WIP - Simülasyon genelinde veya araç seviyesinde Pi 5'e keşif probu / heartbeat fırlatır ("HI FROM UNREAL")
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Telemetry")
+    static void BroadcastProbe(const FString& InMsg = TEXT("HI FROM UNREAL"));
+
 protected:
     FCriticalSection TelemetryLock;
     FCriticalSection FrameLock;

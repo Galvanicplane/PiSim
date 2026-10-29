@@ -1,6 +1,8 @@
 // TelemetryGateway.cpp
 
 #include "TelemetryGateway.h"
+#include "Sockets.h"
+#include "SocketSubsystem.h" 
 #include "Vehicle.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
@@ -255,4 +257,36 @@ FString UPiSimTelemetryGateway::BuildSitlJsonState(double SimTimestampSec)
     OutputString.Append(TEXT("\n"));
 
     return OutputString;
+}
+
+
+// @state: WIP - Simülasyon genelinde veya araç seviyesinde Pi 5'e keşif probu / heartbeat fırlatır ("HI FROM UNREAL")
+void UPiSimTelemetryGateway::BroadcastProbe(const FString& InMsg)
+{
+    ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+    if (!SocketSubsystem)
+    {
+        return;
+    }
+
+    FSocket* TempSocket = SocketSubsystem->CreateSocket(NAME_DGram, TEXT("PiSimTelemetryProbe"), true);
+    if (!TempSocket)
+    {
+        return;
+    }
+
+    TempSocket->SetBroadcast(true);
+    FString ProbePayload = FString::Printf(TEXT("{\"magic\":\"PISIM_PROBE\",\"source\":\"UE5_UNREAL\",\"vehicle_code\":\"unreal_sim\",\"msg\":\"%s\"}\n"), *InMsg);
+    FTCHARToUTF8 Utf8(*ProbePayload);
+    int32 BytesSent = 0;
+
+    TSharedRef<FInternetAddr> BcastAddr = SocketSubsystem->CreateInternetAddr();
+    bool bValid = false;
+    BcastAddr->SetIp(TEXT("255.255.255.255"), bValid);
+    BcastAddr->SetPort(7499);
+    if (bValid)
+    {
+        TempSocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
+    }
+    SocketSubsystem->DestroySocket(TempSocket);
 }
