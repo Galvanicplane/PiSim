@@ -72,7 +72,7 @@ public:
     int32 VideoPort = 7401;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Pi5")
-    float TelemetryRateHz = 50.0f;
+    float TelemetryRateHz = 2.0f;
 
     // @state: WIP - İsteğe bağlı canlı video yayını aboneliği (On-demand video streaming)
     UFUNCTION(BlueprintCallable, Category = "PiSim|Pi5")
