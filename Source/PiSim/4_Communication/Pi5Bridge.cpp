@@ -509,6 +509,9 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
             // 1. Ana hedef cihaza (Pi 5 veya yerel istasyona) gönder
             TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *TargetAddr);
 
+            // 1b. Yerel ağdaki tüm Pi 5 cihazlarına (LAN Broadcast) ulaştır (255.255.255.255:7400)
+            TelemetrySocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *BcastAddr);
+
             // 2. Varsa kayıtlı ek abonelere de ilet
             for (const FPiSimClientEndpoint& Sub : VehicleOwner->Subscriptions.TelemetrySubscribers)
             {
