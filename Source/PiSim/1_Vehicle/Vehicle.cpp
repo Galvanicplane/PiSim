@@ -121,6 +121,11 @@ void APiSimVehicle::BeginPlay()
 
     {
         FScopeLock Lock(&APiSimVehicle::FleetLock);
+        APiSimVehicle::ActiveFleet.RemoveAll([](APiSimVehicle* V) { return !IsValid(V); });
+        if (APiSimVehicle::ActiveFleet.Num() == 0)
+        {
+            GlobalVehicleSequence = 0;
+        }
         APiSimVehicle::ActiveFleet.AddUnique(this);
     }
 
@@ -163,6 +168,11 @@ void APiSimVehicle::EndPlay(const EEndPlayReason::Type EndPlayReason)
     {
         FScopeLock Lock(&APiSimVehicle::FleetLock);
         APiSimVehicle::ActiveFleet.Remove(this);
+        APiSimVehicle::ActiveFleet.RemoveAll([](APiSimVehicle* V) { return !IsValid(V); });
+        if (APiSimVehicle::ActiveFleet.Num() == 0)
+        {
+            GlobalVehicleSequence = 0;
+        }
     }
     CloseCommandSocket();
     Super::EndPlay(EndPlayReason);

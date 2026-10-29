@@ -97,7 +97,7 @@ FString UPiSimTelemetryGateway::BuildSitlJsonState(double SimTimestampSec)
     {
         VehicleCode = OwnerVehicle->VehicleCode;
         VehicleId = OwnerVehicle->VehicleId;
-        VehicleName = OwnerVehicle->VehicleName.IsEmpty() ? FString::Printf(TEXT("Rover %02d"), VehicleId + 1) : OwnerVehicle->VehicleName;
+        VehicleName = OwnerVehicle->VehicleName.IsEmpty() ? FString::Printf(TEXT("Rover %02d"), VehicleId) : OwnerVehicle->VehicleName;
     }
 
     RootObject->SetStringField(TEXT("vehicle_code"), VehicleCode);
@@ -236,8 +236,10 @@ FString UPiSimTelemetryGateway::BuildSitlJsonState(double SimTimestampSec)
     RootObject->SetNumberField(TEXT("airspeed"), AirspeedMs);
     RootObject->SetNumberField(TEXT("speed"), AirspeedMs * 3.6f);
     RootObject->SetNumberField(TEXT("battery"), 98.0);
-    RootObject->SetNumberField(TEXT("lat"), LatestGPS.Latitude);
-    RootObject->SetNumberField(TEXT("lon"), LatestGPS.Longitude);
+    double OutLat = FMath::Abs(LatestGPS.Latitude) > 0.0001 ? LatestGPS.Latitude : (39.9334 + (double)(FMath::Max(1, VehicleId) - 1) * 0.00018);
+    double OutLon = FMath::Abs(LatestGPS.Longitude) > 0.0001 ? LatestGPS.Longitude : (32.8597 + (double)(FMath::Max(1, VehicleId) - 1) * 0.00018);
+    RootObject->SetNumberField(TEXT("lat"), OutLat);
+    RootObject->SetNumberField(TEXT("lon"), OutLon);
     RootObject->SetStringField(TEXT("flight_mode"), TEXT("AKTİF"));
 
     // Realtime flags
