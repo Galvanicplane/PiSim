@@ -204,15 +204,33 @@ FString UPiSimTelemetryGateway::BuildSitlJsonState(double SimTimestampSec)
     SitlImuObject->SetArrayField(TEXT("accel_body"), AccelArr);
     RootObject->SetObjectField(TEXT("imu"), SitlImuObject);
 
-    // Position [North, East, Down] in meters
+    // Gerçek 3B Dünya Konumu (Metre: X, Y, Z)
+    double PosX_m = 0.0;
+    double PosY_m = 0.0;
+    double PosZ_m = (double)LatestBaro.PressureAltitudeM;
+    FRotator Rot = LatestIMU.Orientation.Rotator();
+    if (OwnerVehicle)
+    {
+        FVector WorldLocCm = OwnerVehicle->GetActorLocation();
+        PosX_m = (double)WorldLocCm.X / 100.0;
+        PosY_m = (double)WorldLocCm.Y / 100.0;
+        PosZ_m = (double)WorldLocCm.Z / 100.0;
+        if (Rot.IsZero())
+        {
+            Rot = OwnerVehicle->GetActorRotation();
+        }
+    }
+
     TArray<TSharedPtr<FJsonValue>> PosArr;
-    PosArr.Add(MakeShareable(new FJsonValueNumber(0.0)));
-    PosArr.Add(MakeShareable(new FJsonValueNumber(0.0)));
-    PosArr.Add(MakeShareable(new FJsonValueNumber(-LatestBaro.PressureAltitudeM)));
+    PosArr.Add(MakeShareable(new FJsonValueNumber(PosX_m)));
+    PosArr.Add(MakeShareable(new FJsonValueNumber(PosY_m)));
+    PosArr.Add(MakeShareable(new FJsonValueNumber(PosZ_m)));
     RootObject->SetArrayField(TEXT("position"), PosArr);
+    RootObject->SetNumberField(TEXT("pos_x"), PosX_m);
+    RootObject->SetNumberField(TEXT("pos_y"), PosY_m);
+    RootObject->SetNumberField(TEXT("pos_z"), PosZ_m);
 
     // Attitude [Roll, Pitch, Yaw] in radians (NED)
-    FRotator Rot = LatestIMU.Orientation.Rotator();
     TArray<TSharedPtr<FJsonValue>> AttArr;
     AttArr.Add(MakeShareable(new FJsonValueNumber(FMath::DegreesToRadians(Rot.Roll))));
     AttArr.Add(MakeShareable(new FJsonValueNumber(FMath::DegreesToRadians(-Rot.Pitch))));
@@ -226,18 +244,29 @@ FString UPiSimTelemetryGateway::BuildSitlJsonState(double SimTimestampSec)
     VelArr.Add(MakeShareable(new FJsonValueNumber(LatestGPS.VelocityNED.Z)));
     RootObject->SetArrayField(TEXT("velocity"), VelArr);
 
-    // Doğrudan derece ve hız alanları
+    // Doğrudan derece, irtifa ve hız alanları
     RootObject->SetNumberField(TEXT("roll"), Rot.Roll);
     RootObject->SetNumberField(TEXT("pitch"), Rot.Pitch);
     RootObject->SetNumberField(TEXT("yaw"), Rot.Yaw);
-    RootObject->SetNumberField(TEXT("altitude"), LatestBaro.PressureAltitudeM);
+    RootObject->SetNumberField(TEXT("altitude"), PosZ_m);
 
-    float AirspeedMs = FMath::Sqrt(FMath::Max(0.0f, LatestBaro.DiffPressureHPa * 100.0f * 2.0f / 1.225f));
+    float SpeedKmh = LatestGPS.SpeedKmh;
+    float AirspeedMs = SpeedKmh / 3.6f;
+    if (SpeedKmh < 0.01f && LatestBaro.DiffPressureHPa > 0.0f)
+    {
+        AirspeedMs = FMath::Sqrt(FMath::Max(0.0f, LatestBaro.DiffPressureHPa * 100.0f * 2.0f / 1.225f));
+        SpeedKmh = AirspeedMs * 3.6f;
+    }
     RootObject->SetNumberField(TEXT("airspeed"), AirspeedMs);
-    RootObject->SetNumberField(TEXT("speed"), AirspeedMs * 3.6f);
+    RootObject->SetNumberField(TEXT("speed"), SpeedKmh);
     RootObject->SetNumberField(TEXT("battery"), 98.0);
-    double OutLat = FMath::Abs(LatestGPS.Latitude) > 0.0001 ? LatestGPS.Latitude : (39.9334 + (double)(FMath::Max(1, VehicleId) - 1) * 0.00018);
-    double OutLon = FMath::Abs(LatestGPS.Longitude) > 0.0001 ? LatestGPS.Longitude : (32.8597 + (double)(FMath::Max(1, VehicleId) - 1) * 0.00018);
+
+    const double OriginLat = 39.9334;
+    const double OriginLon = 32.8597;
+    double CalcLat = OriginLat + (PosX_m / 111320.0);
+    double CalcLon = OriginLon + (PosY_m / (111320.0 * FMath::Cos(FMath::DegreesToRadians(OriginLat))));
+    double OutLat = (FMath::Abs(LatestGPS.Latitude - OriginLat) > 1e-7) ? LatestGPS.Latitude : CalcLat;
+    double OutLon = (FMath::Abs(LatestGPS.Longitude - OriginLon) > 1e-7) ? LatestGPS.Longitude : CalcLon;
     RootObject->SetNumberField(TEXT("lat"), OutLat);
     RootObject->SetNumberField(TEXT("lon"), OutLon);
     RootObject->SetStringField(TEXT("flight_mode"), TEXT("AKTİF"));

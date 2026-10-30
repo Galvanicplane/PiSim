@@ -1398,10 +1398,15 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
     {
         if (!Vehicle) continue;
 
+        if (Vehicle->VehicleCode.IsEmpty() || Vehicle->VehicleId <= 0)
+        {
+            Vehicle->InitVehicleIdentity(0);
+        }
+
         TSharedPtr<FJsonObject> VObj = MakeShareable(new FJsonObject);
         VObj->SetNumberField(TEXT("id"), Vehicle->VehicleId);
         VObj->SetStringField(TEXT("code"), Vehicle->VehicleCode);
-        VObj->SetStringField(TEXT("name"), Vehicle->VehicleName.IsEmpty() ? FString::Printf(TEXT("Araç %d"), Vehicle->VehicleId + 1) : Vehicle->VehicleName);
+        VObj->SetStringField(TEXT("name"), Vehicle->VehicleName);
         VObj->SetBoolField(TEXT("is_focused"), Vehicle->bIsFocusedVehicle);
 
         int32 SitlListen = Vehicle->AutopilotBridge ? Vehicle->AutopilotBridge->ListenPort : (9002 + Vehicle->VehicleId * 10);

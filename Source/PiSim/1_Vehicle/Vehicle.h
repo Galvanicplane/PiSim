@@ -346,6 +346,10 @@ protected:
     void CloseCommandSocket();
     void PollCommandSocket();
     void UpdateKinematicsAndMotors(float DeltaTime);
+    void UpdateLiveTelemetryState(float DeltaTime);
+
+    FVector PreviousWorldLocation = FVector::ZeroVector;
+    bool bHasPreviousLocation = false;
 
 protected:
     UPROPERTY()

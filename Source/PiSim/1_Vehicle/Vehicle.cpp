@@ -110,8 +110,14 @@ void APiSimVehicle::InitVehicleIdentity(int32 InId)
     }
 
     VehicleId = InId;
-    VehicleCode = FString::Printf(TEXT("rover_%02d"), VehicleId);
-    VehicleName = FString::Printf(TEXT("Rover %02d"), VehicleId);
+
+    // Farklı oturumlarda dahi ASLA tekrar etmeyen gerçek eşsiz kimlik (GUID + yüksek çözünürlüklü saat döngüsü)
+    FGuid NewUid = FGuid::NewGuid();
+    uint32 UniqueHash = (NewUid.A ^ NewUid.B ^ NewUid.C ^ NewUid.D ^ (uint32)FPlatformTime::Cycles());
+    FString UniqueHex = FString::Printf(TEXT("%06X"), UniqueHash & 0xFFFFFF);
+
+    VehicleCode = FString::Printf(TEXT("RV%02d-%s"), VehicleId, *UniqueHex);
+    VehicleName = FString::Printf(TEXT("Rover %02d [%s]"), VehicleId, *UniqueHex);
 }
 
 // @state: WIP - Başlangıçta fare kontrollerini açar, hedef modeli arar ve uygun arayüzü ekrana basar
@@ -184,6 +190,7 @@ void APiSimVehicle::Tick(float DeltaTime)
 
     PollCommandSocket();
     UpdateKinematicsAndMotors(DeltaTime);
+    UpdateLiveTelemetryState(DeltaTime);
 
     // =========================================================================
     // CANLI MOTOR / EYLEYİCİ DÖNÜŞ VE KONTROL BLOĞU (PiSimModelImporter pattern)
@@ -1463,8 +1470,12 @@ void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
     // "rover_01" -> Yalnızca rover_01
     // "1" -> Araç ID'si 1 olan
     FString Target = JsonObj->HasField(TEXT("target")) ? JsonObj->GetStringField(TEXT("target")) : TEXT("all");
+    FString LegacyCode = FString::Printf(TEXT("rover_%02d"), VehicleId);
     bool bTargetMatch = Target.Equals(TEXT("all"), ESearchCase::IgnoreCase) ||
                         Target.Equals(VehicleCode, ESearchCase::IgnoreCase) ||
+                        Target.Equals(VehicleName, ESearchCase::IgnoreCase) ||
+                        Target.Equals(LegacyCode, ESearchCase::IgnoreCase) ||
+                        VehicleCode.StartsWith(Target, ESearchCase::IgnoreCase) ||
                         Target.Equals(FString::FromInt(VehicleId));
 
     if (!bTargetMatch)
@@ -1599,4 +1610,81 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
             }
         }
     }
+}
+
+void APiSimVehicle::UpdateLiveTelemetryState(float DeltaTime)
+{
+    if (!TelemetryGateway)
+    {
+        return;
+    }
+
+    // 1. Gerçek 3B Dünya Konumu (Unreal cm -> Metre)
+    FVector WorldLocCm = GetActorLocation();
+    FRotator WorldRot = GetActorRotation();
+    if (bIsPhysicsSimulating && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+    {
+        WorldLocCm = VisualMeshComponents[0]->GetComponentLocation();
+        WorldRot = VisualMeshComponents[0]->GetComponentRotation();
+    }
+
+    if (!bHasPreviousLocation)
+    {
+        PreviousWorldLocation = WorldLocCm;
+        bHasPreviousLocation = true;
+    }
+
+    // 2. Gerçek Hız Vektörü (m/s) - Hem fiziksel hem kinematik yer değiştirmeden hesaplanır
+    FVector DeltaCm = WorldLocCm - PreviousWorldLocation;
+    PreviousWorldLocation = WorldLocCm;
+
+    FVector VelMs = (DeltaTime > 0.0001f) ? (DeltaCm / (100.0f * DeltaTime)) : FVector::ZeroVector;
+    if (bIsPhysicsSimulating && VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
+    {
+        FVector PhysVelMs = VisualMeshComponents[0]->GetPhysicsLinearVelocity() / 100.0f;
+        if (PhysVelMs.SizeSquared() > VelMs.SizeSquared())
+        {
+            VelMs = PhysVelMs;
+        }
+    }
+
+    float SpeedMs = VelMs.Size();
+    if (SpeedMs < 0.05f && FMath::Abs(TargetLinearVelocity) > 0.01f && CommandWatchdogTimer > 0.0f)
+    {
+        SpeedMs = FMath::Abs(TargetLinearVelocity);
+    }
+    float SpeedKmh = SpeedMs * 3.6f;
+
+    // 3. Dünya Metre Koordinatları (X: İleri/Kuzey, Y: Sağ/Doğu, Z: İrtifa)
+    double PosX_m = (double)WorldLocCm.X / 100.0;
+    double PosY_m = (double)WorldLocCm.Y / 100.0;
+    double PosZ_m = (double)WorldLocCm.Z / 100.0;
+
+    // 4. WGS84 GPS Koordinatları (Ankara Merkez: 39.9334° N, 32.8597° E)
+    const double OriginLat = 39.9334;
+    const double OriginLon = 32.8597;
+    double Lat = OriginLat + (PosX_m / 111320.0);
+    double Lon = OriginLon + (PosY_m / (111320.0 * FMath::Cos(FMath::DegreesToRadians(OriginLat))));
+
+    // 5. IMU Verisini Besle
+    FPiSimIMUData ImuData;
+    ImuData.Orientation = WorldRot.Quaternion();
+    ImuData.AngularVelocityRad = FVector(0.0f, 0.0f, TargetAngularVelocity);
+    ImuData.LinearAcceleration = FVector(0.0f, 0.0f, -9.80665f);
+    TelemetryGateway->FeedIMUData(ImuData);
+
+    // 6. Barometre Verisini Besle
+    FPiSimBaroData BaroData;
+    BaroData.PressureAltitudeM = (float)PosZ_m;
+    BaroData.DiffPressureHPa = (0.5f * 1.225f * SpeedMs * SpeedMs) / 100.0f;
+    TelemetryGateway->FeedBaroData(BaroData);
+
+    // 7. GPS ve Konum Verisini Besle
+    FPiSimGPSData GpsData;
+    GpsData.Latitude = Lat;
+    GpsData.Longitude = Lon;
+    GpsData.AltitudeMeters = (float)PosZ_m;
+    GpsData.SpeedKmh = SpeedKmh;
+    GpsData.VelocityNED = FVector(VelMs.X, VelMs.Y, -VelMs.Z);
+    TelemetryGateway->FeedGPSData(GpsData);
 }

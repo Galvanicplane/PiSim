@@ -852,17 +852,20 @@
                     if (Array.isArray(backendFleet) && backendFleet.length > 0) {
                         fleetData = {};
                         backendFleet.forEach(item => {
-                            const uiId = Number(item.id) + 1;
+                            const uiId = Number(item.id) > 0 ? Number(item.id) : 1;
+                            const posX = item.loc_x !== undefined ? (Number(item.loc_x) / 100.0).toFixed(1) : '0.0';
+                            const posY = item.loc_y !== undefined ? (Number(item.loc_y) / 100.0).toFixed(1) : '0.0';
+                            const posZ = item.loc_z !== undefined ? (Number(item.loc_z) / 100.0).toFixed(1) : '0.0';
                             fleetData[uiId] = {
                                 id: uiId,
                                 backendId: item.id,
-                                code: item.code || `rover_${uiId < 10 ? '0' + uiId : uiId}`,
-                                name: item.name || `Araç ${uiId}`,
-                                speed: item.speed ? `${item.speed} km/s` : `-- km/s`,
-                                battery: item.battery ? `${item.battery}%` : `--%`,
-                                mission: item.flight_mode || "BEKLEMEDE",
+                                code: item.code || `RV0${uiId}`,
+                                name: item.name || item.code || `Rover 0${uiId}`,
+                                speed: item.speed ? `${item.speed} km/s` : `0.0 km/s`,
+                                battery: item.battery ? `${item.battery}%` : `98%`,
+                                mission: item.flight_mode || `X:${posX}m Y:${posY}m Z:${posZ}m`,
                                 targetDevice: "sitl",
-                                targetIp: "127.0.0.1",
+                                targetIp: "255.255.255.255",
                                 targetPort: item.telemetry_port || 7400,
                                 isFocused: !!item.is_focused
                             };
@@ -1426,24 +1429,14 @@
                 window.garage.SpawnVehicleAtCursor(chosenProfile);
             }
 
-            // Yeni Aracı Yerel Listeye Ekle
-            const newUiId = Object.keys(fleetData).length + 1;
-            const backendId = newUiId - 1;
-            fleetData[newUiId] = {
-                id: newUiId,
-                backendId: backendId,
-                name: `Araç ${newUiId} [${chosenProfile}]`,
-                speed: "0 km/s",
-                battery: "100%",
-                mission: "Pistte [Hazır]",
-                targetDevice: "sitl",
-                targetIp: "127.0.0.1",
-                targetPort: 9002 + (backendId * 10),
-                isFocused: true
-            };
-
-            renderVehicleCards();
-            selectVehicle(newUiId);
+            // C++ tarafından oluşturulan gerçek eşsiz kimlikli aracı senkronize et
+            setTimeout(() => {
+                syncFleetWithBackend();
+                const ids = Object.keys(fleetData);
+                if (ids.length > 0) {
+                    selectVehicle(Number(ids[ids.length - 1]));
+                }
+            }, 150);
             cancelVehiclePlacement();
 
             addLog(`✅ '${chosenProfile}' haritaya başarıyla eklendi! (Port: UDP ${9002 + backendId * 10})`);
