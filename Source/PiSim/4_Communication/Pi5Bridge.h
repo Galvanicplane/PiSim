@@ -48,6 +48,9 @@ public:
     // Pi 5 Beacon Keşif Olayı (Statik Multicast Delegate - UI ve alt sistemler dinler)
     static FOnPi5BeaconDiscoveredNative OnPi5BeaconDiscovered;
 
+    // Tüm filodaki araçların ortak olarak paylaştığı keşfedilmiş Pi 5 IP adresi (2., 3. araç doğduğunda anında bilir)
+    static FString SharedPi5TargetIP;
+
     // UDP Keşif Probu fırlatır (Port 7499)
     UFUNCTION(BlueprintCallable, Category = "PiSim|Pi5")
     void TriggerBeaconProbe();

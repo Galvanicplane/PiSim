@@ -123,8 +123,8 @@ void APiSimVehicle::InitVehicleIdentity(int32 InId)
 // @state: WIP - Başlangıçta fare kontrollerini açar, hedef modeli arar ve uygun arayüzü ekrana basar
 void APiSimVehicle::BeginPlay()
 {
-    Super::BeginPlay();
-
+    // ÖNEMLİ: Bileşenlerin (Pi5Bridge, TelemetryLogger, AutopilotBridge) BeginPlay'i çalışmadan ÖNCE
+    // aracın eşsiz kimliği (VehicleId, VehicleCode, VehicleName) ve filo kaydı tamamlanmalıdır!
     {
         FScopeLock Lock(&APiSimVehicle::FleetLock);
         APiSimVehicle::ActiveFleet.RemoveAll([](APiSimVehicle* V) { return !IsValid(V); });
@@ -139,6 +139,8 @@ void APiSimVehicle::BeginPlay()
     {
         InitVehicleIdentity(0);
     }
+
+    Super::BeginPlay();
 
     // 1. Hedef Modeli Kontrol Et (SADECE açıkça hedeflenen dosya varsa yükle)
     FString DefaultModelPath = FPaths::ProjectSavedDir() / TEXT("Robots/Cache/robot_import_test.fbx");

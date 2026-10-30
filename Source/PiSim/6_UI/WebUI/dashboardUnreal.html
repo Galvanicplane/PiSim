@@ -837,45 +837,68 @@
         let currentVehicleId = null;
         let fleetData = {};
 
-        function syncFleetWithBackend() {
-            let jsonStr = "";
-            if (window.garage && window.garage.GetActiveFleetJson) {
-                jsonStr = window.garage.GetActiveFleetJson();
-            } else if (window.ue && window.ue.garage && window.ue.garage.getactivefleetjson) {
-                jsonStr = window.ue.garage.getactivefleetjson();
-            }
-
-            if (jsonStr && jsonStr.length > 2) {
-                try {
-                    const rawParsed = JSON.parse(jsonStr);
-                    const backendFleet = Array.isArray(rawParsed) ? rawParsed : (rawParsed.fleet || []);
-                    if (Array.isArray(backendFleet) && backendFleet.length > 0) {
-                        fleetData = {};
-                        backendFleet.forEach(item => {
-                            const uiId = Number(item.id) > 0 ? Number(item.id) : 1;
-                            const posX = item.loc_x !== undefined ? (Number(item.loc_x) / 100.0).toFixed(1) : '0.0';
-                            const posY = item.loc_y !== undefined ? (Number(item.loc_y) / 100.0).toFixed(1) : '0.0';
-                            const posZ = item.loc_z !== undefined ? (Number(item.loc_z) / 100.0).toFixed(1) : '0.0';
-                            fleetData[uiId] = {
-                                id: uiId,
-                                backendId: item.id,
-                                code: item.code || `RV0${uiId}`,
-                                name: item.name || item.code || `Rover 0${uiId}`,
-                                speed: item.speed ? `${item.speed} km/s` : `0.0 km/s`,
-                                battery: item.battery ? `${item.battery}%` : `98%`,
-                                mission: item.flight_mode || `X:${posX}m Y:${posY}m Z:${posZ}m`,
-                                targetDevice: "sitl",
-                                targetIp: "255.255.255.255",
-                                targetPort: item.telemetry_port || 7400,
-                                isFocused: !!item.is_focused
-                            };
-                        });
-                    }
-                } catch (err) {
-                    console.warn("[PiSim UI] Filo JSON parse hatası:", err);
+        function applyBackendFleetJson(jsonInput) {
+            if (!jsonInput) return;
+            try {
+                const rawParsed = (typeof jsonInput === 'string') ? JSON.parse(jsonInput) : jsonInput;
+                const backendFleet = Array.isArray(rawParsed) ? rawParsed : (rawParsed.fleet || []);
+                if (Array.isArray(backendFleet)) {
+                    const newFleetData = {};
+                    backendFleet.forEach(item => {
+                        const uiId = Number(item.id) > 0 ? Number(item.id) : 1;
+                        const prev = fleetData[uiId] || {};
+                        const posX = item.loc_x !== undefined ? (Number(item.loc_x) / 100.0).toFixed(1) : '0.0';
+                        const posY = item.loc_y !== undefined ? (Number(item.loc_y) / 100.0).toFixed(1) : '0.0';
+                        const posZ = item.loc_z !== undefined ? (Number(item.loc_z) / 100.0).toFixed(1) : '0.0';
+                        const defaultPi5Ip = (window.discoveredPi5 && window.discoveredPi5.ip) ? window.discoveredPi5.ip : (prev.targetIp || "255.255.255.255");
+                        newFleetData[uiId] = {
+                            id: uiId,
+                            backendId: item.id,
+                            code: item.code || `RV0${uiId}`,
+                            name: item.name || item.code || `Rover 0${uiId}`,
+                            speed: item.speed ? `${item.speed} km/s` : `0.0 km/s`,
+                            battery: item.battery ? `${item.battery}%` : `98%`,
+                            mission: item.flight_mode || `X:${posX}m Y:${posY}m Z:${posZ}m`,
+                            targetDevice: prev.targetDevice || "pi5",
+                            targetIp: defaultPi5Ip,
+                            targetPort: 7400,
+                            isFocused: !!item.is_focused
+                        };
+                    });
+                    fleetData = newFleetData;
+                    renderVehicleCards();
                 }
+            } catch (err) {
+                console.warn("[PiSim UI] Filo JSON parse hatası:", err);
             }
-            renderVehicleCards();
+        }
+
+        window.onFleetSyncedFromCpp = function(fleetObj) {
+            applyBackendFleetJson(fleetObj);
+        };
+
+        async function syncFleetWithBackend() {
+            try {
+                let res = null;
+                if (window.ue && window.ue.garage && window.ue.garage.getactivefleetjson) {
+                    res = window.ue.garage.getactivefleetjson();
+                    if (res && typeof res.then === 'function') {
+                        res = await res;
+                    }
+                } else if (window.garage && window.garage.GetActiveFleetJson) {
+                    res = window.garage.GetActiveFleetJson();
+                    if (res && typeof res.then === 'function') {
+                        res = await res;
+                    }
+                }
+                if (res) {
+                    applyBackendFleetJson(res);
+                } else {
+                    renderVehicleCards();
+                }
+            } catch (err) {
+                console.warn("[PiSim UI] syncFleetWithBackend hatası:", err);
+            }
         }
 
         function renderVehicleCards() {
@@ -989,14 +1012,14 @@
             document.getElementById('detail-battery-val').innerText = v.battery;
             document.getElementById('detail-mission-val').innerText = v.mission;
 
-            setRoutingDevice(v.targetDevice || 'sitl', false);
-            document.getElementById('input-custom-ip').value = v.targetIp || "127.0.0.1";
-            document.getElementById('input-custom-port').value = v.targetPort || 9002;
+            setRoutingDevice(v.targetDevice || 'pi5', false);
+            document.getElementById('input-custom-ip').value = v.targetIp || "255.255.255.255";
+            document.getElementById('input-custom-port').value = v.targetPort || 7400;
 
-            addLog(`Odaklanan Araç Değişti: ${v.name}`);
+            addLog(`Odaklanan Araç Değişti: ${v.name} [${v.code}]`);
             updateVideoSubscriptionUI();
 
-            const backendVehicleId = (v.backendId !== undefined) ? v.backendId : (id - 1);
+            const backendVehicleId = (v.backendId !== undefined) ? v.backendId : id;
             if (window.garage && window.garage.FocusVehicle) {
                 window.garage.FocusVehicle(backendVehicleId);
             } else if (window.ue && window.ue.garage && window.ue.garage.focusvehicle) {
@@ -1005,7 +1028,7 @@
         }
 
         // ==================== CİHAZ VE HEDEF ROTA YÖNLENDİRME ====================
-        function setRoutingDevice(devKey, logIt = true) {
+        function setRoutingDevice(devKey, applyToBackend = true) {
             if (!currentVehicleId || !fleetData[currentVehicleId]) return;
 
             fleetData[currentVehicleId].targetDevice = devKey;
@@ -1018,28 +1041,31 @@
             const v = fleetData[currentVehicleId];
 
             if (devKey === 'pi5') {
-                const targetIp = (window.discoveredPi5 && window.discoveredPi5.ip) ? window.discoveredPi5.ip : (v.targetIp && v.targetIp !== "127.0.0.1" ? v.targetIp : "192.168.1.105");
-                const targetPort = (window.discoveredPi5 && window.discoveredPi5.port) ? window.discoveredPi5.port : (v.targetPort || 7400);
+                const targetIp = (window.discoveredPi5 && window.discoveredPi5.ip) ? window.discoveredPi5.ip : (v.targetIp && v.targetIp !== "127.0.0.1" ? v.targetIp : "255.255.255.255");
+                const targetPort = 7400;
                 document.getElementById('input-custom-ip').value = targetIp;
                 document.getElementById('input-custom-port').value = targetPort;
-                badge.innerText = "PI5 EŞLEŞTİ";
+                badge.innerText = "PI5 AKTİF (7400)";
                 badge.style.color = "var(--accent-color)";
                 badge.style.background = "var(--accent-dim)";
-                if (logIt) addLog(`Araç ${currentVehicleId} -> Raspberry Pi 5 (${targetIp}:${targetPort}) donanımına bağlandı.`);
-                applyCustomRouting();
+                if (applyToBackend) {
+                    addLog(`Araç ${currentVehicleId} -> Raspberry Pi 5 (${targetIp}:${targetPort}) donanımına bağlandı.`);
+                    applyCustomRouting();
+                }
             } else if (devKey === 'sitl') {
                 document.getElementById('input-custom-ip').value = "127.0.0.1";
                 document.getElementById('input-custom-port').value = v.sitlListenPort || 9002;
                 badge.innerText = "SITL AKTİF";
                 badge.style.color = "#ffaa00";
                 badge.style.background = "rgba(255, 170, 0, 0.15)";
-                if (logIt) addLog(`Araç ${currentVehicleId} -> ArduPilot SITL simülatörüne bağlandı.`);
-                applyCustomRouting();
+                if (applyToBackend) {
+                    addLog(`Araç ${currentVehicleId} -> ArduPilot SITL simülatörüne bağlandı.`);
+                }
             } else {
                 badge.innerText = "CUSTOM IP";
                 badge.style.color = "#00e5ff";
                 badge.style.background = "rgba(0, 229, 255, 0.15)";
-                if (logIt) addLog(`Araç ${currentVehicleId} -> Özel IP hedefine ayarlandı. 'UYGULA' butonuna basınız.`);
+                if (applyToBackend) addLog(`Araç ${currentVehicleId} -> Özel IP hedefine ayarlandı. 'UYGULA' butonuna basınız.`);
             }
         }
 
@@ -1430,8 +1456,8 @@
             }
 
             // C++ tarafından oluşturulan gerçek eşsiz kimlikli aracı senkronize et
-            setTimeout(() => {
-                syncFleetWithBackend();
+            setTimeout(async () => {
+                await syncFleetWithBackend();
                 const ids = Object.keys(fleetData);
                 if (ids.length > 0) {
                     selectVehicle(Number(ids[ids.length - 1]));
@@ -1439,7 +1465,7 @@
             }, 150);
             cancelVehiclePlacement();
 
-            addLog(`✅ '${chosenProfile}' haritaya başarıyla eklendi! (Port: UDP ${9002 + backendId * 10})`);
+            addLog(`✅ '${chosenProfile}' haritaya başarıyla eklendi! (Canlı Telemetri: UDP 7400)`);
         }
 
         // ESC Tuşu ile Konuşlandırma veya Panel İptali
@@ -1510,6 +1536,7 @@
             addLog("🛡️ PiSim Studio Taktik Kontrol Merkezi Başlatıldı.");
             syncFleetWithBackend();
             populateSavedProfilesList();
+            setInterval(syncFleetWithBackend, 1000);
         });
     </script>
 </body>

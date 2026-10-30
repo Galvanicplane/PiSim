@@ -81,12 +81,17 @@ void UPiSimModularGarageWidget::NativeTick(const FGeometry& MyGeometry, float In
         }
     }
 
-    // Aktif eşleşmiş Pi 5 cihazını düzenli olarak Web arayüzüne senkronize et
+    // Aktif eşleşmiş Pi 5 cihazını ve canlı filoyu düzenli olarak Web arayüzüne senkronize et
     static float BeaconSyncTimer = 0.0f;
     BeaconSyncTimer += InDeltaTime;
     if (BeaconSyncTimer > 1.0f && WebBrowserWidget.IsValid())
     {
         BeaconSyncTimer = 0.0f;
+        FString FleetJson = GetActiveFleetJson();
+        FString CleanFleetJson = FleetJson.Replace(TEXT("\n"), TEXT(" ")).Replace(TEXT("\r"), TEXT(""));
+        FString FleetScript = FString::Printf(TEXT("if (typeof onFleetSyncedFromCpp === 'function') { onFleetSyncedFromCpp(%s); }"), *CleanFleetJson);
+        WebBrowserWidget->ExecuteJavascript(FleetScript);
+
         APiSimVehicle* VehicleToCheck = TargetVehicle ? TargetVehicle : (FleetVehicles.Num() > 0 ? FleetVehicles[0] : nullptr);
         if (VehicleToCheck && VehicleToCheck->Pi5Bridge)
         {
@@ -1359,6 +1364,14 @@ bool UPiSimModularGarageWidget::SpawnVehicleAtCursor(const FString& ProfileName)
 
         FocusVehicle(VehicleToInit->VehicleId);
 
+        if (WebBrowserWidget.IsValid())
+        {
+            FString FleetJson = GetActiveFleetJson();
+            FString CleanFleetJson = FleetJson.Replace(TEXT("\n"), TEXT(" ")).Replace(TEXT("\r"), TEXT(""));
+            FString FleetScript = FString::Printf(TEXT("if (typeof onFleetSyncedFromCpp === 'function') { onFleetSyncedFromCpp(%s); }"), *CleanFleetJson);
+            WebBrowserWidget->ExecuteJavascript(FleetScript);
+        }
+
         if (VehicleToInit->bShowDebugVisualsAndMessages && GEngine)
         {
             GEngine->AddOnScreenDebugMessage(810, 4.0f, FColor::Green,
@@ -1574,19 +1587,17 @@ void UPiSimModularGarageWidget::TriggerBeaconProbe()
 // @state: WIP - WebUI'dan manuel IP ayarlandığında Pi5Bridge köprüsüne iletir ve görsel arayüzü günceller
 bool UPiSimModularGarageWidget::SetTargetIP(const FString& InIP, int32 InPort)
 {
+    int32 SafePort = (InPort >= 9000 || InPort <= 0) ? 7400 : InPort;
     APiSimVehicle* VehicleToConfig = TargetVehicle ? TargetVehicle : (FleetVehicles.Num() > 0 ? FleetVehicles[0] : nullptr);
     if (VehicleToConfig)
     {
-        VehicleToConfig->AddTelemetrySubscriber(InIP, InPort);
-
         if (VehicleToConfig->Pi5Bridge)
         {
-            bool bSuccess = VehicleToConfig->Pi5Bridge->SetTargetIP(InIP, InPort);
-            VehicleToConfig->Pi5Bridge->StartStreaming(InIP, InPort, InPort + 1);
+            bool bSuccess = VehicleToConfig->Pi5Bridge->SetTargetIP(InIP, SafePort);
 
             if (WebBrowserWidget.IsValid())
             {
-                FString Script = FString::Printf(TEXT("if (typeof setUeBridgeNodesActive === 'function') { setUeBridgeNodesActive(true, '%s', %d); }"), *InIP, InPort);
+                FString Script = FString::Printf(TEXT("if (typeof setUeBridgeNodesActive === 'function') { setUeBridgeNodesActive(true, '%s', %d); }"), *InIP, SafePort);
                 WebBrowserWidget->ExecuteJavascript(Script);
             }
 
