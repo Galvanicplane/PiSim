@@ -270,7 +270,7 @@ void APiSimVehicle::Tick(float DeltaTime)
                     UPiSimWheelComponent* WheelMod = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName));
                     float TotalRpm = (WheelMod && FMath::Abs(WheelMod->TargetRPM) > 0.001f) ? WheelMod->TargetRPM : (TestVal * 250.0f);
                     float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
-                    FVector LocalAxle = WheelMod ? WheelMod->LocalSpinAxis.GetSafeNormal() : FVector(1.0f, 0.0f, 0.0f);
+                    FVector LocalAxle = WheelMod ? WheelMod->LocalSpinAxis.GetSafeNormal() : FVector(0.0f, 0.0f, 1.0f);
                     FVector WorldAxle = WheelPrim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
 
                     FVector CurrentAngVel = WheelPrim->GetPhysicsAngularVelocityInDegrees();
@@ -616,8 +616,8 @@ void APiSimVehicle::SetMotorTestValue(FName BoneName, float Value)
         if (UPiSimWheelComponent* Wheel = Cast<UPiSimWheelComponent>(Mod))
         {
             Wheel->bManualOverride = (FMath::Abs(Value) > 0.01f);
-            Wheel->SetTargetRPM(Value * 1200.0f);
-            ModStatus = FString::Printf(TEXT("🚗 Tekerlek (Hedef RPM: %.1f)"), Value * 1200.0f);
+            Wheel->SetTargetRPM(Value * 250.0f);
+            ModStatus = FString::Printf(TEXT("🚗 Tekerlek (Hedef RPM: %.1f)"), Value * 250.0f);
         }
         else if (UPiSimServoComponent* Servo = Cast<UPiSimServoComponent>(Mod))
         {
@@ -1118,14 +1118,41 @@ void APiSimVehicle::ConfigureConstraintDof(UPhysicsConstraintComponent* Constrai
     Constraint->SetLinearZLimit(ELinearConstraintMotion::LCM_Locked, 0.0f);
     Constraint->SetDisableCollision(true); // Şasi ile tekerlek birbirini itmesin
 
-    // 2) Açısal Hareket (Angular Motion) - GENEL GEÇER TEKERLEK STANDARDI:
-    // TÜM TEKERLEKLER (Ön veya Arka ayrımı olmaksızın) TEK BİR EKSENDE (Roll / Twist) DÖNER!
-    // Twist (Roll / Yuvarlanma): ACM_Free (Tekerlek zeminde ileri/geri serbestçe döner)
-    // Swing1 (Yaw / Direksiyon): ACM_Locked (Direksiyon ekseni kilitli - Steer mafsalının referans açısıyla yönlendirilir)
-    // Swing2 (Pitch / Kamber): ACM_Locked (Kamber açısı kilitli - devrilmez)
-    Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
-    Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
-    Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+    // 2) Açısal Hareket (Angular Motion):
+    // Tekerlek dönme ekseni LocalSpinAxis ile dinamik eşleştirilir:
+    // Eğer dönme ekseni Z ekseni (0, 0, 1) ise: Swing1 (Z) serbest bırakılır!
+    // Eğer dönme ekseni X ekseni (1, 0, 0) ise: Twist (X) serbest bırakılır!
+    FVector SpinAxis = FVector(0.0f, 0.0f, 1.0f);
+    if (SectionIndex > 0 && StoredVisualSections.IsValidIndex(SectionIndex))
+    {
+        FName BoneName = FName(*StoredVisualSections[SectionIndex].MeshName);
+        if (UPiSimWheelComponent* Wheel = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName)))
+        {
+            SpinAxis = Wheel->LocalSpinAxis;
+        }
+    }
+
+    if (FMath::Abs(SpinAxis.Z) > 0.5f)
+    {
+        // Z Ekseni Serbest Dönüş (Swing1 = ACM_Free, Twist ve Swing2 Locked)
+        Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+        Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Free, 0.0f);
+        Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+    }
+    else if (FMath::Abs(SpinAxis.Y) > 0.5f)
+    {
+        // Y Ekseni Serbest Dönüş (Swing2 = ACM_Free, Twist ve Swing1 Locked)
+        Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+        Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+        Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Free, 0.0f);
+    }
+    else
+    {
+        // X Ekseni Serbest Dönüş (Twist = ACM_Free, Swing1 ve Swing2 Locked)
+        Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
+        Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+        Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+    }
     Constraint->SetOrientationDriveTwistAndSwing(false, false);
 }
 // 🔒 [END OF WHEEL CONSTRAINT DOF LOCK]
@@ -1581,15 +1608,53 @@ void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
              Cmd.Equals(TEXT("test_motor"), ESearchCase::IgnoreCase))
     {
         // @state: WIP - Pi5'ten gelen tekil motor/kemik test komutunu (-1.0 .. +1.0) uygular
+        // Kesinlikle araca özel hardcoded isim kullanılmaz! Modelin Section Index'i veya kemik adıyla çalışır.
         FString BoneStr = ActivePayload->HasField(TEXT("bone")) ? ActivePayload->GetStringField(TEXT("bone")) : TEXT("");
         float Val = ActivePayload->HasField(TEXT("val")) ? (float)ActivePayload->GetNumberField(TEXT("val")) :
                    (ActivePayload->HasField(TEXT("value")) ? (float)ActivePayload->GetNumberField(TEXT("value")) : 0.0f);
-        
+
+        // 1. Doğrudan Model Section Index desteği (örn: index=1, 2, 3...)
+        if (ActivePayload->HasField(TEXT("index")))
+        {
+            int32 SecIdx = (int32)ActivePayload->GetIntegerField(TEXT("index"));
+            if (StoredVisualSections.IsValidIndex(SecIdx))
+            {
+                BoneStr = StoredVisualSections[SecIdx].MeshName;
+            }
+        }
+        else if (ActivePayload->HasField(TEXT("wheel_index")))
+        {
+            // Sadece tekerlekler arası sıra indeksi (0, 1, 2, 3...)
+            int32 TargetWIdx = (int32)ActivePayload->GetIntegerField(TEXT("wheel_index"));
+            int32 WCount = 0;
+            for (int32 i = 1; i < StoredVisualSections.Num(); ++i)
+            {
+                FString LName = StoredVisualSections[i].MeshName.ToLower();
+                if (LName.Contains(TEXT("wheel")) || LName.Contains(TEXT("teker")) || LName.StartsWith(TEXT("w_")))
+                {
+                    if (WCount == TargetWIdx)
+                    {
+                        BoneStr = StoredVisualSections[i].MeshName;
+                        break;
+                    }
+                    WCount++;
+                }
+            }
+        }
+        else if (!BoneStr.IsEmpty() && BoneStr.IsNumeric())
+        {
+            int32 SecIdx = FCString::Atoi(*BoneStr);
+            if (StoredVisualSections.IsValidIndex(SecIdx))
+            {
+                BoneStr = StoredVisualSections[SecIdx].MeshName;
+            }
+        }
+
         if (!BoneStr.IsEmpty())
         {
             CommandWatchdogTimer = FMath::Max(1.0f, TimeoutSec);
             SetMotorTestValue(FName(*BoneStr), FMath::Clamp(Val, -1.0f, 1.0f));
-            UE_LOG(LogTemp, Warning, TEXT("⚡ [Pİ5 MOTOR TESTİ] Araç: %s | Kemik: '%s' -> Değer: %+.2f"), *VehicleCode, *BoneStr, Val);
+            UE_LOG(LogTemp, Warning, TEXT("⚡ [Pİ5 MOTOR TESTİ] Araç: %s | Hedef Parça: '%s' -> Değer: %+.2f"), *VehicleCode, *BoneStr, Val);
         }
     }
     else if (Cmd.Equals(TEXT("steer"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("set_steer"), ESearchCase::IgnoreCase))

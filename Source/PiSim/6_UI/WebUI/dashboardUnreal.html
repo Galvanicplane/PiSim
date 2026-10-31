@@ -1446,10 +1446,7 @@
                 // Pi 5 bulunduğunda düğümleri canlandır ve parlat
                 setUeBridgeNodesActive(true, dev.ip, devPort);
 
-                // Kullanıcı paneli doğrudan görsün diye alt çekmeceyi otomatik aç
-                if (!isBottomBridgeOpen) {
-                    toggleBottomBridge();
-                }
+                // [KULLANICI KONTROLÜ] Alt çekmece beacon gelince otomatik AÇILMAZ; kullanıcı istediğinde manuel açar.
             } catch (e) {
                 console.error("[PiSim UI] Beacon parse hatası:", e);
             }

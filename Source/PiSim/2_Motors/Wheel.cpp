@@ -205,31 +205,32 @@ void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
         float DesiredAngularVelocityDeg = TargetRPM * 6.0f;
         float DeltaRotationDeg = DesiredAngularVelocityDeg * DeltaTime;
 
-        // 🛑 KESİNLİKLE VE SADECE KEMİK DÖNDÜRÜLÜR!
-        // Meshler bu kemiğe bağlı çocuklardır ve onunla beraber döner!
-        if (FMath::Abs(DeltaRotationDeg) > 0.001f)
+        APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner());
+        bool bPhysicsActive = Vehicle && Vehicle->IsVehiclePhysicsActive();
+
+        // 🛑 Fizik simülasyonu YOKKEN (Editör / Kinematik Önizleme): Kemiği doğrudan görsel döndür
+        // Canlı fizik açıkken kinematic transform verilmez; tekerlek Chaos fizik çözücüsüyle döner (takılmayı/titremeyi önler).
+        if (!bPhysicsActive && FMath::Abs(DeltaRotationDeg) > 0.001f)
         {
             FQuat SpinQuat(LocalSpinAxis.GetSafeNormal(), FMath::DegreesToRadians(DeltaRotationDeg));
             TargetSceneComponent->AddLocalRotation(SpinQuat);
             CurrentRPM = TargetRPM;
         }
 
-        // Canlı Fizik Sürüşü: 1-DOF Roll kısıtlamasına sahip tekerlek gövdesine Roll X açısal hızını ver (PiSimModelImporter lines 971-978)
-        if (APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner()))
+        // Canlı Fizik Sürüşü: Tekerlek gövdesine dönme ekseninde açısal hız ver
+        if (bPhysicsActive)
         {
-            if (Vehicle->IsVehiclePhysicsActive())
+            if (UPrimitiveComponent* Prim = Vehicle->GetPrimitiveComponentForBone(TargetBoneName))
             {
-                if (UPrimitiveComponent* Prim = Vehicle->GetPrimitiveComponentForBone(TargetBoneName))
+                if (Prim->IsSimulatingPhysics())
                 {
-                    if (Prim->IsSimulatingPhysics())
-                    {
-                        FVector LocalAxle = LocalSpinAxis.GetSafeNormal();
-                        FVector WorldAxle = Prim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
-                        FVector CurrentAngVel = Prim->GetPhysicsAngularVelocityInDegrees();
-                        FVector NonRollVel = CurrentAngVel - (WorldAxle * (CurrentAngVel | WorldAxle));
-                        FVector DesiredRollVel = WorldAxle * DesiredAngularVelocityDeg;
-                        Prim->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
-                    }
+                    FVector LocalAxle = LocalSpinAxis.GetSafeNormal();
+                    FVector WorldAxle = Prim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
+                    FVector CurrentAngVel = Prim->GetPhysicsAngularVelocityInDegrees();
+                    FVector NonRollVel = CurrentAngVel - (WorldAxle * (CurrentAngVel | WorldAxle));
+                    FVector DesiredRollVel = WorldAxle * DesiredAngularVelocityDeg;
+                    Prim->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
+                    CurrentRPM = TargetRPM;
                 }
             }
         }
