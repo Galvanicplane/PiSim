@@ -494,7 +494,12 @@ bool UPiSimModelFbxImporter::ParseBinaryFbxFile(
                         // Mat[13] = Blender -Z (Aşağı) -> Unreal -Z
                         // Mat[14] = -Blender Y (-İleri) -> Unreal -X (Front is -168cm, so -Mat[14] = +168cm Forward)
                         float MatScale = FVector(Mat[0], Mat[1], Mat[2]).Size();
-                        float PosScale = (MatScale < 10.0f) ? Scale : 1.0f;
+                        double MaxBoneCoord = FMath::Max3(FMath::Abs(Mat[12]), FMath::Abs(Mat[13]), FMath::Abs(Mat[14]));
+                        float PosScale = Scale;
+                        if (Scale <= 1.0f && MatScale < 10.0f && MaxBoneCoord > 0.01 && MaxBoneCoord < 10.0)
+                        {
+                            PosScale = Scale * 100.0f;
+                        }
                         SubBonePos = FVector(-Mat[14] * PosScale, Mat[12] * PosScale, -Mat[13] * PosScale);
                         bSubHasBonePos = true;
 
@@ -1069,7 +1074,10 @@ bool UPiSimModelFbxImporter::ParseBinaryFbxFile(
                                   Lower.Contains(TEXT("wing")) ||
                                   Lower.Contains(TEXT("steer")) ||
                                   Lower.Contains(TEXT("servo")) ||
-                                  Lower.Contains(TEXT("joint"))))
+                                  Lower.Contains(TEXT("joint")) ||
+                                  Lower.Contains(TEXT("cam")) ||
+                                  Lower.Contains(TEXT("sensor")) ||
+                                  Lower.Contains(TEXT("fpv"))))
         {
             OutPureBones.AddUnique(MName);
         }

@@ -1512,11 +1512,23 @@ void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
         return;
     }
 
+    // 1. ROS 2 rosbridge_suite / Topic Name Ayrıştırma: {"op":"publish", "topic":"/rover_01/cmd_vel", "msg":{...}}
+    FString Target = JsonObj->HasField(TEXT("target")) ? JsonObj->GetStringField(TEXT("target")) : TEXT("all");
+    if (JsonObj->HasField(TEXT("topic")))
+    {
+        FString TopicStr = JsonObj->GetStringField(TEXT("topic")); // Örn: "/rover_01/cmd_vel" veya "/RV01-8F3A9C/cmd_vel"
+        TArray<FString> TopicParts;
+        TopicStr.ParseIntoArray(TopicParts, TEXT("/"), true);
+        if (TopicParts.Num() >= 2 && !TopicParts[0].Equals(TEXT("cmd_vel"), ESearchCase::IgnoreCase))
+        {
+            Target = TopicParts[0];
+        }
+    }
+
     // Hedef Araç Eşleştirme (Target Filtering):
     // "all" -> Tüm sürüye aynı anda
-    // "rover_01" -> Yalnızca rover_01
+    // "rover_01" / "RV01-..." -> Yalnızca ilgili araç
     // "1" -> Araç ID'si 1 olan
-    FString Target = JsonObj->HasField(TEXT("target")) ? JsonObj->GetStringField(TEXT("target")) : TEXT("all");
     FString LegacyCode = FString::Printf(TEXT("rover_%02d"), VehicleId);
     bool bTargetMatch = Target.Equals(TEXT("all"), ESearchCase::IgnoreCase) ||
                         Target.Equals(VehicleCode, ESearchCase::IgnoreCase) ||
@@ -1530,13 +1542,34 @@ void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
         return; // Bu paket başka bir araca ait, sessizce geç
     }
 
-    FString Cmd = JsonObj->HasField(TEXT("cmd")) ? JsonObj->GetStringField(TEXT("cmd")) : TEXT("cmd_vel");
-    float TimeoutSec = JsonObj->HasField(TEXT("timeout_ms")) ? (float)JsonObj->GetNumberField(TEXT("timeout_ms")) / 1000.0f : 0.5f;
-
-    if (Cmd.Equals(TEXT("cmd_vel"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("drive"), ESearchCase::IgnoreCase))
+    // Eğer rosbridge sarmalayıcısı ("msg": {...}) varsa iç mesaj nesnesini al
+    TSharedPtr<FJsonObject> ActivePayload = JsonObj;
+    const TSharedPtr<FJsonObject>* MsgObjPtr = nullptr;
+    if (JsonObj->TryGetObjectField(TEXT("msg"), MsgObjPtr) && MsgObjPtr && MsgObjPtr->IsValid())
     {
-        float LinearX = JsonObj->HasField(TEXT("linear_x")) ? (float)JsonObj->GetNumberField(TEXT("linear_x")) : 0.0f;
-        float AngularZ = JsonObj->HasField(TEXT("angular_z")) ? (float)JsonObj->GetNumberField(TEXT("angular_z")) : 0.0f;
+        ActivePayload = *MsgObjPtr;
+    }
+
+    FString Cmd = JsonObj->HasField(TEXT("cmd")) ? JsonObj->GetStringField(TEXT("cmd")) : TEXT("cmd_vel");
+    float TimeoutSec = JsonObj->HasField(TEXT("timeout_ms")) ? (float)JsonObj->GetNumberField(TEXT("timeout_ms")) / 1000.0f : 0.6f;
+
+    if (Cmd.Equals(TEXT("cmd_vel"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("drive"), ESearchCase::IgnoreCase) || ActivePayload->HasField(TEXT("linear")))
+    {
+        float LinearX = ActivePayload->HasField(TEXT("linear_x")) ? (float)ActivePayload->GetNumberField(TEXT("linear_x")) : 0.0f;
+        float AngularZ = ActivePayload->HasField(TEXT("angular_z")) ? (float)ActivePayload->GetNumberField(TEXT("angular_z")) : 0.0f;
+
+        // Standart ROS 2 geometry_msgs/msg/Twist iç içe JSON desteği: {"linear": {"x": 1.5, "y": 0, "z": 0}, "angular": {"x": 0, "y": 0, "z": 0.5}}
+        const TSharedPtr<FJsonObject>* LinearObj = nullptr;
+        if (ActivePayload->TryGetObjectField(TEXT("linear"), LinearObj) && LinearObj && LinearObj->IsValid())
+        {
+            if ((*LinearObj)->HasField(TEXT("x"))) LinearX = (float)(*LinearObj)->GetNumberField(TEXT("x"));
+        }
+        const TSharedPtr<FJsonObject>* AngularObj = nullptr;
+        if (ActivePayload->TryGetObjectField(TEXT("angular"), AngularObj) && AngularObj && AngularObj->IsValid())
+        {
+            if ((*AngularObj)->HasField(TEXT("z"))) AngularZ = (float)(*AngularObj)->GetNumberField(TEXT("z"));
+        }
+
         SetTwistVelocity(LinearX, AngularZ, TimeoutSec);
     }
     else if (Cmd.Equals(TEXT("stop"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("estop"), ESearchCase::IgnoreCase))
