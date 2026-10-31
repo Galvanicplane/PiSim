@@ -29,6 +29,7 @@
 TArray<APiSimVehicle*> APiSimVehicle::ActiveFleet;
 FCriticalSection APiSimVehicle::FleetLock;
 int32 APiSimVehicle::GlobalVehicleSequence = 0;
+int32 APiSimVehicle::ActiveWheelSpinAxisMode = 1; // 0=X (1,0,0) [Twist], 1=Y (0,1,0) [Swing2], 2=Z (0,0,1) [Swing1]
 
 // @state: WIP - Araç Pawn yapıcısı, iskelet, köprüler, logger ve kamera bileşenlerini kurar
 APiSimVehicle::APiSimVehicle()
@@ -197,6 +198,18 @@ void APiSimVehicle::Tick(float DeltaTime)
     UpdateKinematicsAndMotors(DeltaTime);
     UpdateLiveTelemetryState(DeltaTime);
 
+    // 'Y' tuşuna basıldığında tekerlek dönme eksenini ve ACM mafsal serbestisini döngüsel değiştir
+    if (UWorld* World = GetWorld())
+    {
+        if (APlayerController* PC = World->GetFirstPlayerController())
+        {
+            if (PC->WasInputKeyJustPressed(EKeys::Y))
+            {
+                CycleWheelSpinAxis();
+            }
+        }
+    }
+
     // =========================================================================
     // CANLI MOTOR / EYLEYİCİ DÖNÜŞ VE KONTROL BLOĞU (PiSimModelImporter pattern)
     // =========================================================================
@@ -270,7 +283,7 @@ void APiSimVehicle::Tick(float DeltaTime)
                     UPiSimWheelComponent* WheelMod = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName));
                     float TotalRpm = (WheelMod && FMath::Abs(WheelMod->TargetRPM) > 0.001f) ? WheelMod->TargetRPM : (TestVal * 250.0f);
                     float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
-                    FVector LocalAxle = WheelMod ? WheelMod->LocalSpinAxis.GetSafeNormal() : FVector(0.0f, 1.0f, 0.0f);
+                    FVector LocalAxle = WheelMod ? WheelMod->LocalSpinAxis.GetSafeNormal() : GetCurrentWheelSpinAxis();
                     FVector WorldAxle = WheelPrim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
 
                     FVector CurrentAngVel = WheelPrim->GetPhysicsAngularVelocityInDegrees();
@@ -1119,41 +1132,30 @@ void APiSimVehicle::ConfigureConstraintDof(UPhysicsConstraintComponent* Constrai
     Constraint->SetDisableCollision(true); // Şasi ile tekerlek birbirini itmesin
 
     // 2) Açısal Hareket (Angular Motion):
-    // Tekerlek dönme ekseni LocalSpinAxis ile dinamik eşleştirilir:
-    // Eğer dönme ekseni Z ekseni (0, 0, 1) ise: Swing1 (Z) serbest bırakılır!
-    // Eğer dönme ekseni X ekseni (1, 0, 0) ise: Twist (X) serbest bırakılır!
-    FVector SpinAxis = FVector(0.0f, 1.0f, 0.0f);
-    if (SectionIndex > 0 && StoredVisualSections.IsValidIndex(SectionIndex))
+    // ActiveWheelSpinAxisMode değişkenine göre mafsal serbestisi verilir:
+    // Mode 0: X Ekseni (1,0,0) -> Twist (Roll) ACM_Free, Swing1 ve Swing2 Locked
+    // Mode 1: Y Ekseni (0,1,0) -> Swing2 (Pitch) ACM_Free, Twist ve Swing1 Locked
+    // Mode 2: Z Ekseni (0,0,1) -> Swing1 (Yaw) ACM_Free, Twist ve Swing2 Locked
+    if (ActiveWheelSpinAxisMode == 0)
     {
-        FName BoneName = FName(*StoredVisualSections[SectionIndex].MeshName);
-        if (UPiSimWheelComponent* Wheel = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName)))
-        {
-            SpinAxis = Wheel->LocalSpinAxis;
-        }
-    }
-
-    if (FMath::Abs(SpinAxis.Z) > 0.5f)
-    {
-        // Z Ekseni Serbest Dönüş (Swing1 = ACM_Free, Twist ve Swing2 Locked)
-        Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Locked, 0.0f);
-        Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Free, 0.0f);
-        Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
-    }
-    else if (FMath::Abs(SpinAxis.Y) > 0.5f)
-    {
-        // Y Ekseni Serbest Dönüş (Swing2 = ACM_Free, Twist ve Swing1 Locked)
-        Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Locked, 0.0f);
-        Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
-        Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Free, 0.0f);
-    }
-    else
-    {
-        // X Ekseni Serbest Dönüş (Twist = ACM_Free, Swing1 ve Swing2 Locked)
         Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Free, 0.0f);
         Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
         Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
     }
+    else if (ActiveWheelSpinAxisMode == 1)
+    {
+        Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+        Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+        Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Free, 0.0f);
+    }
+    else // Mode 2: Z
+    {
+        Constraint->SetAngularTwistLimit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+        Constraint->SetAngularSwing1Limit(EAngularConstraintMotion::ACM_Free, 0.0f);
+        Constraint->SetAngularSwing2Limit(EAngularConstraintMotion::ACM_Locked, 0.0f);
+    }
     Constraint->SetOrientationDriveTwistAndSwing(false, false);
+    Constraint->UpdateConstraintFrames();
 }
 // 🔒 [END OF WHEEL CONSTRAINT DOF LOCK]
 // =========================================================================================
@@ -1168,6 +1170,63 @@ void APiSimVehicle::UpdateAllConstraintDofs()
             ConfigureConstraintDof(Constraint, i);
         }
     }
+}
+
+// @state: WIP - 'Y' tuşu ile tekerlek dönme eksenini ve ACM mafsal serbestisini döngüsel değiştirir
+void APiSimVehicle::SetWheelSpinAxisMode(int32 InMode)
+{
+    ActiveWheelSpinAxisMode = ((InMode % 3) + 3) % 3;
+    FVector NewAxis = GetCurrentWheelSpinAxis();
+
+    // 1. Bu aracın tüm tekerlek modüllerini yeni eksene güncelle
+    TArray<UPiSimWheelComponent*> WheelMods;
+    GetComponents<UPiSimWheelComponent>(WheelMods);
+    for (UPiSimWheelComponent* Wheel : WheelMods)
+    {
+        if (Wheel)
+        {
+            Wheel->LocalSpinAxis = NewAxis;
+        }
+    }
+
+    // 2. Canlı tüm eklem kısıtlamalarını (JointConstraints) yeni eksen moduna göre güncelle
+    for (int32 i = 0; i < JointConstraints.Num(); ++i)
+    {
+        if (JointConstraints[i])
+        {
+            ConfigureConstraintDof(JointConstraints[i], i);
+        }
+    }
+
+    FString AxisStr = (ActiveWheelSpinAxisMode == 0) ? TEXT("X (1, 0, 0) | Serbest: Twist") :
+                      (ActiveWheelSpinAxisMode == 1) ? TEXT("Y (0, 1, 0) | Serbest: Swing2") :
+                                                      TEXT("Z (0, 0, 1) | Serbest: Swing1");
+    FString NotifyMsg = FString::Printf(TEXT("⚙️ [TEKERLEK EKSENİ MODU: %s]"), *AxisStr);
+    UE_LOG(LogTemp, Warning, TEXT("%s"), *NotifyMsg);
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(99234, 4.0f, FColor::Yellow, NotifyMsg);
+    }
+}
+
+void APiSimVehicle::CycleWheelSpinAxis()
+{
+    int32 NextMode = (ActiveWheelSpinAxisMode + 1) % 3;
+    FScopeLock Lock(&FleetLock);
+    for (APiSimVehicle* V : ActiveFleet)
+    {
+        if (V && IsValid(V))
+        {
+            V->SetWheelSpinAxisMode(NextMode);
+        }
+    }
+}
+
+FVector APiSimVehicle::GetCurrentWheelSpinAxis() const
+{
+    if (ActiveWheelSpinAxisMode == 0) return FVector(1.0f, 0.0f, 0.0f);
+    if (ActiveWheelSpinAxisMode == 1) return FVector(0.0f, 1.0f, 0.0f);
+    return FVector(0.0f, 0.0f, 1.0f);
 }
 
 UPhysicsConstraintComponent* APiSimVehicle::FindConstraintForSection(int32 SectionIndex)
@@ -1700,6 +1759,29 @@ void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
                 bool bIsLeft = (RelLoc.Y < -1.0f) || LowerName.Contains(TEXT("_l")) || LowerName.Contains(TEXT("left")) || LowerName.Contains(TEXT("sol"));
                 SetMotorTestValue(Pair.Key, bIsLeft ? LeftVal : RightVal);
             }
+        }
+    }
+    else if (Cmd.Equals(TEXT("cycle_wheel_axis"), ESearchCase::IgnoreCase) || 
+             Cmd.Equals(TEXT("cycle_axis"), ESearchCase::IgnoreCase) ||
+             Cmd.Equals(TEXT("axis"), ESearchCase::IgnoreCase) ||
+             Cmd.Equals(TEXT("wheel_axis"), ESearchCase::IgnoreCase))
+    {
+        // @state: WIP - Tekerlek dönme eksenini ve kısıtlamalarını (ACM) döngüsel değiştirir
+        if (ActivePayload->HasField(TEXT("mode")))
+        {
+            SetWheelSpinAxisMode(ActivePayload->GetIntegerField(TEXT("mode")));
+        }
+        else if (ActivePayload->HasField(TEXT("axis")))
+        {
+            FString AxStr = ActivePayload->GetStringField(TEXT("axis")).ToLower();
+            if (AxStr == TEXT("x")) SetWheelSpinAxisMode(0);
+            else if (AxStr == TEXT("y")) SetWheelSpinAxisMode(1);
+            else if (AxStr == TEXT("z")) SetWheelSpinAxisMode(2);
+            else CycleWheelSpinAxis();
+        }
+        else
+        {
+            CycleWheelSpinAxis();
         }
     }
     else if (Cmd.Equals(TEXT("reset_motors"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("reset"), ESearchCase::IgnoreCase))

@@ -166,6 +166,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Physics")
     void UpdateAllConstraintDofs();
 
+    // @state: WIP - 'Y' tusu ile tekerlek donme eksenini ve ACM mafsalini dongusel degistirme
+    static int32 ActiveWheelSpinAxisMode;
+    static void CycleWheelSpinAxis();
+    void SetWheelSpinAxisMode(int32 InMode);
+    FVector GetCurrentWheelSpinAxis() const;
+
     // Kayıtlı FBX parça kesitleri (Chaos ve UCX Convex zırhı için)
     UPROPERTY()
     TArray<FPiSimMeshSection> StoredVisualSections;
