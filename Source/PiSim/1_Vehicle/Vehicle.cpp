@@ -215,9 +215,12 @@ void APiSimVehicle::Tick(float DeltaTime)
         if (bIsSteer)
         {
             float TargetAngle = TestVal * 45.0f;
+            float SmoothAngle = TargetAngle;
             if (USceneComponent* SteerComp = GetSceneComponentForBone(BoneName))
             {
-                SteerComp->SetRelativeRotation(FRotator(0.0f, TargetAngle, 0.0f));
+                float CurrentYaw = SteerComp->GetRelativeRotation().Yaw;
+                SmoothAngle = FMath::FInterpTo(CurrentYaw, TargetAngle, DeltaTime, 12.0f);
+                SteerComp->SetRelativeRotation(FRotator(0.0f, SmoothAngle, 0.0f));
             }
 
             if (bIsPhysicsSimulating)
@@ -236,7 +239,7 @@ void APiSimVehicle::Tick(float DeltaTime)
                     {
                         RelLoc = StoredVisualSections[TargetSection].PivotPoint - StoredVisualSections[0].PivotPoint;
                     }
-                    FTransform SteerPose(FRotator(0.0f, TargetAngle, 0.0f), RelLoc);
+                    FTransform SteerPose(FRotator(0.0f, SmoothAngle, 0.0f), RelLoc);
                     Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
                 }
             }
@@ -264,13 +267,10 @@ void APiSimVehicle::Tick(float DeltaTime)
                 if (WheelPrim && WheelPrim->IsSimulatingPhysics() && !DrivenWheels.Contains(WheelPrim))
                 {
                     DrivenWheels.Add(WheelPrim);
-                    float TotalRpm = TestVal * 1200.0f; // 1200 RPM
+                    UPiSimWheelComponent* WheelMod = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName));
+                    float TotalRpm = (WheelMod && FMath::Abs(WheelMod->TargetRPM) > 0.001f) ? WheelMod->TargetRPM : (TestVal * 250.0f);
                     float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
-                    FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f); // Roll X axle
-                    if (UPiSimWheelComponent* WheelMod = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName)))
-                    {
-                        LocalAxle = WheelMod->LocalSpinAxis.GetSafeNormal();
-                    }
+                    FVector LocalAxle = WheelMod ? WheelMod->LocalSpinAxis.GetSafeNormal() : FVector(1.0f, 0.0f, 0.0f);
                     FVector WorldAxle = WheelPrim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
 
                     FVector CurrentAngVel = WheelPrim->GetPhysicsAngularVelocityInDegrees();
@@ -1576,6 +1576,71 @@ void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
 
         SetTwistVelocity(LinearX, AngularZ, TimeoutSec);
     }
+    else if (Cmd.Equals(TEXT("motor"), ESearchCase::IgnoreCase) || 
+             Cmd.Equals(TEXT("set_motor"), ESearchCase::IgnoreCase) || 
+             Cmd.Equals(TEXT("test_motor"), ESearchCase::IgnoreCase))
+    {
+        // @state: WIP - Pi5'ten gelen tekil motor/kemik test komutunu (-1.0 .. +1.0) uygular
+        FString BoneStr = ActivePayload->HasField(TEXT("bone")) ? ActivePayload->GetStringField(TEXT("bone")) : TEXT("");
+        float Val = ActivePayload->HasField(TEXT("val")) ? (float)ActivePayload->GetNumberField(TEXT("val")) :
+                   (ActivePayload->HasField(TEXT("value")) ? (float)ActivePayload->GetNumberField(TEXT("value")) : 0.0f);
+        
+        if (!BoneStr.IsEmpty())
+        {
+            CommandWatchdogTimer = FMath::Max(1.0f, TimeoutSec);
+            SetMotorTestValue(FName(*BoneStr), FMath::Clamp(Val, -1.0f, 1.0f));
+            UE_LOG(LogTemp, Warning, TEXT("⚡ [Pİ5 MOTOR TESTİ] Araç: %s | Kemik: '%s' -> Değer: %+.2f"), *VehicleCode, *BoneStr, Val);
+        }
+    }
+    else if (Cmd.Equals(TEXT("steer"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("set_steer"), ESearchCase::IgnoreCase))
+    {
+        // @state: WIP - Pi5'ten gelen direksiyon açısı test komutunu (-35° .. +35°) uygular
+        float AngleDeg = ActivePayload->HasField(TEXT("angle")) ? (float)ActivePayload->GetNumberField(TEXT("angle")) : 
+                        (ActivePayload->HasField(TEXT("value")) ? (float)ActivePayload->GetNumberField(TEXT("value")) * 35.0f : 0.0f);
+        AngleDeg = FMath::Clamp(AngleDeg, -35.0f, 35.0f);
+        float NormVal = AngleDeg / 35.0f;
+        CommandWatchdogTimer = FMath::Max(1.0f, TimeoutSec);
+
+        for (const auto& Pair : BoneSceneComponents)
+        {
+            FString LowerName = Pair.Key.ToString().ToLower();
+            if (LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo")))
+            {
+                SetMotorTestValue(Pair.Key, NormVal);
+            }
+        }
+        UE_LOG(LogTemp, Warning, TEXT("⚡ [Pİ5 DİREKSİYON TESTİ] Araç: %s | Açı: %+.1f°"), *VehicleCode, AngleDeg);
+    }
+    else if (Cmd.Equals(TEXT("drive_wheels"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("wheels"), ESearchCase::IgnoreCase))
+    {
+        // @state: WIP - Pi5'ten gelen tüm tekerlekleri doğrudan döndürme testini uygular
+        float LeftVal = ActivePayload->HasField(TEXT("left")) ? (float)ActivePayload->GetNumberField(TEXT("left")) : 0.0f;
+        float RightVal = ActivePayload->HasField(TEXT("right")) ? (float)ActivePayload->GetNumberField(TEXT("right")) : LeftVal;
+        if (ActivePayload->HasField(TEXT("speed")))
+        {
+            float Spd = (float)ActivePayload->GetNumberField(TEXT("speed"));
+            LeftVal = Spd;
+            RightVal = Spd;
+        }
+        LeftVal = FMath::Clamp(LeftVal, -1.0f, 1.0f);
+        RightVal = FMath::Clamp(RightVal, -1.0f, 1.0f);
+        CommandWatchdogTimer = FMath::Max(1.0f, TimeoutSec);
+
+        for (const auto& Pair : BoneSceneComponents)
+        {
+            FString LowerName = Pair.Key.ToString().ToLower();
+            if (LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker")))
+            {
+                FVector RelLoc = Pair.Value ? Pair.Value->GetRelativeLocation() : FVector::ZeroVector;
+                bool bIsLeft = (RelLoc.Y < -1.0f) || LowerName.Contains(TEXT("_l")) || LowerName.Contains(TEXT("left")) || LowerName.Contains(TEXT("sol"));
+                SetMotorTestValue(Pair.Key, bIsLeft ? LeftVal : RightVal);
+            }
+        }
+    }
+    else if (Cmd.Equals(TEXT("reset_motors"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("reset"), ESearchCase::IgnoreCase))
+    {
+        ResetAllMotorTestValues();
+    }
     else if (Cmd.Equals(TEXT("stop"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("estop"), ESearchCase::IgnoreCase))
     {
         StopVehicle();
@@ -1597,6 +1662,7 @@ void APiSimVehicle::StopVehicle()
     ResetAllMotorTestValues();
 }
 
+// @state: WIP - Diferansiyel ve Ackermann kinematiğine göre tekerlek ve direksiyon motorlarını sürer
 void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
 {
     if (CommandWatchdogTimer > 0.0f)
@@ -1611,7 +1677,7 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
         }
 
         // =====================================================================
-        // Diferansiyel Sürüş Kinematiği (Standart AMR/Rover Modeli)
+        // Diferansiyel & Ackermann Sürüş Kinematiği
         // =====================================================================
         const float TrackWidth = 0.6f;  // Tekerlekler arası eksen genişliği (60 cm)
         const float MaxSpeed = 3.0f;    // Nominal azami hız 3.0 m/s
@@ -1621,9 +1687,27 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
         float NormLeft = FMath::Clamp(VLeft / MaxSpeed, -1.0f, 1.0f);
         float NormRight = FMath::Clamp(VRight / MaxSpeed, -1.0f, 1.0f);
 
-        // Direksiyon açısı (Ackermann ön servo varsa: rad/s -> derece)
-        float SteerAngleDeg = FMath::Clamp(FMath::RadiansToDegrees(TargetAngularVelocity * 0.6f), -45.0f, 45.0f);
-        float NormSteer = SteerAngleDeg / 45.0f;
+        // Ackermann Direksiyon Açısı (Derece: -35° .. +35°)
+        // tan(delta) = L * omega / V (L ~= 0.34m)
+        float DesiredSteerDeg = 0.0f;
+        if (FMath::Abs(TargetLinearVelocity) > 0.05f)
+        {
+            float TurnRadius = FMath::Abs(TargetLinearVelocity) / FMath::Max(0.01f, FMath::Abs(TargetAngularVelocity));
+            float AckermannRad = FMath::Atan(0.34f / TurnRadius);
+            DesiredSteerDeg = FMath::RadiansToDegrees(AckermannRad) * FMath::Sign(TargetAngularVelocity);
+        }
+        else
+        {
+            DesiredSteerDeg = FMath::RadiansToDegrees(TargetAngularVelocity * 0.45f);
+        }
+        DesiredSteerDeg = FMath::Clamp(DesiredSteerDeg, -35.0f, 35.0f);
+        float NormSteer = DesiredSteerDeg / 35.0f;
+
+        // Gerçekçi Tekerlek RPM hesabı: RPM = (V / (2 * PI * Radius_m)) * 60
+        // Ortalama tekerlek yarıçapı: 0.18m (18 cm) -> 1.0 m/s ~= 53 RPM, 3.0 m/s ~= 160 RPM
+        const float WheelRadiusM = 0.18f;
+        float RpmLeft = (VLeft / (2.0f * PI * WheelRadiusM)) * 60.0f;
+        float RpmRight = (VRight / (2.0f * PI * WheelRadiusM)) * 60.0f;
 
         // 1. UPiSimWheelComponent Modüllerini Güncelle
         TArray<UPiSimWheelComponent*> Wheels;
@@ -1640,7 +1724,7 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
 
                 FString BoneLower = Wheel->TargetBoneName.ToString().ToLower();
                 bool bIsLeft = (WheelRelLoc.Y < -1.0f) || BoneLower.Contains(TEXT("_l")) || BoneLower.Contains(TEXT("left")) || BoneLower.Contains(TEXT("sol"));
-                float WheelRPM = (bIsLeft ? NormLeft : NormRight) * 1200.0f;
+                float WheelRPM = bIsLeft ? RpmLeft : RpmRight;
 
                 Wheel->bManualOverride = true;
                 Wheel->SetTargetRPM(WheelRPM);
@@ -1660,8 +1744,10 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
 
             if (bIsSteer)
             {
-                MotorTestValues.Add(BoneName, NormSteer);
-                BoneComp->SetRelativeRotation(FRotator(0.0f, SteerAngleDeg, 0.0f));
+                float CurrentYaw = BoneComp->GetRelativeRotation().Yaw;
+                float SmoothYaw = FMath::FInterpTo(CurrentYaw, DesiredSteerDeg, DeltaTime, 10.0f);
+                BoneComp->SetRelativeRotation(FRotator(0.0f, SmoothYaw, 0.0f));
+                MotorTestValues.Add(BoneName, SmoothYaw / 35.0f);
             }
             else if (bIsWheel)
             {
@@ -1671,8 +1757,6 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
                 MotorTestValues.Add(BoneName, NormVal);
             }
         }
-
-// [YAPAY KUVVET VE IŞINLAMA SİLİNDİ] Araç artık sadece gerçek tekerlek-zemin sürtünmesi (Chaos Wheel Physics) ile hareket eder.
     }
 }
 
