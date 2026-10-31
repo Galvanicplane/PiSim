@@ -359,6 +359,12 @@
             <span id="active-status-badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted); padding: 1px 6px; border: 1px solid var(--mono-border); font-weight: 800;">
                 BEKLEMEDE
             </span>
+            <button id="top-btn-physics" class="cod-btn" style="padding: 3px 8px; font-size: 9.5px; font-weight: 800; border-color: #ffaa00; color: #ffaa00;" onclick="togglePhysics()">
+                ⚡ FİZİK [P]
+            </button>
+            <button id="top-btn-armor" class="cod-btn" style="padding: 3px 8px; font-size: 9.5px; font-weight: 800; border-color: #a855f7; color: #a855f7;" onclick="toggleArmorView()">
+                🛡️ UCX ZIRH [U]
+            </button>
             <button id="btn-theme-switcher" class="cod-btn cod-btn-accent" style="padding: 3px 10px; font-size: 10px;" onclick="cycleTheme()">
                 TEMA: 1/5 PETRONAS F1
             </button>
@@ -559,6 +565,28 @@
             <div style="font-size: 8px; color: var(--text-muted); line-height: 1.25;">
                 * <b>Araç Kamerası (FPV)</b>: Kameranız her tick aracın kendi kamerasıyla birebir aynı konuma kilitlenir.<br>
                 * <b>ESC Tuşu</b>: FPV veya Orbit modundan çıkıp ana <b>Serbest Editör (WASD+QE+Fare)</b> kamerasına döner.
+            </div>
+        </div>
+
+        <!-- 2c. CANLI FİZİK SİMÜLASYONU (CHAOS) & UCX ZIRH KONTROLÜ -->
+        <div style="background: rgba(168, 85, 247, 0.06); border: 1px solid #a855f7; padding: 6px; margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 9px; font-weight: 800; color: #a855f7;">⚡ CANLI FİZİK & UCX ZIRHI:</span>
+                <span id="physics-status-badge" style="font-size: 8px; font-weight: 800; padding: 1px 5px; border: 1px solid #ffaa00; color: #ffaa00; background: rgba(255, 170, 0, 0.15);">
+                    FİZİK KAPALI (STATİK)
+                </span>
+            </div>
+            <div style="display: flex; gap: 4px;">
+                <button id="btn-toggle-physics" class="cod-btn cod-btn-accent" style="flex: 1; padding: 6px; font-size: 9.5px; font-weight: 800;" onclick="togglePhysics()">
+                    ⚡ FİZİK SİMÜLE ET [P]
+                </button>
+                <button id="btn-toggle-armor" class="cod-btn" style="padding: 6px 8px; font-size: 9.5px; font-weight: 800; border-color: #a855f7; color: #a855f7;" onclick="toggleArmorView()">
+                    🛡️ UCX ZIRHI [U]
+                </button>
+            </div>
+            <div style="font-size: 8px; color: var(--text-muted); line-height: 1.25;">
+                * <b>Fizik Simüle Et (P)</b>: UCX zırhı aktifleşir, araç yerçekimiyle zemine bırakılır ve tekerlek eklemleri bağlanır.<br>
+                * <b>UCX Zırhı (U)</b>: Görsel mesh yerine mor UCX Convex Hull çarpışma zırhını gösterir.
             </div>
         </div>
 
@@ -921,7 +949,9 @@
                             targetDevice: prev.targetDevice || "pi5",
                             targetIp: defaultPi5Ip,
                             targetPort: 7400,
-                            isFocused: !!item.is_focused
+                            isFocused: !!item.is_focused,
+                            is_physics_active: !!item.is_physics_active,
+                            is_armor_view: !!item.is_armor_view
                         };
                     });
                     fleetData = newFleetData;
@@ -1068,6 +1098,40 @@
             if (sensorsEl) sensorsEl.innerText = `Yaw:${v.yaw || 0}° | Port:${v.dedicatedPort || 7403}`;
             if (coordsEl) coordsEl.innerText = `${v.lat || '39.9334'}°N, ${v.lon || '32.8597'}°E`;
             if (camOverlayEl) camOverlayEl.innerText = `FOV: 90° • KOMUT: UDP ${v.dedicatedPort || 7403}`;
+
+            // Canlı Fizik ve UCX Zırh Rozet & Butonlarını Güncelle
+            const physBadge = document.getElementById('physics-status-badge');
+            const physBtn = document.getElementById('btn-toggle-physics');
+            const topPhysBtn = document.getElementById('top-btn-physics');
+            const armorBtn = document.getElementById('btn-toggle-armor');
+            const topArmorBtn = document.getElementById('top-btn-armor');
+
+            const isPhys = !!v.is_physics_active;
+            const isArmor = !!v.is_armor_view;
+
+            if (physBadge) {
+                physBadge.innerText = isPhys ? "⚡ FİZİK AKTİF (CHAOS)" : "FİZİK KAPALI (STATİK)";
+                physBadge.style.color = isPhys ? "#00dfb6" : "#ffaa00";
+                physBadge.style.borderColor = isPhys ? "#00dfb6" : "#ffaa00";
+                physBadge.style.background = isPhys ? "rgba(0, 223, 182, 0.15)" : "rgba(255, 170, 0, 0.15)";
+            }
+            if (physBtn) {
+                physBtn.innerText = isPhys ? "🛑 FİZİĞİ DURDUR [P]" : "⚡ FİZİK SİMÜLE ET [P]";
+                physBtn.className = isPhys ? "cod-btn cod-btn-accent" : "cod-btn";
+            }
+            if (topPhysBtn) {
+                topPhysBtn.innerText = isPhys ? "⚡ FİZİK: AÇIK [P]" : "⚡ FİZİK: KAPALI [P]";
+                topPhysBtn.style.color = isPhys ? "#00dfb6" : "#ffaa00";
+                topPhysBtn.style.borderColor = isPhys ? "#00dfb6" : "#ffaa00";
+            }
+            if (armorBtn) {
+                armorBtn.innerText = isArmor ? "🎨 GÖRSEL MOD [U]" : "🛡️ UCX ZIRHI [U]";
+                armorBtn.style.color = isArmor ? "#a855f7" : "#ffffff";
+            }
+            if (topArmorBtn) {
+                topArmorBtn.innerText = isArmor ? "🛡️ UCX: AÇIK [U]" : "🛡️ UCX: KAPALI [U]";
+                topArmorBtn.style.color = isArmor ? "#a855f7" : "#888888";
+            }
         }
 
         function selectVehicle(id) {
@@ -1106,6 +1170,26 @@
             } else if (window.ue && window.ue.garage && window.ue.garage.focusvehicle) {
                 window.ue.garage.focusvehicle(backendVehicleId);
             }
+        }
+
+        function togglePhysics() {
+            if (window.garage && window.garage.TogglePhysics) {
+                window.garage.TogglePhysics();
+            } else if (window.ue && window.ue.garage && window.ue.garage.togglephysics) {
+                window.ue.garage.togglephysics();
+            }
+            addLog("⚡ [CHAOS FİZİK] Fizik simülasyonu durumu değiştirildi (P).");
+            setTimeout(syncFleetWithBackend, 120);
+        }
+
+        function toggleArmorView() {
+            if (window.garage && window.garage.ToggleCollisionView) {
+                window.garage.ToggleCollisionView();
+            } else if (window.ue && window.ue.garage && window.ue.garage.togglecollisionview) {
+                window.ue.garage.togglecollisionview();
+            }
+            addLog("🛡️ [UCX ZIRH] UCX çarpışma modeli görünürlüğü değiştirildi (U).");
+            setTimeout(syncFleetWithBackend, 120);
         }
 
         function enterSelectedVehicleFpvCamera() {
@@ -1621,6 +1705,22 @@
         });
 
         window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyP' && !e.ctrlKey && !e.altKey) {
+                const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+                if (activeTag !== 'input' && activeTag !== 'textarea') {
+                    e.preventDefault();
+                    togglePhysics();
+                    return;
+                }
+            }
+            if (e.code === 'KeyU' && !e.ctrlKey && !e.altKey) {
+                const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+                if (activeTag !== 'input' && activeTag !== 'textarea') {
+                    e.preventDefault();
+                    toggleArmorView();
+                    return;
+                }
+            }
             if (e.key === 'Escape') {
                 if (pendingPlacementProfile) {
                     cancelVehiclePlacement();

@@ -1432,6 +1432,9 @@ bool UPiSimModularGarageWidget::SpawnVehicleAtCursor(const FString& ProfileName)
         // Profil yüklendikten sonra da debug görsellerinin kapalı kaldığını garanti et
         VehicleToInit->SetDebugVisualsEnabled(false);
 
+        // Canlı Chaos Fizik Simülasyonunu Aç (Araç yerçekimiyle zemine bırakılır, UCX zırhı ve tekerlek mafsalları aktifleşir)
+        VehicleToInit->SetVehiclePhysicsEnabled(true);
+
         // KURAL: Yeni araç spawn olduğunda kamerayı otomatik olarak o araca KİLİTLEME!
         // Editör kamerası serbest uçuşta (Free-Flight) kalır; sadece sol panelden seçildiğinde Orbit'e geçer.
         if (!TargetVehicle)
@@ -1546,6 +1549,8 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
         VObj->SetNumberField(TEXT("battery"), 98);
         bool bIsFpv = (Spectator && Spectator->IsFpvCameraMode() && Spectator->FocusedVehicle == Vehicle);
         VObj->SetBoolField(TEXT("is_fpv"), bIsFpv);
+        VObj->SetBoolField(TEXT("is_physics_active"), Vehicle->IsVehiclePhysicsActive());
+        VObj->SetBoolField(TEXT("is_armor_view"), Vehicle->IsCollisionMeshViewEnabled());
 
         FleetArray.Add(MakeShareable(new FJsonValueObject(VObj)));
     }

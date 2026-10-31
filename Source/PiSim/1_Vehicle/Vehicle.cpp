@@ -267,6 +267,10 @@ void APiSimVehicle::Tick(float DeltaTime)
                     float TotalRpm = TestVal * 1200.0f; // 1200 RPM
                     float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
                     FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f); // Roll X axle
+                    if (UPiSimWheelComponent* WheelMod = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName)))
+                    {
+                        LocalAxle = WheelMod->LocalSpinAxis.GetSafeNormal();
+                    }
                     FVector WorldAxle = WheelPrim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
 
                     FVector CurrentAngVel = WheelPrim->GetPhysicsAngularVelocityInDegrees();
@@ -1668,27 +1672,7 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
             }
         }
 
-        // 3. Tepkisel ve Pürüzsüz İlerleme Desteği (Hem Fizik Simülasyonu hem Kinematik Mod)
-        if (FMath::Abs(TargetLinearVelocity) > 0.01f || FMath::Abs(TargetAngularVelocity) > 0.01f)
-        {
-            FVector ForwardDir = GetActorForwardVector();
-            FVector LinearOffset = ForwardDir * (TargetLinearVelocity * 100.0f * DeltaTime);
-            FRotator AngularOffset(0.0f, FMath::RadiansToDegrees(TargetAngularVelocity) * DeltaTime, 0.0f);
-
-            if (bIsPhysicsSimulating)
-            {
-                if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
-                {
-                    VisualMeshComponents[0]->AddForce(ForwardDir * (TargetLinearVelocity * TotalMassKg * 250.0f));
-                    VisualMeshComponents[0]->AddTorqueInRadians(FVector::UpVector * (TargetAngularVelocity * TotalMassKg * 8000.0f));
-                }
-            }
-            else
-            {
-                AddActorWorldOffset(LinearOffset, true);
-                AddActorWorldRotation(AngularOffset, true);
-            }
-        }
+// [YAPAY KUVVET VE IŞINLAMA SİLİNDİ] Araç artık sadece gerçek tekerlek-zemin sürtünmesi (Chaos Wheel Physics) ile hareket eder.
     }
 }
 
