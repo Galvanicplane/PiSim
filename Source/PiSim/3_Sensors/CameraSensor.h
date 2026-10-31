@@ -59,6 +59,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
     bool bAutoClearVehicleBounds = true;
 
+    /** Aracın üzerindeki kameranın anlık Dünya (World) Konum ve Rotasyonunu hesaplar (FPV ve RenderTarget için) */
+    bool GetCameraWorldTransform(FVector& OutLocation, FRotator& OutRotation) const;
+
 protected:
     UPROPERTY()
     USceneCaptureComponent2D* SceneCapture = nullptr;

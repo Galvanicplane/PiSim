@@ -129,9 +129,23 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
     FString GetActiveFleetJson();
 
-    // WebUI: Belirtilen araca kamera ve kontrol odağını geçirir
+    // WebUI: Belirtilen araca kamera ve kontrol odağını geçirir (Sol panelden araç seçildiğinde Orbit moduna alır)
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
     bool FocusVehicle(int32 InVehicleId);
+
+    // WebUI: Seçili aracın kendi üst kamerasına (FPV) kilitlenir (Her tick aynı transform)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    bool EnterVehicleCameraView(int32 InVehicleId);
+
+    // WebUI: Araç kamerasından veya Orbit'ten çıkıp ana serbest editör kamerasına döner (ESC)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void ExitVehicleCameraView();
+
+    // WebUI: Serbest editör kamerasını 3B uzayda uçurur (WASD + QE)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|UI")
+    void FlyCamera(float Forward, float Right, float Up, float Boost = 1.0f);
+
+    class APiSimSpectatorPawn* GetOrCreateSpectatorPawn();
 
     // WebUI: İsteğe bağlı video yayını aboneliğini açıp kapatır (On-Demand Video Streaming)
     UFUNCTION(BlueprintCallable, Category = "PiSim|UI")

@@ -73,6 +73,76 @@ void UPiSimCameraSensor::TickComponent(float DeltaTime, ELevelTick TickType, FAc
     }
 }
 
+// @state: WIP - Aracın üzerindeki kameranın anlık Dünya (World) Konum ve Rotasyonunu hesaplar
+bool UPiSimCameraSensor::GetCameraWorldTransform(FVector& OutLocation, FRotator& OutRotation) const
+{
+    APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
+    if (!OwnerVehicle)
+    {
+        return false;
+    }
+
+    FVector BaseLoc = OwnerVehicle->GetActorLocation();
+    FRotator BaseRot = OwnerVehicle->GetActorRotation();
+    FVector CompScale = OwnerVehicle->GetActorScale3D();
+    if (OwnerVehicle->VisualMeshComponents.Num() > 0 && OwnerVehicle->VisualMeshComponents[0] && IsValid(OwnerVehicle->VisualMeshComponents[0]))
+    {
+        BaseLoc = OwnerVehicle->VisualMeshComponents[0]->GetComponentLocation();
+        BaseRot = OwnerVehicle->VisualMeshComponents[0]->GetComponentRotation();
+        CompScale = OwnerVehicle->VisualMeshComponents[0]->GetComponentScale();
+    }
+
+    // 1) Eğer kamera belirli bir kemiğe (TargetBoneName veya 'cam' içeren bir kemik) bağlandıysa o kemiğin konumunu baz al
+    USceneComponent* AttachedBoneComp = nullptr;
+    if (!TargetBoneName.IsNone())
+    {
+        AttachedBoneComp = OwnerVehicle->GetSceneComponentForBone(TargetBoneName);
+    }
+    if (!AttachedBoneComp)
+    {
+        for (const auto& Pair : OwnerVehicle->BoneSceneComponents)
+        {
+            if (Pair.Value && Pair.Key.ToString().Contains(TEXT("cam"), ESearchCase::IgnoreCase))
+            {
+                AttachedBoneComp = Pair.Value;
+                break;
+            }
+        }
+    }
+
+    FVector FinalLocalOffset = CameraLocalOffset * CompScale;
+    if (AttachedBoneComp)
+    {
+        FVector BoneRel = BaseRot.UnrotateVector(AttachedBoneComp->GetComponentLocation() - BaseLoc);
+        if (!BoneRel.IsNearlyZero(1.0f))
+        {
+            FinalLocalOffset = BoneRel * CompScale;
+        }
+    }
+    else if (const FTransform* CustomCamTransform = OwnerVehicle->SensorSocketTransforms.Find(TEXT("Camera")))
+    {
+        FinalLocalOffset = CustomCamTransform->GetLocation() * CompScale;
+    }
+
+    // 2) Araç büyütüldüğünde (Scale değiştiğinde) kameranın gövde/mesh içinde kalmasını kesin olarak engelle
+    if (bAutoClearVehicleBounds && OwnerVehicle->VisualMeshComponents.Num() > 0 && OwnerVehicle->VisualMeshComponents[0])
+    {
+        FBoxSphereBounds LocalBounds = OwnerVehicle->VisualMeshComponents[0]->CalcLocalBounds();
+        FVector ScaledOrigin = LocalBounds.Origin * CompScale;
+        FVector ScaledExtent = LocalBounds.BoxExtent * CompScale.GetAbs();
+
+        float FrontTargetX = ScaledOrigin.X + (ScaledExtent.X * 0.65f);
+        float TopTargetZ   = ScaledOrigin.Z + ScaledExtent.Z + FMath::Max(20.0f, ScaledExtent.Z * 0.35f);
+
+        FinalLocalOffset.X = FMath::Max(FinalLocalOffset.X, FrontTargetX);
+        FinalLocalOffset.Z = FMath::Max(FinalLocalOffset.Z, TopTargetZ);
+    }
+
+    OutLocation = BaseLoc + BaseRot.RotateVector(FinalLocalOffset);
+    OutRotation = (BaseRot.Quaternion() * FRotator(CameraPitchDeg, 0.0f, 0.0f).Quaternion()).Rotator();
+    return true;
+}
+
 // @state: WIP - Render target verisini okuyup JPEG olarak sıkıştırır ve Gateway'e fırlatır
 void UPiSimCameraSensor::CaptureAndCompressFrame()
 {
@@ -81,69 +151,10 @@ void UPiSimCameraSensor::CaptureAndCompressFrame()
         return;
     }
 
-    // Kamerayı aracın aktif fizik gövdesine (VisualMeshComponents[0] veya Actor) hizala (FPV Tavan/Ön açısı)
-    APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
-    if (OwnerVehicle)
+    FVector CamWorldLoc;
+    FRotator CamWorldRot;
+    if (GetCameraWorldTransform(CamWorldLoc, CamWorldRot))
     {
-        FVector BaseLoc = OwnerVehicle->GetActorLocation();
-        FRotator BaseRot = OwnerVehicle->GetActorRotation();
-        FVector CompScale = OwnerVehicle->GetActorScale3D();
-        if (OwnerVehicle->VisualMeshComponents.Num() > 0 && OwnerVehicle->VisualMeshComponents[0] && IsValid(OwnerVehicle->VisualMeshComponents[0]))
-        {
-            BaseLoc = OwnerVehicle->VisualMeshComponents[0]->GetComponentLocation();
-            BaseRot = OwnerVehicle->VisualMeshComponents[0]->GetComponentRotation();
-            CompScale = OwnerVehicle->VisualMeshComponents[0]->GetComponentScale();
-        }
-
-        // 1) Eğer kamera belirli bir kemiğe (TargetBoneName veya 'cam' içeren bir kemik) bağlandıysa o kemiğin konumunu baz al
-        USceneComponent* AttachedBoneComp = nullptr;
-        if (!TargetBoneName.IsNone())
-        {
-            AttachedBoneComp = OwnerVehicle->GetSceneComponentForBone(TargetBoneName);
-        }
-        if (!AttachedBoneComp)
-        {
-            for (const auto& Pair : OwnerVehicle->BoneSceneComponents)
-            {
-                if (Pair.Value && Pair.Key.ToString().Contains(TEXT("cam"), ESearchCase::IgnoreCase))
-                {
-                    AttachedBoneComp = Pair.Value;
-                    break;
-                }
-            }
-        }
-
-        FVector FinalLocalOffset = CameraLocalOffset * CompScale;
-        if (AttachedBoneComp)
-        {
-            FVector BoneRel = BaseRot.UnrotateVector(AttachedBoneComp->GetComponentLocation() - BaseLoc);
-            if (!BoneRel.IsNearlyZero(1.0f))
-            {
-                FinalLocalOffset = BoneRel * CompScale;
-            }
-        }
-        else if (const FTransform* CustomCamTransform = OwnerVehicle->SensorSocketTransforms.Find(TEXT("Camera")))
-        {
-            FinalLocalOffset = CustomCamTransform->GetLocation() * CompScale;
-        }
-
-        // 2) Araç büyütüldüğünde (Scale değiştiğinde) kameranın gövde/mesh içinde kalmasını kesin olarak engelle; araç boyutuyla orantılı büyüt!
-        if (bAutoClearVehicleBounds && OwnerVehicle->VisualMeshComponents.Num() > 0 && OwnerVehicle->VisualMeshComponents[0])
-        {
-            FBoxSphereBounds LocalBounds = OwnerVehicle->VisualMeshComponents[0]->CalcLocalBounds();
-            FVector ScaledOrigin = LocalBounds.Origin * CompScale;
-            FVector ScaledExtent = LocalBounds.BoxExtent * CompScale.GetAbs();
-
-            // Kamerayı aracın gerçek boyutuna (ScaledExtent) orantılı olarak tavanın üstüne ve ön tamponun ilerisine taşı
-            float FrontTargetX = ScaledOrigin.X + (ScaledExtent.X * 0.65f);
-            float TopTargetZ   = ScaledOrigin.Z + ScaledExtent.Z + FMath::Max(20.0f, ScaledExtent.Z * 0.35f);
-
-            FinalLocalOffset.X = FMath::Max(FinalLocalOffset.X, FrontTargetX);
-            FinalLocalOffset.Z = FMath::Max(FinalLocalOffset.Z, TopTargetZ);
-        }
-
-        FVector CamWorldLoc = BaseLoc + BaseRot.RotateVector(FinalLocalOffset);
-        FRotator CamWorldRot = (BaseRot.Quaternion() * FRotator(CameraPitchDeg, 0.0f, 0.0f).Quaternion()).Rotator();
         SceneCapture->SetWorldLocationAndRotation(CamWorldLoc, CamWorldRot);
     }
 

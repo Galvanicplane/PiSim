@@ -1,8 +1,9 @@
 // PiSimSpectator.cpp
-// Serbest Uçuş ve Filo Gözlemci Pawn'ı Uygulaması
+// Serbest Editör Uçuşu, Seçili Araç Orbit ve Araç Kamerası (FPV) Gözlemci Pawn'ı Uygulaması
 
 #include "PiSimSpectator.h"
 #include "Vehicle.h"
+#include "CameraSensor.h"
 #include "GarageWidget.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
@@ -12,44 +13,63 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 
+namespace
+{
+    static TMap<const APiSimSpectatorPawn*, bool> GSpectatorFpvMap;
+}
+
+bool APiSimSpectatorPawn::IsFpvCameraMode() const
+{
+    const bool* Found = GSpectatorFpvMap.Find(this);
+    return Found ? *Found : false;
+}
+
+void APiSimSpectatorPawn::SetFpvCameraMode(bool bEnable)
+{
+    GSpectatorFpvMap.Add(this, bEnable);
+}
+
 // @state: WIP - Gözlemci Pawn yapıcısı
 APiSimSpectatorPawn::APiSimSpectatorPawn()
 {
     PrimaryActorTick.bCanEverTick = true;
-    bAddDefaultMovementBindings = true;
+    bAddDefaultMovementBindings = false; // Kendi pürüzsüz Unreal Editor uçuş kontrolümüzü kullanıyoruz
 
-    // Yay kolu oluştur (Kamera çarpışma testi kapalı, noclip yumuşak takip)
+    // Yay kolu oluştur (Serbest uçuşta TargetArmLength=0, Orbit modunda=OrbitDistance)
     SpectatorSpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpectatorSpringArm"));
     SpectatorSpringArm->SetupAttachment(RootComponent);
-    SpectatorSpringArm->TargetArmLength = OrbitDistance;
+    SpectatorSpringArm->TargetArmLength = 0.0f;
     SpectatorSpringArm->bDoCollisionTest = false;
     SpectatorSpringArm->bInheritPitch = false;
     SpectatorSpringArm->bInheritYaw = false;
     SpectatorSpringArm->bInheritRoll = false;
-    SpectatorSpringArm->bEnableCameraLag = true;
-    SpectatorSpringArm->CameraLagSpeed = 15.0f;
+    SpectatorSpringArm->bEnableCameraLag = false;
 
     // Kamera bileşeni
     SpectatorCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("SpectatorCamera"));
     SpectatorCamera->SetupAttachment(SpectatorSpringArm, USpringArmComponent::SocketName);
 
-    CurrentOrbitRotation = FRotator(-25.0f, 0.0f, 0.0f);
+    CurrentOrbitRotation = FRotator(-20.0f, 0.0f, 0.0f);
 
-    // Hareket bileşeni varsayılan hız ayarı
     if (USpectatorPawnMovement* Mov = Cast<USpectatorPawnMovement>(GetMovementComponent()))
     {
         Mov->MaxSpeed = FlySpeedMultiplier;
+        Mov->bIgnoreTimeDilation = true;
     }
 }
 
-// @state: WIP - Başlangıçta fare girişini ayarlar, DashboardUnreal'ı açar ve araç arar
+// @state: WIP - Başlangıçta serbest editör kamerası olarak başlar (Otomatik araç odaklaması YAPMAZ!)
 void APiSimSpectatorPawn::BeginPlay()
 {
     Super::BeginPlay();
 
+    bIsOrbitingVehicle = false;
+    SetFpvCameraMode(false);
+
     if (SpectatorSpringArm)
     {
-        SpectatorSpringArm->SetRelativeRotation(CurrentOrbitRotation);
+        SpectatorSpringArm->TargetArmLength = 0.0f;
+        SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
     }
 
     APlayerController* PC = Cast<APlayerController>(GetController());
@@ -68,48 +88,94 @@ void APiSimSpectatorPawn::BeginPlay()
         InputMode.SetHideCursorDuringCapture(false);
         PC->SetInputMode(InputMode);
 
-        // Dashboard Unreal Arayüzünü Spectator üzerinde başlat ve ekrana ekle
         if (!DashboardWidget)
         {
             DashboardWidget = CreateWidget<UPiSimModularGarageWidget>(PC, UPiSimModularGarageWidget::StaticClass());
             if (DashboardWidget)
             {
                 DashboardWidget->AddToViewport(10);
-                UE_LOG(LogTemp, Log, TEXT("🚀 [PiSimSpectator] Dashboard Unreal arayüzü Spectator'a başarıyla bağlandı ve açıldı."));
+                UE_LOG(LogTemp, Log, TEXT("🚀 [PiSimSpectator] Dashboard Unreal arayüzü başlatıldı (Serbest Editör Kamerası Aktif)."));
             }
-        }
-    }
-
-    // Dünyadaki ilk aracı otomatik olarak varsayılan odak hedefi yap
-    if (!FocusedVehicle && GetWorld())
-    {
-        AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
-        if (Found)
-        {
-            SetFocusedVehicle(Cast<APiSimVehicle>(Found));
         }
     }
 }
 
-// @state: WIP - Her frame serbest uçuş veya seçili araç orbit hareketini yürütür
+// @state: WIP - Her frame: 1) FPV Kamera Kilitlenmesi, 2) Seçili Araç Orbit, veya 3) Gerçek Unreal Editör Serbest Uçuşu
 void APiSimSpectatorPawn::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
     APlayerController* PC = Cast<APlayerController>(GetController());
+    if (!PC && GetWorld())
+    {
+        PC = GetWorld()->GetFirstPlayerController();
+    }
 
+    // ESC tuşuna basıldığında her zaman ana Serbest Editör Kamerasına geri dön!
+    if (PC && PC->WasInputKeyJustPressed(EKeys::Escape))
+    {
+        if (IsFpvCameraMode() || bIsOrbitingVehicle)
+        {
+            ReturnToFreeFlight();
+            return;
+        }
+    }
+
+    // =========================================================================
+    // MOD 1: ARAÇ KAMERASI (FPV) MODU (Her Tick Aracın Kamerası ile Aynı Transform)
+    // =========================================================================
+    if (IsFpvCameraMode() && IsValid(FocusedVehicle))
+    {
+        FVector CamWorldLoc = FocusedVehicle->GetActorLocation() + FVector(0.0f, 0.0f, 120.0f);
+        FRotator CamWorldRot = FocusedVehicle->GetActorRotation();
+
+        if (FocusedVehicle->CameraSensor)
+        {
+            FocusedVehicle->CameraSensor->GetCameraWorldTransform(CamWorldLoc, CamWorldRot);
+            if (SpectatorCamera)
+            {
+                SpectatorCamera->SetFieldOfView(FocusedVehicle->CameraSensor->FOVDegrees);
+            }
+        }
+
+        SetActorLocation(CamWorldLoc);
+        CurrentOrbitRotation = CamWorldRot;
+        if (SpectatorSpringArm)
+        {
+            SpectatorSpringArm->TargetArmLength = 0.0f;
+            SpectatorSpringArm->SetWorldRotation(CamWorldRot);
+        }
+        return;
+    }
+
+    // =========================================================================
+    // MOD 2: SEÇİLİ ARAÇ 360° ORBİT MODU (Sol panelden araç seçildiğinde aktif)
+    // =========================================================================
     if (bIsOrbitingVehicle && IsValid(FocusedVehicle))
     {
-        // 1. Orbit Modu: Konumu yumuşakça aracın üzerine taşır
-        FVector TargetPos = FocusedVehicle->GetActorLocation() + OrbitTargetOffset;
-        SetActorLocation(FMath::VInterpTo(GetActorLocation(), TargetPos, DeltaTime, 12.0f));
+        // Eğer kullanıcı Sağ Tık basılı tutarken WASD/QE tuşlarına basarsa,
+        // tıpkı gerçek Unreal Editör'deki gibi Orbit'ten çıkıp serbest uçuşa geçsin!
+        if (PC && PC->IsInputKeyDown(EKeys::RightMouseButton))
+        {
+            const bool bWantsToFly =
+                PC->IsInputKeyDown(EKeys::W) || PC->IsInputKeyDown(EKeys::S) ||
+                PC->IsInputKeyDown(EKeys::A) || PC->IsInputKeyDown(EKeys::D) ||
+                PC->IsInputKeyDown(EKeys::E) || PC->IsInputKeyDown(EKeys::Q);
+            if (bWantsToFly)
+            {
+                ReturnToFreeFlight();
+                return;
+            }
+        }
 
-        // Fare ile 360° Orbit (Sol veya Sağ tık basılıyken)
+        FVector TargetPos = FocusedVehicle->GetActorLocation() + OrbitTargetOffset;
+        SetActorLocation(FMath::VInterpTo(GetActorLocation(), TargetPos, DeltaTime, 14.0f));
+
         if (PC && (PC->IsInputKeyDown(EKeys::LeftMouseButton) || PC->IsInputKeyDown(EKeys::RightMouseButton)))
         {
             float MouseX = 0.0f, MouseY = 0.0f;
             PC->GetInputMouseDelta(MouseX, MouseY);
-            if (FMath::Abs(MouseX) > 0.01f || FMath::Abs(MouseY) > 0.01f)
+            if (FMath::Abs(MouseX) > 0.005f || FMath::Abs(MouseY) > 0.005f)
             {
                 AddOrbitDelta(MouseX, MouseY);
             }
@@ -117,27 +183,82 @@ void APiSimSpectatorPawn::Tick(float DeltaTime)
 
         if (SpectatorSpringArm)
         {
-            SpectatorSpringArm->TargetArmLength = FMath::FInterpTo(SpectatorSpringArm->TargetArmLength, OrbitDistance, DeltaTime, 10.0f);
-            SpectatorSpringArm->SetRelativeRotation(CurrentOrbitRotation);
+            SpectatorSpringArm->TargetArmLength = FMath::FInterpTo(SpectatorSpringArm->TargetArmLength, OrbitDistance, DeltaTime, 12.0f);
+            SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+        }
+        return;
+    }
+
+    // =========================================================================
+    // MOD 3: GERÇEK UNREAL EDİTÖR SERBEST UÇUŞ MODU (NOCLIP FLY + MOUSE LOOK)
+    // =========================================================================
+    if (SpectatorSpringArm)
+    {
+        SpectatorSpringArm->TargetArmLength = 0.0f;
+        SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+    }
+
+    if (!PC) return;
+
+    // Sağ tık basılıyken fare ile 360° serbest bakış (Unreal Editor Viewport gibi)
+    if (PC->IsInputKeyDown(EKeys::RightMouseButton))
+    {
+        float MouseX = 0.0f, MouseY = 0.0f;
+        PC->GetInputMouseDelta(MouseX, MouseY);
+        if (FMath::Abs(MouseX) > 0.005f || FMath::Abs(MouseY) > 0.005f)
+        {
+            CurrentOrbitRotation.Yaw += MouseX * 1.35f;
+            CurrentOrbitRotation.Pitch = FMath::Clamp(CurrentOrbitRotation.Pitch + (MouseY * 1.35f), -88.0f, 88.0f);
+            CurrentOrbitRotation.Roll = 0.0f;
+            if (SpectatorSpringArm)
+            {
+                SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+            }
+            PC->SetControlRotation(CurrentOrbitRotation);
         }
     }
-    else
+
+    // WASD + QE + Yön Tuşları ile 3B Uzayda Serbest Uçuş
+    FVector MoveInput = FVector::ZeroVector;
+    const FRotationMatrix CamRotMat(CurrentOrbitRotation);
+    const FVector CamForward = CamRotMat.GetUnitAxis(EAxis::X);
+    const FVector CamRight   = CamRotMat.GetUnitAxis(EAxis::Y);
+    const FVector WorldUp    = FVector::UpVector;
+
+    if (PC->IsInputKeyDown(EKeys::W) || PC->IsInputKeyDown(EKeys::Up))
     {
-        // 2. Serbest Uçuş Modu: Sağ tık basılıyken fare ile bakış yönünü değiştir
-        if (PC && PC->IsInputKeyDown(EKeys::RightMouseButton))
-        {
-            float MouseX = 0.0f, MouseY = 0.0f;
-            PC->GetInputMouseDelta(MouseX, MouseY);
-            if (FMath::Abs(MouseX) > 0.01f || FMath::Abs(MouseY) > 0.01f)
-            {
-                AddControllerYawInput(MouseX);
-                AddControllerPitchInput(-MouseY);
-            }
-        }
+        MoveInput += CamForward;
+    }
+    if (PC->IsInputKeyDown(EKeys::S) || PC->IsInputKeyDown(EKeys::Down))
+    {
+        MoveInput -= CamForward;
+    }
+    if (PC->IsInputKeyDown(EKeys::D) || PC->IsInputKeyDown(EKeys::Right))
+    {
+        MoveInput += CamRight;
+    }
+    if (PC->IsInputKeyDown(EKeys::A) || PC->IsInputKeyDown(EKeys::Left))
+    {
+        MoveInput -= CamRight;
+    }
+    if (PC->IsInputKeyDown(EKeys::E) || PC->IsInputKeyDown(EKeys::SpaceBar))
+    {
+        MoveInput += WorldUp;
+    }
+    if (PC->IsInputKeyDown(EKeys::Q) || PC->IsInputKeyDown(EKeys::LeftControl))
+    {
+        MoveInput -= WorldUp;
+    }
+
+    if (!MoveInput.IsNearlyZero())
+    {
+        float SpeedBoost = (PC->IsInputKeyDown(EKeys::LeftShift) || PC->IsInputKeyDown(EKeys::RightShift)) ? 3.0f : 1.0f;
+        FVector DeltaMove = MoveInput.GetSafeNormal() * (FlySpeedMultiplier * SpeedBoost * DeltaTime);
+        AddActorWorldOffset(DeltaMove, false);
     }
 }
 
-// @state: WIP - Giriş tuşlarını bağlar (WASD, QE, F, V, MouseWheel)
+// @state: WIP - Giriş tuşlarını bağlar (F, V, ESC, Tab, MouseWheel)
 void APiSimSpectatorPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
     Super::SetupPlayerInputComponent(PlayerInputComponent);
@@ -147,48 +268,70 @@ void APiSimSpectatorPawn::SetupPlayerInputComponent(UInputComponent* PlayerInput
         return;
     }
 
-    // Tuş Eylemleri
     PlayerInputComponent->BindKey(EKeys::F, IE_Pressed, this, &APiSimSpectatorPawn::HandleKeyFocus);
     PlayerInputComponent->BindKey(EKeys::V, IE_Pressed, this, &APiSimSpectatorPawn::HandleKeyFreeFlight);
     PlayerInputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &APiSimSpectatorPawn::HandleKeyFreeFlight);
     PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &APiSimSpectatorPawn::HandleKeyTab);
 
-    // Zoom
     PlayerInputComponent->BindAxisKey(EKeys::MouseWheelAxis, this, &APiSimSpectatorPawn::AddZoomDelta);
 }
 
 // @state: WIP - Dashboard Unreal arayüzünü açar/kapatır (Tab tuşu)
 void APiSimSpectatorPawn::ToggleDashboardVisibility()
 {
-    if (DashboardWidget)
+    if (!DashboardWidget) return;
+
+    if (DashboardWidget->IsVisible())
     {
-        ESlateVisibility CurrentVis = DashboardWidget->GetVisibility();
-        if (CurrentVis == ESlateVisibility::Visible || CurrentVis == ESlateVisibility::SelfHitTestInvisible)
-        {
-            DashboardWidget->SetVisibility(ESlateVisibility::Collapsed);
-            UE_LOG(LogTemp, Log, TEXT("👁️ [PiSimSpectator] Dashboard Gizlendi (Tab)."));
-        }
-        else
-        {
-            DashboardWidget->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
-            UE_LOG(LogTemp, Log, TEXT("👁️ [PiSimSpectator] Dashboard Gösterildi (Tab)."));
-        }
+        DashboardWidget->SetVisibility(ESlateVisibility::Hidden);
+    }
+    else
+    {
+        DashboardWidget->SetVisibility(ESlateVisibility::Visible);
     }
 }
 
-// @state: WIP - Odaklanılan aracı günceller ve Dashboard'a bağlar
+// @state: WIP - Sol panelden seçilen araca 360° Orbit modunda odaklanır
 void APiSimSpectatorPawn::SetFocusedVehicle(APiSimVehicle* InVehicle)
 {
     FocusedVehicle = InVehicle;
     if (FocusedVehicle)
     {
+        SetFpvCameraMode(false);
         bIsOrbitingVehicle = true;
+        if (SpectatorCamera)
+        {
+            SpectatorCamera->SetFieldOfView(90.0f);
+        }
         if (DashboardWidget)
         {
             DashboardWidget->SetTargetVehicle(FocusedVehicle);
         }
-        UE_LOG(LogTemp, Log, TEXT("🎯 [PiSimSpectator] Araç %d Odaklandı ve Dashboard'a bağlandı."), FocusedVehicle->VehicleId);
+        UE_LOG(LogTemp, Log, TEXT("🎯 [PiSimSpectator] Araç %d Orbit Moduna Alındı."), FocusedVehicle->VehicleId);
     }
+}
+
+// @state: WIP - Seçili aracın kendi üst kamerasına (FPV) kilitlenir
+void APiSimSpectatorPawn::EnterVehicleCameraMode(APiSimVehicle* InVehicle)
+{
+    if (InVehicle)
+    {
+        FocusedVehicle = InVehicle;
+    }
+    if (!FocusedVehicle)
+    {
+        return;
+    }
+
+    bIsOrbitingVehicle = false;
+    SetFpvCameraMode(true);
+
+    if (SpectatorSpringArm)
+    {
+        SpectatorSpringArm->TargetArmLength = 0.0f;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("🎥 [PiSimSpectator] Araç %d FPV Kamera Moduna Geçildi (Çıkış: ESC)."), FocusedVehicle->VehicleId);
 }
 
 // @state: WIP - Sahnedeki bir sonraki araca odaklanır
@@ -218,7 +361,7 @@ void APiSimSpectatorPawn::FocusNextVehicle()
 // @state: WIP - Orbit modunu açıp kapatır
 void APiSimSpectatorPawn::ToggleOrbitMode()
 {
-    if (bIsOrbitingVehicle)
+    if (bIsOrbitingVehicle || IsFpvCameraMode())
     {
         ReturnToFreeFlight();
     }
@@ -226,36 +369,72 @@ void APiSimSpectatorPawn::ToggleOrbitMode()
     {
         bIsOrbitingVehicle = true;
     }
-    else
-    {
-        FocusNextVehicle();
-    }
 }
 
-// @state: WIP - Serbest noclip uçuş moduna geri döner
+// @state: WIP - Serbest noclip editör uçuş moduna geri döner (ESC)
 void APiSimSpectatorPawn::ReturnToFreeFlight()
 {
+    // Kamera sıçramasını önlemek için mevcut gerçek kamera dünya konumunu yakala
+    if (SpectatorCamera)
+    {
+        FVector CurrentCamLoc = SpectatorCamera->GetComponentLocation();
+        FRotator CurrentCamRot = SpectatorCamera->GetComponentRotation();
+
+        if (IsFpvCameraMode() && IsValid(FocusedVehicle))
+        {
+            // FPV'den çıkarken kamerayı aracın biraz arkasına ve üstüne al ki mesh içinde kalmasın
+            CurrentCamLoc = FocusedVehicle->GetActorLocation() - (FocusedVehicle->GetActorForwardVector() * 350.0f) + FVector(0.0f, 0.0f, 180.0f);
+            CurrentCamRot = (FocusedVehicle->GetActorLocation() - CurrentCamLoc).Rotation();
+        }
+
+        SetActorLocation(CurrentCamLoc);
+        CurrentOrbitRotation = FRotator(CurrentCamRot.Pitch, CurrentCamRot.Yaw, 0.0f);
+        SpectatorCamera->SetFieldOfView(90.0f);
+    }
+
+    SetFpvCameraMode(false);
     bIsOrbitingVehicle = false;
-    UE_LOG(LogTemp, Log, TEXT("🦅 [PiSimSpectator] Serbest Uçuş Moduna Geçildi."));
+
+    if (SpectatorSpringArm)
+    {
+        SpectatorSpringArm->TargetArmLength = 0.0f;
+        SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("🦅 [PiSimSpectator] Ana Serbest Editör Kamerasına Dönüldü."));
 }
 
-// @state: WIP - Fare tekeri ile kamera zoom yapar
+// @state: WIP - Fare tekerleği ile Orbit mesafesini veya Serbest Uçuşta ileri/hız ayarını günceller
 void APiSimSpectatorPawn::AddZoomDelta(float Direction)
 {
     if (FMath::Abs(Direction) < 0.01f) return;
 
-    OrbitDistance = FMath::Clamp(OrbitDistance - (Direction * 80.0f), MinOrbitDistance, MaxOrbitDistance);
-    if (SpectatorSpringArm)
+    if (bIsOrbitingVehicle)
     {
-        SpectatorSpringArm->TargetArmLength = OrbitDistance;
+        OrbitDistance = FMath::Clamp(OrbitDistance - (Direction * 80.0f), MinOrbitDistance, MaxOrbitDistance);
+        if (SpectatorSpringArm)
+        {
+            SpectatorSpringArm->TargetArmLength = OrbitDistance;
+        }
+    }
+    else if (!IsFpvCameraMode())
+    {
+        // Serbest editör modunda tekerlek kamerayı bakış yönünde ileri/geri kaydırır
+        const FVector CamForward = FRotationMatrix(CurrentOrbitRotation).GetUnitAxis(EAxis::X);
+        AddActorWorldOffset(CamForward * (Direction * 140.0f), false);
     }
 }
 
 // @state: WIP - Fare sürüklemesi ile orbit açısını döndürür
 void APiSimSpectatorPawn::AddOrbitDelta(float DeltaX, float DeltaY)
 {
-    CurrentOrbitRotation.Yaw += DeltaX * 0.7f;
-    CurrentOrbitRotation.Pitch = FMath::Clamp(CurrentOrbitRotation.Pitch + (DeltaY * 0.7f), -85.0f, 85.0f);
+    CurrentOrbitRotation.Yaw += DeltaX * 0.75f;
+    CurrentOrbitRotation.Pitch = FMath::Clamp(CurrentOrbitRotation.Pitch + (DeltaY * 0.75f), -85.0f, 85.0f);
+    CurrentOrbitRotation.Roll = 0.0f;
+    if (SpectatorSpringArm)
+    {
+        SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+    }
 }
 
 void APiSimSpectatorPawn::HandleKeyFocus()
@@ -268,45 +447,11 @@ void APiSimSpectatorPawn::HandleKeyFreeFlight()
     ReturnToFreeFlight();
 }
 
-void APiSimSpectatorPawn::HandleMoveForward(float Val)
-{
-    if (!bIsOrbitingVehicle && FMath::Abs(Val) > 0.01f)
-    {
-        MoveForward(Val);
-    }
-}
-
-void APiSimSpectatorPawn::HandleMoveRight(float Val)
-{
-    if (!bIsOrbitingVehicle && FMath::Abs(Val) > 0.01f)
-    {
-        MoveRight(Val);
-    }
-}
-
-void APiSimSpectatorPawn::HandleMoveUp(float Val)
-{
-    if (!bIsOrbitingVehicle && FMath::Abs(Val) > 0.01f)
-    {
-        MoveUp_World(Val);
-    }
-}
-
-void APiSimSpectatorPawn::HandleTurn(float Val)
-{
-    if (!bIsOrbitingVehicle && FMath::Abs(Val) > 0.01f)
-    {
-        AddControllerYawInput(Val);
-    }
-}
-
-void APiSimSpectatorPawn::HandleLookUp(float Val)
-{
-    if (!bIsOrbitingVehicle && FMath::Abs(Val) > 0.01f)
-    {
-        AddControllerPitchInput(Val);
-    }
-}
+void APiSimSpectatorPawn::HandleMoveForward(float Val) {}
+void APiSimSpectatorPawn::HandleMoveRight(float Val) {}
+void APiSimSpectatorPawn::HandleMoveUp(float Val) {}
+void APiSimSpectatorPawn::HandleTurn(float Val) {}
+void APiSimSpectatorPawn::HandleLookUp(float Val) {}
 
 void APiSimSpectatorPawn::HandleKeyTab()
 {

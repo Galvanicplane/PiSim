@@ -1,7 +1,9 @@
 // PiSimSpectator.h
-// Serbest Uçuş ve Filo Gözlemci Pawn'ı (Spectator):
-// Kullanıcıyı tek bir araca hapsetmeden 3D dünyada serbest dolaşım (WASD + Mouse) sağlar.
-// İstenen araca (FocusedVehicle) kilitlenerek 360° orbit/takip yapabilir.
+// Serbest Uçuş (Unreal Editör Kamerası), Seçili Araç Orbit ve Araç Üstü FPV Kamera Gözlemci Pawn'ı:
+// - Varsayılan olarak serbest uçuş (Free-Flight Editor) modundadır; yeni araç spawn olduğunda odak çalmaz.
+// - Kullanıcı sol panelden bir araç seçtiğinde 360° Orbit moduna geçer.
+// - Sağ paneldeki "Araç Kamerasına Geç" tuşu ile her tick aracın kendi kamerasının transformuna kilitlenir (FPV).
+// - ESC tuşuna basıldığında anında ana serbest uçuş (Editör) kamerasına geri döner.
 
 #pragma once
 
@@ -30,9 +32,13 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Spectator")
     void ToggleDashboardVisibility();
 
-    // @state: WIP - Odaklanılan aracı günceller
+    // @state: WIP - Sol panelden seçilen araca 360° Orbit modunda odaklanır
     UFUNCTION(BlueprintCallable, Category = "PiSim|Spectator")
     void SetFocusedVehicle(APiSimVehicle* InVehicle);
+
+    // @state: WIP - Seçili aracın kendi üst kamerasına (FPV) kilitlenir (Her tick aynı transform)
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Spectator")
+    void EnterVehicleCameraMode(APiSimVehicle* InVehicle);
 
     // @state: WIP - Şu an odaklanılan aracı döner
     UFUNCTION(BlueprintPure, Category = "PiSim|Spectator")
@@ -46,15 +52,15 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Spectator")
     void ToggleOrbitMode();
 
-    // @state: WIP - Serbest uçuş moduna geri döner
+    // @state: WIP - Serbest editör uçuş moduna geri döner (ESC)
     UFUNCTION(BlueprintCallable, Category = "PiSim|Spectator")
     void ReturnToFreeFlight();
 
-    // @state: WIP - Orbit mesafesini ayarlar (Zoom)
+    // @state: WIP - Orbit mesafesini veya uçuş hızını ayarlar (MouseWheel)
     UFUNCTION(BlueprintCallable, Category = "PiSim|Spectator")
     void AddZoomDelta(float Direction);
 
-    // @state: WIP - Orbit açısını ayarlar
+    // @state: WIP - Orbit veya serbest bakış açısını ayarlar
     UFUNCTION(BlueprintCallable, Category = "PiSim|Spectator")
     void AddOrbitDelta(float DeltaX, float DeltaY);
 
@@ -74,9 +80,13 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Spectator")
     APiSimVehicle* FocusedVehicle = nullptr;
 
-    /** Şu an araca kilitli orbit modunda mıyız? (false ise serbest noclip uçuş) */
+    /** Şu an araca kilitli orbit modunda mıyız? (false ise serbest noclip editör uçuşu) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Spectator")
     bool bIsOrbitingVehicle = false;
+
+    /** Şu an aracın kendi kamerasının (FPV) içinde miyiz? (Live Coding sizeof korumalı) */
+    bool IsFpvCameraMode() const;
+    void SetFpvCameraMode(bool bEnable);
 
     /** Hedef araca olan orbit mesafesi (cm) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Spectator")
@@ -89,9 +99,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Spectator")
     float MaxOrbitDistance = 5000.0f;
 
-    /** Serbest uçuş hızı çarpanı */
+    /** Serbest editör uçuş hızı (cm/s) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Spectator")
-    float FlySpeedMultiplier = 2500.0f;
+    float FlySpeedMultiplier = 2200.0f;
 
 protected:
     FRotator CurrentOrbitRotation;

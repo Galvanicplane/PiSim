@@ -540,6 +540,28 @@
             </div>
         </div>
 
+        <!-- 2b. UNREAL EDİTÖR & ARAÇ ÜSTÜ KAMERA (FPV) KONTROL PANELİ -->
+        <div style="background: rgba(0, 223, 182, 0.06); border: 1px solid #00dfb6; padding: 6px; margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 9px; font-weight: 800; color: #00dfb6;">🎥 3B KAMERA & BAKIŞ MODU:</span>
+                <span id="camera-view-mode-badge" style="font-size: 8px; font-weight: 800; padding: 1px 5px; border: 1px solid #00dfb6; color: #00dfb6; background: rgba(0, 223, 182, 0.15);">
+                    SERBEST EDİTÖR (WASD)
+                </span>
+            </div>
+            <div style="display: flex; gap: 4px;">
+                <button id="btn-enter-fpv-cam" class="cod-btn cod-btn-accent" style="flex: 1; padding: 6px; font-size: 9.5px; font-weight: 800;" onclick="enterSelectedVehicleFpvCamera()">
+                    🎥 ARAÇ KAMERASINA GEÇ (FPV)
+                </button>
+                <button id="btn-exit-free-cam" class="cod-btn" style="padding: 6px 8px; font-size: 9.5px; font-weight: 800; border-color: #00e5ff; color: #00e5ff;" onclick="exitToFreeFlightCamera()">
+                    🦅 SERBEST UÇUŞ [ESC]
+                </button>
+            </div>
+            <div style="font-size: 8px; color: var(--text-muted); line-height: 1.25;">
+                * <b>Araç Kamerası (FPV)</b>: Kameranız her tick aracın kendi kamerasıyla birebir aynı konuma kilitlenir.<br>
+                * <b>ESC Tuşu</b>: FPV veya Orbit modundan çıkıp ana <b>Serbest Editör (WASD+QE+Fare)</b> kamerasına döner.
+            </div>
+        </div>
+
         <!-- İSTEĞE BAĞLI VİDEO YAYINI (ON-DEMAND STREAMING PANELİ) -->
         <div style="background: rgba(0,0,0,0.5); border: 1px solid var(--mono-border); padding: 6px; margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -844,21 +866,58 @@
                 const backendFleet = Array.isArray(rawParsed) ? rawParsed : (rawParsed.fleet || []);
                 if (Array.isArray(backendFleet)) {
                     const newFleetData = {};
+                    const camMode = rawParsed.camera_mode || 'FREE';
+                    const camBadge = document.getElementById('camera-view-mode-badge');
+                    if (camBadge) {
+                        if (camMode === 'FPV') {
+                            camBadge.innerText = '🎥 ARAÇ KAMERASI (FPV) [ESC: ÇIK]';
+                            camBadge.style.color = '#ffaa00';
+                            camBadge.style.borderColor = '#ffaa00';
+                        } else if (camMode === 'ORBIT') {
+                            camBadge.innerText = '🎯 ARAÇ ORBİT (360°) [ESC: ÇIK]';
+                            camBadge.style.color = '#00e5ff';
+                            camBadge.style.borderColor = '#00e5ff';
+                        } else {
+                            camBadge.innerText = '🦅 SERBEST EDİTÖR (WASD+QE)';
+                            camBadge.style.color = '#00dfb6';
+                            camBadge.style.borderColor = '#00dfb6';
+                        }
+                    }
+
                     backendFleet.forEach(item => {
                         const uiId = Number(item.id) > 0 ? Number(item.id) : 1;
                         const prev = fleetData[uiId] || {};
                         const posX = item.loc_x !== undefined ? (Number(item.loc_x) / 100.0).toFixed(1) : '0.0';
                         const posY = item.loc_y !== undefined ? (Number(item.loc_y) / 100.0).toFixed(1) : '0.0';
                         const posZ = item.loc_z !== undefined ? (Number(item.loc_z) / 100.0).toFixed(1) : '0.0';
+                        const yawDeg = item.yaw !== undefined ? Number(item.yaw).toFixed(1) : '0.0';
+                        const rollDeg = item.roll !== undefined ? Number(item.roll).toFixed(1) : '0.0';
+                        const pitchDeg = item.pitch !== undefined ? Number(item.pitch).toFixed(1) : '0.0';
+                        const latVal = item.lat !== undefined ? Number(item.lat).toFixed(5) : '39.93340';
+                        const lonVal = item.lon !== undefined ? Number(item.lon).toFixed(5) : '32.85970';
+                        const altVal = item.altitude !== undefined ? Number(item.altitude).toFixed(1) : posZ;
+                        const spdNum = item.speed !== undefined ? Number(item.speed).toFixed(1) : '0.0';
                         const defaultPi5Ip = (window.discoveredPi5 && window.discoveredPi5.ip) ? window.discoveredPi5.ip : (prev.targetIp || "255.255.255.255");
                         newFleetData[uiId] = {
                             id: uiId,
                             backendId: item.id,
                             code: item.code || `RV0${uiId}`,
                             name: item.name || item.code || `Rover 0${uiId}`,
-                            speed: item.speed ? `${item.speed} km/s` : `0.0 km/s`,
+                            speed: `${spdNum} km/s`,
                             battery: item.battery ? `${item.battery}%` : `98%`,
-                            mission: item.flight_mode || `X:${posX}m Y:${posY}m Z:${posZ}m`,
+                            mission: `X:${posX}m Y:${posY}m Z:${posZ}m`,
+                            posX: posX,
+                            posY: posY,
+                            posZ: posZ,
+                            roll: rollDeg,
+                            pitch: pitchDeg,
+                            yaw: yawDeg,
+                            lat: latVal,
+                            lon: lonVal,
+                            altitude: altVal,
+                            dedicatedPort: item.dedicated_port || (7402 + uiId),
+                            videoSubscribed: !!item.video_subscribed,
+                            isFpv: !!item.is_fpv,
                             targetDevice: prev.targetDevice || "pi5",
                             targetIp: defaultPi5Ip,
                             targetPort: 7400,
@@ -867,6 +926,9 @@
                     });
                     fleetData = newFleetData;
                     renderVehicleCards();
+                    if (currentVehicleId !== null && fleetData[currentVehicleId]) {
+                        updateRightPanelLiveInfo(fleetData[currentVehicleId]);
+                    }
                 }
             } catch (err) {
                 console.warn("[PiSim UI] Filo JSON parse hatası:", err);
@@ -957,9 +1019,7 @@
                 container.appendChild(card);
             });
 
-            if (currentVehicleId === null && ids.length > 0) {
-                selectVehicle(Number(ids[0]));
-            }
+            // KURAL: Kullanıcı sol panelden bir araca tıklamadıkça otomatik odaklanma YAPMA!
         }
 
         function resetVehicleDetailView() {
@@ -991,6 +1051,25 @@
             }
         }
 
+        function updateRightPanelLiveInfo(v) {
+            if (!v) return;
+            const titleEl = document.getElementById('detail-vehicle-title');
+            const speedEl = document.getElementById('detail-speed-val');
+            const battEl = document.getElementById('detail-battery-val');
+            const missionEl = document.getElementById('detail-mission-val');
+            const sensorsEl = document.getElementById('detail-sensors-val');
+            const coordsEl = document.getElementById('detail-coords');
+            const camOverlayEl = document.getElementById('cam-telemetry-overlay');
+
+            if (titleEl) titleEl.innerText = `${v.name} [${v.code}]`;
+            if (speedEl) speedEl.innerText = `${v.speed} | Z:${v.posZ || '0.0'}m`;
+            if (battEl) battEl.innerText = `12.6V (${v.battery})`;
+            if (missionEl) missionEl.innerText = `X:${v.posX || 0}m Y:${v.posY || 0}m`;
+            if (sensorsEl) sensorsEl.innerText = `Yaw:${v.yaw || 0}° | Port:${v.dedicatedPort || 7403}`;
+            if (coordsEl) coordsEl.innerText = `${v.lat || '39.9334'}°N, ${v.lon || '32.8597'}°E`;
+            if (camOverlayEl) camOverlayEl.innerText = `FOV: 90° • KOMUT: UDP ${v.dedicatedPort || 7403}`;
+        }
+
         function selectVehicle(id) {
             currentVehicleId = id;
             const v = fleetData[id];
@@ -1002,21 +1081,23 @@
                 c.classList.toggle('active', Object.keys(fleetData)[idx] == id);
             });
 
-            document.getElementById('active-vehicle-tag').innerText = `ODAK: ${v.name}`;
-            document.getElementById('active-port-tag').innerText = `UDP ${v.targetPort}`;
-            document.getElementById('active-status-badge').innerText = "AKTİF";
+            document.getElementById('active-vehicle-tag').innerText = `ODAK: ${v.name} [${v.code}]`;
+            document.getElementById('active-port-tag').innerText = `UDP ${v.targetPort} / ${v.dedicatedPort || 7403}`;
+            document.getElementById('active-status-badge').innerText = "ORBİT AKTİF";
             document.getElementById('active-status-badge').style.color = "var(--accent-color)";
 
-            document.getElementById('detail-vehicle-title').innerText = v.name;
-            document.getElementById('detail-speed-val').innerText = v.speed;
-            document.getElementById('detail-battery-val').innerText = v.battery;
-            document.getElementById('detail-mission-val').innerText = v.mission;
+            updateRightPanelLiveInfo(v);
+
+            // Sol panelden araç seçildiğinde Sağ Paneli otomatik aç ki bilgileri ve kamera tuşu görünsün
+            if (!isRightDrawerOpen) {
+                toggleRightDrawer();
+            }
 
             setRoutingDevice(v.targetDevice || 'pi5', false);
             document.getElementById('input-custom-ip').value = v.targetIp || "255.255.255.255";
             document.getElementById('input-custom-port').value = v.targetPort || 7400;
 
-            addLog(`Odaklanan Araç Değişti: ${v.name} [${v.code}]`);
+            addLog(`🎯 Araç Seçildi ve Orbit Moduna Geçildi: ${v.name} [${v.code}]`);
             updateVideoSubscriptionUI();
 
             const backendVehicleId = (v.backendId !== undefined) ? v.backendId : id;
@@ -1025,6 +1106,35 @@
             } else if (window.ue && window.ue.garage && window.ue.garage.focusvehicle) {
                 window.ue.garage.focusvehicle(backendVehicleId);
             }
+        }
+
+        function enterSelectedVehicleFpvCamera() {
+            if (currentVehicleId === null || !fleetData[currentVehicleId]) {
+                addLog("⚠️ Lütfen önce sol panelden bir araç seçin!");
+                return;
+            }
+            const v = fleetData[currentVehicleId];
+            const backendVehicleId = (v.backendId !== undefined) ? v.backendId : currentVehicleId;
+            if (window.garage && window.garage.EnterVehicleCameraView) {
+                window.garage.EnterVehicleCameraView(backendVehicleId);
+            } else if (window.ue && window.ue.garage && window.ue.garage.entervehiclecameraview) {
+                window.ue.garage.entervehiclecameraview(backendVehicleId);
+            }
+            document.getElementById('active-status-badge').innerText = "FPV KAMERA [ESC: ÇIK]";
+            document.getElementById('active-status-badge').style.color = "#ffaa00";
+            addLog(`🎥 [${v.name}] Araç Üstü Kameraya (FPV) Geçildi! Ana kameraya dönmek için ESC tuşuna basın.`);
+        }
+
+        function exitToFreeFlightCamera() {
+            if (window.garage && window.garage.ExitVehicleCameraView) {
+                window.garage.ExitVehicleCameraView();
+            } else if (window.ue && window.ue.garage && window.ue.garage.exitvehiclecameraview) {
+                window.ue.garage.exitvehiclecameraview();
+            }
+            document.getElementById('active-vehicle-tag').innerText = "MOD: [SERBEST EDİTÖR KAMERASI]";
+            document.getElementById('active-status-badge').innerText = "SERBEST UÇUŞ (WASD)";
+            document.getElementById('active-status-badge').style.color = "#00dfb6";
+            addLog("🦅 Ana Serbest Editör Kamerasına (WASD + QE + Sağ Tık Fare) dönüldü.");
         }
 
         // ==================== CİHAZ VE HEDEF ROTA YÖNLENDİRME ====================
@@ -1455,29 +1565,100 @@
                 window.garage.SpawnVehicleAtCursor(chosenProfile);
             }
 
-            // C++ tarafından oluşturulan gerçek eşsiz kimlikli aracı senkronize et
+            // C++ tarafından oluşturulan gerçek eşsiz kimlikli aracı senkronize et (Otomatik odaklanma YAPMA!)
             setTimeout(async () => {
                 await syncFleetWithBackend();
-                const ids = Object.keys(fleetData);
-                if (ids.length > 0) {
-                    selectVehicle(Number(ids[ids.length - 1]));
-                }
             }, 150);
             cancelVehiclePlacement();
 
-            addLog(`✅ '${chosenProfile}' haritaya başarıyla eklendi! (Canlı Telemetri: UDP 7400)`);
+            addLog(`✅ '${chosenProfile}' haritaya eklendi! (Kamera serbest uçuşta kaldı; odaklanmak için sol panelden seçin)`);
         }
 
-        // ESC Tuşu ile Konuşlandırma veya Panel İptali
+        // ==================== GERÇEK UNREAL EDİTÖR UÇUŞU (WASD + QE + SAĞ TIK FARE + ESC) ====================
+        const editorKeysHeld = {};
+        let isViewportDragging = false;
+        let viewportDragButton = 0;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+
+        const vpSurface = document.getElementById('viewport-touch-surface');
+        if (vpSurface) {
+            vpSurface.addEventListener('contextmenu', (e) => e.preventDefault());
+            vpSurface.addEventListener('mousedown', (e) => {
+                if (pendingPlacementProfile && e.button === 0) return;
+                isViewportDragging = true;
+                viewportDragButton = (e.button === 2) ? 1 : 0;
+                lastMouseX = e.clientX;
+                lastMouseY = e.clientY;
+            });
+            vpSurface.addEventListener('wheel', (e) => {
+                const dir = (e.deltaY < 0) ? 1.0 : -1.0;
+                if (window.ue && window.ue.garage && window.ue.garage.mousezoom) {
+                    window.ue.garage.mousezoom(dir);
+                } else if (window.garage && window.garage.MouseZoom) {
+                    window.garage.MouseZoom(dir);
+                }
+            }, { passive: true });
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isViewportDragging) return;
+            const dx = e.clientX - lastMouseX;
+            const dy = e.clientY - lastMouseY;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            if (Math.abs(dx) > 0 || Math.abs(dy) > 0) {
+                if (window.ue && window.ue.garage && window.ue.garage.mousedelta) {
+                    window.ue.garage.mousedelta(dx, -dy, viewportDragButton);
+                } else if (window.garage && window.garage.MouseDelta) {
+                    window.garage.MouseDelta(dx, -dy, viewportDragButton);
+                }
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            isViewportDragging = false;
+        });
+
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 if (pendingPlacementProfile) {
                     cancelVehiclePlacement();
                 } else if (isAddVehicleOpen) {
                     closeAddVehiclePanel();
+                } else {
+                    exitToFreeFlightCamera();
+                }
+                return;
+            }
+            const activeTag = document.activeElement ? document.activeElement.tagName.toUpperCase() : '';
+            if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+            editorKeysHeld[e.code] = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            editorKeysHeld[e.code] = false;
+        });
+
+        // 60 FPS Serbest Editör Uçuş Döngüsü (WebUI odaklıyken bile WASD+QE pürüzsüz çalışır)
+        setInterval(() => {
+            let fwd = 0.0, right = 0.0, up = 0.0;
+            if (editorKeysHeld['KeyW'] || editorKeysHeld['ArrowUp']) fwd += 1.0;
+            if (editorKeysHeld['KeyS'] || editorKeysHeld['ArrowDown']) fwd -= 1.0;
+            if (editorKeysHeld['KeyD'] || editorKeysHeld['ArrowRight']) right += 1.0;
+            if (editorKeysHeld['KeyA'] || editorKeysHeld['ArrowLeft']) right -= 1.0;
+            if (editorKeysHeld['KeyE'] || editorKeysHeld['Space']) up += 1.0;
+            if (editorKeysHeld['KeyQ'] || editorKeysHeld['ControlLeft']) up -= 1.0;
+
+            if (fwd !== 0.0 || right !== 0.0 || up !== 0.0) {
+                const boost = (editorKeysHeld['ShiftLeft'] || editorKeysHeld['ShiftRight']) ? 3.0 : 1.0;
+                if (window.ue && window.ue.garage && window.ue.garage.flycamera) {
+                    window.ue.garage.flycamera(fwd, right, up, boost);
+                } else if (window.garage && window.garage.FlyCamera) {
+                    window.garage.FlyCamera(fwd, right, up, boost);
                 }
             }
-        });
+        }, 16);
 
         // ==================== İSTEĞE BAĞLI VİDEO YAYINI (ON-DEMAND STREAMING) ====================
         const vehicleVideoSubState = {};

@@ -1189,20 +1189,58 @@ FReply UPiSimModularGarageWidget::OnBakeClicked()
     return FReply::Handled();
 }
 
+APiSimSpectatorPawn* UPiSimModularGarageWidget::GetOrCreateSpectatorPawn()
+{
+    if (!GetWorld()) return nullptr;
+
+    APlayerController* PC = GetOwningPlayer();
+    if (!PC) PC = GetWorld()->GetFirstPlayerController();
+
+    APiSimSpectatorPawn* Spectator = PC ? Cast<APiSimSpectatorPawn>(PC->GetPawn()) : nullptr;
+    if (!Spectator)
+    {
+        Spectator = Cast<APiSimSpectatorPawn>(UGameplayStatics::GetActorOfClass(GetWorld(), APiSimSpectatorPawn::StaticClass()));
+    }
+    if (!Spectator && PC)
+    {
+        FVector SpawnLoc = FVector(-450.0f, 0.0f, 280.0f);
+        FRotator SpawnRot = FRotator(-20.0f, 0.0f, 0.0f);
+        if (PC->PlayerCameraManager)
+        {
+            SpawnLoc = PC->PlayerCameraManager->GetCameraLocation();
+            SpawnRot = PC->PlayerCameraManager->GetCameraRotation();
+        }
+        FActorSpawnParameters SpawnParams;
+        SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+        Spectator = GetWorld()->SpawnActor<APiSimSpectatorPawn>(APiSimSpectatorPawn::StaticClass(), SpawnLoc, SpawnRot, SpawnParams);
+        if (Spectator)
+        {
+            Spectator->DashboardWidget = this;
+            PC->SetViewTarget(Spectator);
+        }
+    }
+    return Spectator;
+}
+
 void UPiSimModularGarageWidget::MouseDelta(float DeltaX, float DeltaY, int32 Mode)
 {
-    if (!TargetVehicle && GetWorld())
+    if (APiSimSpectatorPawn* Spectator = GetOrCreateSpectatorPawn())
     {
-        TargetVehicle = Cast<APiSimVehicle>(UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass()));
+        APlayerController* PC = GetOwningPlayer() ? GetOwningPlayer() : GetWorld()->GetFirstPlayerController();
+        if (PC && PC->GetViewTarget() != Spectator)
+        {
+            PC->SetViewTarget(Spectator);
+        }
+        Spectator->AddOrbitDelta(DeltaX, DeltaY);
     }
 
     if (TargetVehicle)
     {
-        if (Mode == 0) // Sol tık -> 360 Orbit
+        if (Mode == 0)
         {
             TargetVehicle->AddOrbitDelta(DeltaX, DeltaY);
         }
-        else if (Mode == 1) // Sağ tık -> Pan
+        else if (Mode == 1)
         {
             TargetVehicle->AddPanDelta(DeltaX, DeltaY);
         }
@@ -1211,14 +1249,46 @@ void UPiSimModularGarageWidget::MouseDelta(float DeltaX, float DeltaY, int32 Mod
 
 void UPiSimModularGarageWidget::MouseZoom(float Direction)
 {
-    if (!TargetVehicle && GetWorld())
+    if (APiSimSpectatorPawn* Spectator = GetOrCreateSpectatorPawn())
     {
-        TargetVehicle = Cast<APiSimVehicle>(UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass()));
+        Spectator->AddZoomDelta(Direction);
     }
 
     if (TargetVehicle)
     {
         TargetVehicle->AddZoomDelta(Direction);
+    }
+}
+
+void UPiSimModularGarageWidget::FlyCamera(float Forward, float Right, float Up, float Boost)
+{
+    APiSimSpectatorPawn* Spectator = GetOrCreateSpectatorPawn();
+    if (!Spectator) return;
+
+    APlayerController* PC = GetOwningPlayer() ? GetOwningPlayer() : (GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr);
+    if (PC && PC->GetViewTarget() != Spectator)
+    {
+        PC->SetViewTarget(Spectator);
+    }
+
+    // Eğer Orbit veya FPV modundayken uçuş tuşlarına basıldıysa serbest editör uçuşuna geç
+    if (Spectator->bIsOrbitingVehicle || Spectator->IsFpvCameraMode())
+    {
+        Spectator->ReturnToFreeFlight();
+    }
+
+    APlayerController* PC2 = GetOwningPlayer() ? GetOwningPlayer() : (GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr);
+    FRotator CamRot = (PC2 && PC2->PlayerCameraManager) ? PC2->PlayerCameraManager->GetCameraRotation() : Spectator->GetActorRotation();
+    const FRotationMatrix RotMat(CamRot);
+    const FVector FwdDir   = RotMat.GetUnitAxis(EAxis::X);
+    const FVector RightDir = RotMat.GetUnitAxis(EAxis::Y);
+    const FVector UpDir    = FVector::UpVector;
+
+    FVector MoveVec = (FwdDir * Forward) + (RightDir * Right) + (UpDir * Up);
+    if (!MoveVec.IsNearlyZero())
+    {
+        float StepDist = Spectator->FlySpeedMultiplier * FMath::Max(0.2f, Boost) * 0.016f;
+        Spectator->AddActorWorldOffset(MoveVec.GetSafeNormal() * StepDist, false);
     }
 }
 
@@ -1362,7 +1432,12 @@ bool UPiSimModularGarageWidget::SpawnVehicleAtCursor(const FString& ProfileName)
         // Profil yüklendikten sonra da debug görsellerinin kapalı kaldığını garanti et
         VehicleToInit->SetDebugVisualsEnabled(false);
 
-        FocusVehicle(VehicleToInit->VehicleId);
+        // KURAL: Yeni araç spawn olduğunda kamerayı otomatik olarak o araca KİLİTLEME!
+        // Editör kamerası serbest uçuşta (Free-Flight) kalır; sadece sol panelden seçildiğinde Orbit'e geçer.
+        if (!TargetVehicle)
+        {
+            TargetVehicle = VehicleToInit;
+        }
 
         if (WebBrowserWidget.IsValid())
         {
@@ -1384,7 +1459,7 @@ bool UPiSimModularGarageWidget::SpawnVehicleAtCursor(const FString& ProfileName)
     return false;
 }
 
-// @state: WIP - Aktif filodaki tüm araçları JSON dizisi olarak döner
+// @state: WIP - Aktif filodaki tüm araçları canlı telemetri bilgileriyle birlikte JSON dizisi olarak döner
 FString UPiSimModularGarageWidget::GetActiveFleetJson()
 {
     TSharedPtr<FJsonObject> RootObject = MakeShareable(new FJsonObject);
@@ -1392,7 +1467,6 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
 
     FleetVehicles.RemoveAll([](APiSimVehicle* V) { return !IsValid(V); });
 
-    // Sahnede yer alan tüm araçları topla (Editörden eklenen veya sonradan doğan araçları da dahil et)
     if (GetWorld())
     {
         TArray<AActor*> AllWorldVehicles;
@@ -1406,6 +1480,8 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
             }
         }
     }
+
+    APiSimSpectatorPawn* Spectator = GetOrCreateSpectatorPawn();
 
     for (APiSimVehicle* Vehicle : FleetVehicles)
     {
@@ -1424,24 +1500,63 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
 
         int32 SitlListen = Vehicle->AutopilotBridge ? Vehicle->AutopilotBridge->ListenPort : (9002 + Vehicle->VehicleId * 10);
         int32 SitlSend = Vehicle->AutopilotBridge ? Vehicle->AutopilotBridge->SendPort : (9003 + Vehicle->VehicleId * 10);
-        int32 TelemetryPort = 7400; // Standart sabit port 7400 (Artık 10 ofsetli port karmaşası yok)
-        int32 VideoPort = 7401;     // Standart sabit port 7401 (İsteğe bağlı canlı yayın)
+        int32 TelemetryPort = 7400;
+        int32 VideoPort = 7401;
+        int32 DedicatedCmdPort = 7402 + Vehicle->VehicleId;
         bool bVideoSub = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->IsVideoSubscribed() : false;
 
         VObj->SetNumberField(TEXT("sitl_listen_port"), SitlListen);
         VObj->SetNumberField(TEXT("sitl_send_port"), SitlSend);
         VObj->SetNumberField(TEXT("telemetry_port"), TelemetryPort);
         VObj->SetNumberField(TEXT("video_port"), VideoPort);
+        VObj->SetNumberField(TEXT("dedicated_port"), DedicatedCmdPort);
         VObj->SetBoolField(TEXT("video_subscribed"), bVideoSub);
 
         FVector Loc = Vehicle->GetActorLocation();
+        FRotator Rot = Vehicle->GetActorRotation();
+
         VObj->SetNumberField(TEXT("loc_x"), Loc.X);
         VObj->SetNumberField(TEXT("loc_y"), Loc.Y);
         VObj->SetNumberField(TEXT("loc_z"), Loc.Z);
+        VObj->SetNumberField(TEXT("roll"), Rot.Roll);
+        VObj->SetNumberField(TEXT("pitch"), Rot.Pitch);
+        VObj->SetNumberField(TEXT("yaw"), Rot.Yaw);
+
+        float SpeedKmh = 0.0f;
+        double Lat = 39.9334 + (Loc.X / 100.0) / 111320.0;
+        double Lon = 32.8597 + (Loc.Y / 100.0) / (111320.0 * FMath::Cos(FMath::DegreesToRadians(39.9334)));
+        float AltM = 850.0f + (Loc.Z / 100.0f);
+
+        if (Vehicle->TelemetryGateway)
+        {
+            FPiSimGPSData Gps;
+            if (Vehicle->TelemetryGateway->GetLatestGPSData(Gps))
+            {
+                SpeedKmh = Gps.SpeedKmh;
+                if (FMath::Abs(Gps.Latitude) > 0.001) Lat = Gps.Latitude;
+                if (FMath::Abs(Gps.Longitude) > 0.001) Lon = Gps.Longitude;
+                AltM = Gps.AltitudeMeters;
+            }
+        }
+
+        VObj->SetNumberField(TEXT("speed"), FMath::RoundToFloat(SpeedKmh * 10.0f) / 10.0f);
+        VObj->SetNumberField(TEXT("lat"), Lat);
+        VObj->SetNumberField(TEXT("lon"), Lon);
+        VObj->SetNumberField(TEXT("altitude"), FMath::RoundToFloat(AltM * 10.0f) / 10.0f);
+        VObj->SetNumberField(TEXT("battery"), 98);
+        bool bIsFpv = (Spectator && Spectator->IsFpvCameraMode() && Spectator->FocusedVehicle == Vehicle);
+        VObj->SetBoolField(TEXT("is_fpv"), bIsFpv);
 
         FleetArray.Add(MakeShareable(new FJsonValueObject(VObj)));
     }
 
+    FString CamModeStr = TEXT("FREE");
+    if (Spectator)
+    {
+        if (Spectator->IsFpvCameraMode()) CamModeStr = TEXT("FPV");
+        else if (Spectator->bIsOrbitingVehicle) CamModeStr = TEXT("ORBIT");
+    }
+    RootObject->SetStringField(TEXT("camera_mode"), CamModeStr);
     RootObject->SetArrayField(TEXT("fleet"), FleetArray);
 
     FString OutputString;
@@ -1450,7 +1565,7 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
     return OutputString;
 }
 
-// @state: WIP - Belirtilen araca kamera ve kontrol odağını taşır
+// @state: WIP - Sol panelden seçilen araca 360° Orbit modunda odaklanır
 bool UPiSimModularGarageWidget::FocusVehicle(int32 InVehicleId)
 {
     APlayerController* PC = GetOwningPlayer();
@@ -1479,23 +1594,93 @@ bool UPiSimModularGarageWidget::FocusVehicle(int32 InVehicleId)
     if (FoundVehicle)
     {
         SetTargetVehicle(FoundVehicle);
-        if (PC)
+        APiSimSpectatorPawn* Spectator = GetOrCreateSpectatorPawn();
+        if (Spectator)
         {
-            APiSimSpectatorPawn* Spectator = Cast<APiSimSpectatorPawn>(PC->GetPawn());
-            if (Spectator)
+            Spectator->SetFocusedVehicle(FoundVehicle);
+            if (PC && PC->GetViewTarget() != Spectator)
             {
-                Spectator->SetFocusedVehicle(FoundVehicle);
-            }
-            else
-            {
-                PC->SetViewTargetWithBlend(FoundVehicle, 0.4f);
+                PC->SetViewTargetWithBlend(Spectator, 0.25f);
             }
         }
-        UE_LOG(LogTemp, Log, TEXT("🎯 [UPiSimModularGarageWidget] Araç %d Odaklandı!"), InVehicleId);
+        else if (PC)
+        {
+            PC->SetViewTargetWithBlend(FoundVehicle, 0.4f);
+        }
+        UE_LOG(LogTemp, Log, TEXT("🎯 [UPiSimModularGarageWidget] Araç %d Orbit Moduna Odaklandı!"), InVehicleId);
         return true;
     }
 
     return false;
+}
+
+// @state: WIP - Seçili aracın kendi üst kamerasına (FPV) kilitlenir (Her tick aynı transform)
+bool UPiSimModularGarageWidget::EnterVehicleCameraView(int32 InVehicleId)
+{
+    APlayerController* PC = GetOwningPlayer();
+    if (!PC && GetWorld())
+    {
+        PC = GetWorld()->GetFirstPlayerController();
+    }
+
+    APiSimVehicle* FoundVehicle = nullptr;
+    for (APiSimVehicle* Vehicle : FleetVehicles)
+    {
+        if (Vehicle && Vehicle->VehicleId == InVehicleId)
+        {
+            FoundVehicle = Vehicle;
+            break;
+        }
+    }
+    if (!FoundVehicle)
+    {
+        FoundVehicle = TargetVehicle;
+    }
+    if (!FoundVehicle)
+    {
+        return false;
+    }
+
+    SetTargetVehicle(FoundVehicle);
+    APiSimSpectatorPawn* Spectator = GetOrCreateSpectatorPawn();
+    if (Spectator)
+    {
+        Spectator->EnterVehicleCameraMode(FoundVehicle);
+        if (PC && PC->GetViewTarget() != Spectator)
+        {
+            PC->SetViewTarget(Spectator);
+        }
+        return true;
+    }
+    return false;
+}
+
+// @state: WIP - Araç kamerasından (FPV) veya Orbit'ten çıkıp ana serbest editör kamerasına döner (ESC)
+void UPiSimModularGarageWidget::ExitVehicleCameraView()
+{
+    APlayerController* PC = GetOwningPlayer();
+    if (!PC && GetWorld())
+    {
+        PC = GetWorld()->GetFirstPlayerController();
+    }
+
+    for (APiSimVehicle* Vehicle : FleetVehicles)
+    {
+        if (Vehicle)
+        {
+            Vehicle->bIsFocusedVehicle = false;
+        }
+    }
+
+    APiSimSpectatorPawn* Spectator = GetOrCreateSpectatorPawn();
+    if (Spectator)
+    {
+        Spectator->ReturnToFreeFlight();
+        if (PC && PC->GetViewTarget() != Spectator)
+        {
+            PC->SetViewTarget(Spectator);
+        }
+    }
 }
 
 // @state: WIP - Belirtilen aracın video yayını aboneliğini açıp kapatır (On-Demand Video)
