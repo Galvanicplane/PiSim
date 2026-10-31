@@ -455,7 +455,7 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
                     RecvBuffer.Add(0);
                     FString RecvStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
                     FString SenderIpStr = SenderAddr->ToString(false);
-                    APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
+                    APiSimVehicle* OwnerVehicle = static_cast<APiSimVehicle*>(GetOwner());
 
                     if (RecvStr.Contains(TEXT("SUB_VEHICLE")))
                     {
@@ -628,12 +628,7 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
             UE_LOG(LogTemp, Warning, TEXT("🔄 [Pi5Bridge] Araç #%d Hedef IP/Port Güncellendi: %s:%d"), VehicleId, *CurrentTargetIP, CurrentPort);
         }
 
-        if (!CachedGateway && GetOwner())
-        {
-            CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
-        }
-
-        APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
+        APiSimVehicle* VehicleOwner = static_cast<APiSimVehicle*>(GetOwner());
         double TelemetryIntervalSec = 1.0 / FMath::Max(1.0f, TelemetryRateHz);
         // Her araç bağımsız 2Hz telemetrisini doğrudan hedef cihaza (Pi 5 veya yerel IP) ve tüm alt ağlara aktarır
         if (VehicleOwner && CachedGateway && TelemetrySocket && !TargetIP.IsEmpty() && (CurrentSec - LastTelemetrySendSec >= TelemetryIntervalSec))
@@ -723,13 +718,8 @@ void UPiSimPi5Bridge::ExecuteVideoLoop(FThreadSafeBool& bRunning)
             LoopbackAddr->SetPort(CurrentPort);
         }
 
-        if (!CachedGateway && GetOwner())
-        {
-            CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
-        }
-
         bool bSubscribed = false;
-        APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
+        APiSimVehicle* VehicleOwner = static_cast<APiSimVehicle*>(GetOwner());
         if (VehicleOwner)
         {
             bSubscribed = VehicleOwner->HasVideoSubscribers() || bIsVideoSubscribed;

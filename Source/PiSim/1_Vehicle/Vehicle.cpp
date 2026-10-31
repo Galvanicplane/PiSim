@@ -270,7 +270,7 @@ void APiSimVehicle::Tick(float DeltaTime)
                     UPiSimWheelComponent* WheelMod = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName));
                     float TotalRpm = (WheelMod && FMath::Abs(WheelMod->TargetRPM) > 0.001f) ? WheelMod->TargetRPM : (TestVal * 250.0f);
                     float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
-                    FVector LocalAxle = WheelMod ? WheelMod->LocalSpinAxis.GetSafeNormal() : FVector(0.0f, 0.0f, 1.0f);
+                    FVector LocalAxle = WheelMod ? WheelMod->LocalSpinAxis.GetSafeNormal() : FVector(0.0f, 1.0f, 0.0f);
                     FVector WorldAxle = WheelPrim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
 
                     FVector CurrentAngVel = WheelPrim->GetPhysicsAngularVelocityInDegrees();
@@ -1122,7 +1122,7 @@ void APiSimVehicle::ConfigureConstraintDof(UPhysicsConstraintComponent* Constrai
     // Tekerlek dönme ekseni LocalSpinAxis ile dinamik eşleştirilir:
     // Eğer dönme ekseni Z ekseni (0, 0, 1) ise: Swing1 (Z) serbest bırakılır!
     // Eğer dönme ekseni X ekseni (1, 0, 0) ise: Twist (X) serbest bırakılır!
-    FVector SpinAxis = FVector(0.0f, 0.0f, 1.0f);
+    FVector SpinAxis = FVector(0.0f, 1.0f, 0.0f);
     if (SectionIndex > 0 && StoredVisualSections.IsValidIndex(SectionIndex))
     {
         FName BoneName = FName(*StoredVisualSections[SectionIndex].MeshName);
