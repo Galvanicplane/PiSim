@@ -415,6 +415,7 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
 
     int32 PacketCount = 0;
     double LastProbeTimeSec = 0.0;
+    double LastTelemetrySendSec = 0.0;
 
     while (bRunning)
     {
@@ -508,14 +509,31 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
                             FString ClientIp = JsonObj->HasField(TEXT("client_ip")) ? JsonObj->GetStringField(TEXT("client_ip")) : SenderIpStr;
                             int32 ClientPort = JsonObj->HasField(TEXT("video_port")) ? JsonObj->GetIntegerField(TEXT("video_port")) : 7401;
 
-                            // Çoklu araç desteği: Canlı video isteğini seviyedeki tüm aktif araçlara dağıt
+                            if (!ClientIp.IsEmpty() && ClientIp != TEXT("0.0.0.0") && ClientIp != TEXT("127.0.0.1"))
+                            {
+                                SharedPi5TargetIP = ClientIp;
+                            }
+
+                            // Çoklu araç desteği: Sadece seçili aracın videosunu aç, diğer araçların video yayınını kapat
                             FScopeLock Lock(&APiSimVehicle::FleetLock);
                             for (APiSimVehicle* Vehicle : APiSimVehicle::ActiveFleet)
                             {
                                 if (Vehicle && IsValid(Vehicle))
                                 {
-                                    bool bMatch = (!TargetCode.IsEmpty() && (Vehicle->VehicleCode == TargetCode || Vehicle->VehicleCode.StartsWith(TargetCode) || TargetCode.StartsWith(Vehicle->VehicleCode))) ||
-                                                  (TargetId >= 0 && Vehicle->VehicleId == TargetId);
+                                    bool bMatch = false;
+                                    if (!TargetCode.IsEmpty())
+                                    {
+                                        bMatch = (Vehicle->VehicleCode == TargetCode || Vehicle->VehicleCode.StartsWith(TargetCode) || TargetCode.StartsWith(Vehicle->VehicleCode));
+                                    }
+                                    else if (TargetId >= 0)
+                                    {
+                                        bMatch = (Vehicle->VehicleId == TargetId);
+                                    }
+                                    else
+                                    {
+                                        bMatch = (Vehicle->bIsFocusedVehicle || Vehicle == APiSimVehicle::ActiveFleet[0]);
+                                    }
+
                                     if (bMatch)
                                     {
                                         if (bSub)
@@ -538,6 +556,15 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
                                         FTCHARToUTF8 Utf8Ack(*AckPayload);
                                         int32 AckSent = 0;
                                         DiscoverySocket->SendTo((const uint8*)Utf8Ack.Get(), Utf8Ack.Length(), AckSent, *SenderAddr);
+                                    }
+                                    else if (bSub)
+                                    {
+                                        // Başka bir aracın videosuna abone olunduysa diğer araçların video yayınını durdur
+                                        Vehicle->RemoveVideoSubscriber(ClientIp, ClientPort);
+                                        if (Vehicle->Pi5Bridge)
+                                        {
+                                            Vehicle->Pi5Bridge->bIsVideoSubscribed = false;
+                                        }
                                     }
                                 }
                             }
@@ -607,9 +634,11 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
         }
 
         APiSimVehicle* VehicleOwner = Cast<APiSimVehicle>(GetOwner());
+        double TelemetryIntervalSec = 1.0 / FMath::Max(1.0f, TelemetryRateHz);
         // Her araç bağımsız 2Hz telemetrisini doğrudan hedef cihaza (Pi 5 veya yerel IP) ve tüm alt ağlara aktarır
-        if (VehicleOwner && CachedGateway && TelemetrySocket && !TargetIP.IsEmpty())
+        if (VehicleOwner && CachedGateway && TelemetrySocket && !TargetIP.IsEmpty() && (CurrentSec - LastTelemetrySendSec >= TelemetryIntervalSec))
         {
+            LastTelemetrySendSec = CurrentSec;
             FString JsonPayload = CachedGateway->BuildSitlJsonState();
             FTCHARToUTF8 Utf8(*JsonPayload);
             int32 BytesSent = 0;
@@ -655,8 +684,8 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
             }
         }
 
-        float SleepSeconds = 1.0f / FMath::Max(1.0f, TelemetryRateHz);
-        FPlatformProcess::Sleep(SleepSeconds);
+        // DiscoverySocket (Port 7499 - SUB_VIDEO, SUB_VEHICLE, BEACON) mesajlarını 25ms gecikmeyle anında yakala
+        FPlatformProcess::Sleep(0.025f);
     }
 
     UE_LOG(LogTemp, Warning, TEXT("🛑 [Pi5Bridge] Telemetri Döngüsü Durduruldu."));
@@ -667,23 +696,36 @@ void UPiSimPi5Bridge::ExecuteVideoLoop(FThreadSafeBool& bRunning)
 {
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
     TSharedRef<FInternetAddr> TargetAddr = SocketSubsystem->CreateInternetAddr();
+    TSharedRef<FInternetAddr> LoopbackAddr = SocketSubsystem->CreateInternetAddr();
     bool bIsValid = false;
 
     FString CurrentTargetIP = TargetIP;
     int32 CurrentPort = VideoPort;
     TargetAddr->SetIp(*CurrentTargetIP, bIsValid);
     TargetAddr->SetPort(CurrentPort);
+    LoopbackAddr->SetIp(TEXT("127.0.0.1"), bIsValid);
+    LoopbackAddr->SetPort(CurrentPort);
 
     TArray<uint8> JpegBytes;
 
     while (bRunning)
     {
+        if (!SharedPi5TargetIP.IsEmpty() && SharedPi5TargetIP != TEXT("127.0.0.1") && TargetIP != SharedPi5TargetIP)
+        {
+            TargetIP = SharedPi5TargetIP;
+        }
         if (TargetIP != CurrentTargetIP || VideoPort != CurrentPort)
         {
             CurrentTargetIP = TargetIP;
             CurrentPort = VideoPort;
             TargetAddr->SetIp(*CurrentTargetIP, bIsValid);
             TargetAddr->SetPort(CurrentPort);
+            LoopbackAddr->SetPort(CurrentPort);
+        }
+
+        if (!CachedGateway && GetOwner())
+        {
+            CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
         }
 
         bool bSubscribed = false;
@@ -701,31 +743,39 @@ void UPiSimPi5Bridge::ExecuteVideoLoop(FThreadSafeBool& bRunning)
         // On-demand: Sadece kullanıcı veya uç cihaz video izleme talebinde bulunduysa UDP paketi bas (ASLA DEPOLANMAZ)
         if (bSubscribed && CachedGateway && VideoSocket)
         {
-            if (CachedGateway->GetLatestCameraFrame(JpegBytes) && JpegBytes.Num() > 0)
+            if (CachedGateway->GetLatestCameraFrame(JpegBytes) && JpegBytes.Num() > 0 && JpegBytes.Num() < 65000)
             {
+                int32 BytesSent = 0;
+                // 1. Ana hedefe (Pi 5 IP:7401) gönder
+                VideoSocket->SendTo(JpegBytes.GetData(), JpegBytes.Num(), BytesSent, *TargetAddr);
+
+                // 2. Aynı makinedeki testler için 127.0.0.1:7401 adresine de gönder
+                if (CurrentTargetIP != TEXT("127.0.0.1"))
+                {
+                    VideoSocket->SendTo(JpegBytes.GetData(), JpegBytes.Num(), BytesSent, *LoopbackAddr);
+                }
+
+                // 3. Kayıtlı diğer video abonelerine gönder
                 if (VehicleOwner && VehicleOwner->Subscriptions.VideoSubscribers.Num() > 0)
                 {
                     for (const FPiSimClientEndpoint& Sub : VehicleOwner->Subscriptions.VideoSubscribers)
                     {
-                        TSharedRef<FInternetAddr> SubAddr = SocketSubsystem->CreateInternetAddr();
-                        bool bValid = false;
-                        SubAddr->SetIp(*Sub.IPAddress, bValid);
-                        SubAddr->SetPort(Sub.Port > 0 ? Sub.Port : 7401);
-                        if (bValid)
+                        if (Sub.IPAddress != CurrentTargetIP && Sub.IPAddress != TEXT("127.0.0.1"))
                         {
-                            int32 BytesSent = 0;
-                            VideoSocket->SendTo(JpegBytes.GetData(), JpegBytes.Num(), BytesSent, *SubAddr);
+                            TSharedRef<FInternetAddr> SubAddr = SocketSubsystem->CreateInternetAddr();
+                            bool bValid = false;
+                            SubAddr->SetIp(*Sub.IPAddress, bValid);
+                            SubAddr->SetPort(Sub.Port > 0 ? Sub.Port : 7401);
+                            if (bValid)
+                            {
+                                VideoSocket->SendTo(JpegBytes.GetData(), JpegBytes.Num(), BytesSent, *SubAddr);
+                            }
                         }
                     }
-                }
-                else
-                {
-                    int32 BytesSent = 0;
-                    VideoSocket->SendTo(JpegBytes.GetData(), JpegBytes.Num(), BytesSent, *TargetAddr);
                 }
             }
         }
 
-        FPlatformProcess::Sleep(0.033f); // ~30 FPS
+        FPlatformProcess::Sleep(0.050f); // ~20 FPS
     }
 }

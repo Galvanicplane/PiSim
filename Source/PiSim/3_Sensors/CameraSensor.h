@@ -33,19 +33,19 @@ public:
     FName TargetBoneName = NAME_None;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
-    int32 ResolutionWidth = 640;
+    int32 ResolutionWidth = 480;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
-    int32 ResolutionHeight = 480;
+    int32 ResolutionHeight = 270;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
     float FOVDegrees = 90.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
-    int32 JpegQuality = 75;
+    int32 JpegQuality = 55;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
-    float CaptureFps = 30.0f;
+    float CaptureFps = 15.0f;
 
 protected:
     UPROPERTY()

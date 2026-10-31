@@ -2,6 +2,9 @@
 
 #include "CameraSensor.h"
 #include "TelemetryGateway.h"
+#include "Vehicle.h"
+#include "Pi5Bridge.h"
+#include "ProceduralMeshComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "IImageWrapperModule.h"
@@ -44,10 +47,21 @@ void UPiSimCameraSensor::BeginPlay()
     }
 }
 
-// @state: WIP - İstenen FPS aralığında kamera çerçevesi yakalar
+// @state: WIP - İstenen FPS aralığında (sadece canlı video abonesi varken) kamera çerçevesi yakalar
 void UPiSimCameraSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+    // On-Demand Kuralı: Abone yoksa sahne yakalama ve ReadPixels yapma (GPU/CPU tasarrufu)
+    APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
+    if (OwnerVehicle)
+    {
+        bool bSubscribed = OwnerVehicle->HasVideoSubscribers() || (OwnerVehicle->Pi5Bridge && OwnerVehicle->Pi5Bridge->IsVideoSubscribed());
+        if (!bSubscribed)
+        {
+            return;
+        }
+    }
 
     TimeSinceLastCapture += DeltaTime;
     float Interval = 1.0f / FMath::Max(1.0f, CaptureFps);
@@ -65,6 +79,21 @@ void UPiSimCameraSensor::CaptureAndCompressFrame()
     if (!SceneCapture || !RenderTarget || !CachedGateway)
     {
         return;
+    }
+
+    // Kamerayı aracın aktif fizik gövdesine (VisualMeshComponents[0] veya Actor) hizala (FPV Tavan/Ön açısı)
+    APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
+    if (OwnerVehicle)
+    {
+        FVector BaseLoc = OwnerVehicle->GetActorLocation();
+        FRotator BaseRot = OwnerVehicle->GetActorRotation();
+        if (OwnerVehicle->VisualMeshComponents.Num() > 0 && OwnerVehicle->VisualMeshComponents[0] && IsValid(OwnerVehicle->VisualMeshComponents[0]))
+        {
+            BaseLoc = OwnerVehicle->VisualMeshComponents[0]->GetComponentLocation();
+            BaseRot = OwnerVehicle->VisualMeshComponents[0]->GetComponentRotation();
+        }
+        FVector CamWorldLoc = BaseLoc + BaseRot.RotateVector(FVector(30.0f, 0.0f, 55.0f));
+        SceneCapture->SetWorldLocationAndRotation(CamWorldLoc, BaseRot);
     }
 
     SceneCapture->CaptureScene();

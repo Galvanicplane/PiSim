@@ -233,6 +233,9 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Communication")
     class UPiSimPi5Bridge* Pi5Bridge;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
+    class UPiSimCameraSensor* CameraSensor;
+
     /** Çoklu Araç Filo Yönetimi: Araç ID (0, 1, 2...) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|MultiVehicle")
     int32 VehicleId = 0;

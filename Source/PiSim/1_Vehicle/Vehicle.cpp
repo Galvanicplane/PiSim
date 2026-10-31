@@ -3,6 +3,7 @@
 #include "TelemetryLogger.h"
 #include "AutopilotBridge.h"
 #include "Pi5Bridge.h"
+#include "CameraSensor.h"
 #include "ModelFbxImporter.h"
 #include "GarageWidget.h"
 #include "ImporterWidget.h"
@@ -60,6 +61,8 @@ APiSimVehicle::APiSimVehicle()
     AutopilotBridge = CreateDefaultSubobject<UPiSimModularAutopilotBridge>(TEXT("AutopilotBridge"));
 
     Pi5Bridge = CreateDefaultSubobject<UPiSimPi5Bridge>(TEXT("Pi5Bridge"));
+
+    CameraSensor = CreateDefaultSubobject<UPiSimCameraSensor>(TEXT("CameraSensor"));
 
     bShowDebugVisualsAndMessages = false;
     MotorDebugComponent = CreateDefaultSubobject<UPiSimMotorDebugComponent>(TEXT("MotorDebugComponent"));
