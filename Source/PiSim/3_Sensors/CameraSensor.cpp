@@ -92,8 +92,25 @@ void UPiSimCameraSensor::CaptureAndCompressFrame()
             BaseLoc = OwnerVehicle->VisualMeshComponents[0]->GetComponentLocation();
             BaseRot = OwnerVehicle->VisualMeshComponents[0]->GetComponentRotation();
         }
-        FVector CamWorldLoc = BaseLoc + BaseRot.RotateVector(FVector(30.0f, 0.0f, 55.0f));
-        SceneCapture->SetWorldLocationAndRotation(CamWorldLoc, BaseRot);
+
+        FVector FinalLocalOffset = CameraLocalOffset;
+        if (const FTransform* CustomCamTransform = OwnerVehicle->SensorSocketTransforms.Find(TEXT("Camera")))
+        {
+            FinalLocalOffset = CustomCamTransform->GetLocation();
+        }
+        else if (bAutoClearVehicleBounds && OwnerVehicle->VisualMeshComponents.Num() > 0 && OwnerVehicle->VisualMeshComponents[0])
+        {
+            // Aracın gerçek 3B boyutunu (Bounding Box) ölç ve kameranın gövde içinde kalmasını engelle
+            FBoxSphereBounds MeshBounds = OwnerVehicle->VisualMeshComponents[0]->CalcLocalBounds();
+            float FrontEdgeX = MeshBounds.Origin.X + MeshBounds.BoxExtent.X + 15.0f; // Ön tamponun 15 cm ilerisi
+            float TopEdgeZ   = MeshBounds.Origin.Z + MeshBounds.BoxExtent.Z + 25.0f; // Tavanın 25 cm üstü
+            FinalLocalOffset.X = FMath::Max(CameraLocalOffset.X, FrontEdgeX);
+            FinalLocalOffset.Z = FMath::Max(CameraLocalOffset.Z, TopEdgeZ);
+        }
+
+        FVector CamWorldLoc = BaseLoc + BaseRot.RotateVector(FinalLocalOffset);
+        FRotator CamWorldRot = (BaseRot.Quaternion() * FRotator(CameraPitchDeg, 0.0f, 0.0f).Quaternion()).Rotator();
+        SceneCapture->SetWorldLocationAndRotation(CamWorldLoc, CamWorldRot);
     }
 
     SceneCapture->CaptureScene();
@@ -153,6 +170,36 @@ void UPiSimCameraSensor::GetInspectableProperties(TArray<FPiSimPropertyDescripto
     QualityDesc.CurrentFloatValue = (float)JpegQuality;
     QualityDesc.bContinuousTickUpdate = false;
     OutProperties.Add(QualityDesc);
+
+    FPiSimPropertyDescriptor OffsetXDesc;
+    OffsetXDesc.PropertyId = TEXT("CameraOffsetX");
+    OffsetXDesc.DisplayName = TEXT("Kamera İleri Ofset X (cm)");
+    OffsetXDesc.PropertyType = EPiSimPropertyType::Slider;
+    OffsetXDesc.MinValue = -200.0f;
+    OffsetXDesc.MaxValue = 300.0f;
+    OffsetXDesc.CurrentFloatValue = CameraLocalOffset.X;
+    OffsetXDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(OffsetXDesc);
+
+    FPiSimPropertyDescriptor OffsetZDesc;
+    OffsetZDesc.PropertyId = TEXT("CameraOffsetZ");
+    OffsetZDesc.DisplayName = TEXT("Kamera Yükseklik Ofset Z (cm)");
+    OffsetZDesc.PropertyType = EPiSimPropertyType::Slider;
+    OffsetZDesc.MinValue = 0.0f;
+    OffsetZDesc.MaxValue = 300.0f;
+    OffsetZDesc.CurrentFloatValue = CameraLocalOffset.Z;
+    OffsetZDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(OffsetZDesc);
+
+    FPiSimPropertyDescriptor PitchDesc;
+    PitchDesc.PropertyId = TEXT("CameraPitchDeg");
+    PitchDesc.DisplayName = TEXT("Kamera Eğim Açısı Pitch (°)");
+    PitchDesc.PropertyType = EPiSimPropertyType::Slider;
+    PitchDesc.MinValue = -45.0f;
+    PitchDesc.MaxValue = 45.0f;
+    PitchDesc.CurrentFloatValue = CameraPitchDeg;
+    PitchDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(PitchDesc);
 }
 
 // @state: WIP - UI sliderından gelen float değerini kameraya yansıtır
@@ -170,6 +217,20 @@ void UPiSimCameraSensor::SetInspectablePropertyFloat(FName PropertyId, float New
     else if (PropertyId == TEXT("JpegQuality"))
     {
         JpegQuality = FMath::Clamp((int32)NewValue, 5, 100);
+    }
+    else if (PropertyId == TEXT("CameraOffsetX"))
+    {
+        CameraLocalOffset.X = NewValue;
+        bAutoClearVehicleBounds = false;
+    }
+    else if (PropertyId == TEXT("CameraOffsetZ"))
+    {
+        CameraLocalOffset.Z = NewValue;
+        bAutoClearVehicleBounds = false;
+    }
+    else if (PropertyId == TEXT("CameraPitchDeg"))
+    {
+        CameraPitchDeg = FMath::Clamp(NewValue, -60.0f, 60.0f);
     }
 }
 

@@ -1400,6 +1400,7 @@ void APiSimVehicle::InitCommandSocket()
         return;
     }
 
+    // 1. Ortak Sürü & İsim/UID Tabanlı Kanal (UDP Port 7402 - SO_REUSEADDR)
     CommandSocket = FUdpSocketBuilder(TEXT("PiSimVehicleCommandSocket"))
         .AsNonBlocking()
         .AsReusable()
@@ -1407,56 +1408,97 @@ void APiSimVehicle::InitCommandSocket()
         .WithBroadcast()
         .WithReceiveBufferSize(65535);
 
+    // 2. Araca Özel Doğrudan Alt-Port Kanalı (Örn: Araç 1 -> 7403, Araç 2 -> 7404, Araç 3 -> 7405)
+    DedicatedCommandPort = CommandPort + FMath::Max(1, VehicleId);
+    DedicatedCommandSocket = FUdpSocketBuilder(TEXT("PiSimVehicleDedicatedCommandSocket"))
+        .AsNonBlocking()
+        .AsReusable()
+        .BoundToPort(DedicatedCommandPort)
+        .WithBroadcast()
+        .WithReceiveBufferSize(65535);
+
     if (CommandSocket)
     {
-        UE_LOG(LogTemp, Log, TEXT("🎮 [APiSimVehicle] Araç '%s' (#%d) Bağımsız Komut Dinleyicisi Aktif! (UDP Port %d - SO_REUSEADDR)"),
-            *VehicleCode, VehicleId, CommandPort);
-    }
-    else
-    {
-        UE_LOG(LogTemp, Warning, TEXT("⚠️ [APiSimVehicle] Araç '%s' Komut Dinleyicisi Açılamadı (Port %d)!"),
-            *VehicleCode, CommandPort);
+        UE_LOG(LogTemp, Log, TEXT("🎮 [APiSimVehicle] Araç '%s' (#%d) Komut Dinleyicileri Aktif! (Sürü Portu: %d | Doğrudan Özel Port: %d)"),
+            *VehicleCode, VehicleId, CommandPort, DedicatedCommandPort);
     }
 }
 
 void APiSimVehicle::CloseCommandSocket()
 {
+    ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
     if (CommandSocket)
     {
-        ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
-        if (SocketSubsystem)
-        {
-            SocketSubsystem->DestroySocket(CommandSocket);
-        }
+        if (SocketSubsystem) SocketSubsystem->DestroySocket(CommandSocket);
         CommandSocket = nullptr;
+    }
+    if (DedicatedCommandSocket)
+    {
+        if (SocketSubsystem) SocketSubsystem->DestroySocket(DedicatedCommandSocket);
+        DedicatedCommandSocket = nullptr;
     }
 }
 
 void APiSimVehicle::PollCommandSocket()
 {
-    if (!CommandSocket)
-    {
-        return;
-    }
-
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
     if (!SocketSubsystem)
     {
         return;
     }
 
-    uint32 PendingSize = 0;
-    while (CommandSocket->HasPendingData(PendingSize))
+    // 1. Ortak Port 7402: Gelen paketi aktif filodaki tüm araçlara dağıt (Windows SO_REUSEADDR unicast paketini hangi sokete verirse versin hedef araç yakalar)
+    if (CommandSocket)
     {
-        TArray<uint8> RecvBuffer;
-        RecvBuffer.SetNumUninitialized(FMath::Min(PendingSize, 4096u));
-        TSharedRef<FInternetAddr> SenderAddr = SocketSubsystem->CreateInternetAddr();
-        int32 BytesRead = 0;
-        if (CommandSocket->RecvFrom(RecvBuffer.GetData(), RecvBuffer.Num(), BytesRead, *SenderAddr) && BytesRead > 0)
+        uint32 PendingSize = 0;
+        while (CommandSocket->HasPendingData(PendingSize))
         {
-            RecvBuffer.Add(0);
-            FString JsonStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
-            ProcessCommandJson(JsonStr);
+            TArray<uint8> RecvBuffer;
+            RecvBuffer.SetNumUninitialized(FMath::Min(PendingSize, 4096u));
+            TSharedRef<FInternetAddr> SenderAddr = SocketSubsystem->CreateInternetAddr();
+            int32 BytesRead = 0;
+            if (CommandSocket->RecvFrom(RecvBuffer.GetData(), RecvBuffer.Num(), BytesRead, *SenderAddr) && BytesRead > 0)
+            {
+                RecvBuffer.Add(0);
+                FString JsonStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
+                FScopeLock Lock(&APiSimVehicle::FleetLock);
+                for (APiSimVehicle* Veh : APiSimVehicle::ActiveFleet)
+                {
+                    if (Veh && IsValid(Veh))
+                    {
+                        Veh->ProcessCommandJson(JsonStr);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Doğrudan Özel Alt-Port (7402 + VehicleId): Bu porta gelen paket doğrudan BU araca aittir
+    if (DedicatedCommandSocket)
+    {
+        uint32 PendingSize = 0;
+        while (DedicatedCommandSocket->HasPendingData(PendingSize))
+        {
+            TArray<uint8> RecvBuffer;
+            RecvBuffer.SetNumUninitialized(FMath::Min(PendingSize, 4096u));
+            TSharedRef<FInternetAddr> SenderAddr = SocketSubsystem->CreateInternetAddr();
+            int32 BytesRead = 0;
+            if (DedicatedCommandSocket->RecvFrom(RecvBuffer.GetData(), RecvBuffer.Num(), BytesRead, *SenderAddr) && BytesRead > 0)
+            {
+                RecvBuffer.Add(0);
+                FString JsonStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
+                // Doğrudan bu aracın portuna (Örn: 7403) atıldıysa target belirtilmese bile bu araç çalıştırır
+                TSharedPtr<FJsonObject> JsonObj;
+                TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonStr);
+                if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid())
+                {
+                    JsonObj->SetStringField(TEXT("target"), VehicleCode);
+                    FString RewrittenJson;
+                    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&RewrittenJson);
+                    FJsonSerializer::Serialize(JsonObj.ToSharedRef(), Writer);
+                    ProcessCommandJson(RewrittenJson);
+                }
+            }
         }
     }
 }

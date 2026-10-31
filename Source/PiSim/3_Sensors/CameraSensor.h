@@ -47,6 +47,18 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
     float CaptureFps = 15.0f;
 
+    /** Kameranın araç merkezine göre yerel konumu (cm): X=İleri, Y=Sağ, Z=Yukarı */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
+    FVector CameraLocalOffset = FVector(110.0f, 0.0f, 95.0f);
+
+    /** Kameranın aşağı/yukarı bakış açısı (Derece, eksi değer hafif aşağı bakar) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
+    float CameraPitchDeg = -8.0f;
+
+    /** Aracın 3B sınır kutusuna (Bounding Box) göre kamerayı otomatik olarak ön-üst dışına çıkar */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
+    bool bAutoClearVehicleBounds = true;
+
 protected:
     UPROPERTY()
     USceneCaptureComponent2D* SceneCapture = nullptr;

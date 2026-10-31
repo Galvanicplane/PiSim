@@ -343,8 +343,13 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Swarm")
     int32 CommandPort = 7402;
 
+    /** Her aracın kendi alt kimliğine özel doğrudan kontrol portu (7402 + VehicleId -> Araç 1: 7403, Araç 2: 7404...) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Swarm")
+    int32 DedicatedCommandPort = 7403;
+
 protected:
     class FSocket* CommandSocket = nullptr;
+    class FSocket* DedicatedCommandSocket = nullptr;
     void InitCommandSocket();
     void CloseCommandSocket();
     void PollCommandSocket();
