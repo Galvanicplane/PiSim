@@ -1672,8 +1672,53 @@ void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
     FString Cmd = JsonObj->HasField(TEXT("cmd")) ? JsonObj->GetStringField(TEXT("cmd")) : TEXT("cmd_vel");
     float TimeoutSec = JsonObj->HasField(TEXT("timeout_ms")) ? (float)JsonObj->GetNumberField(TEXT("timeout_ms")) / 1000.0f : 0.6f;
 
-    if (Cmd.Equals(TEXT("cmd_vel"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("drive"), ESearchCase::IgnoreCase) || ActivePayload->HasField(TEXT("linear")))
+    if (Cmd.Equals(TEXT("actuators"), ESearchCase::IgnoreCase) || 
+        Cmd.Equals(TEXT("motors"), ESearchCase::IgnoreCase) ||
+        Cmd.Equals(TEXT("set_motors"), ESearchCase::IgnoreCase))
     {
+        // Gazebo / Doğrudan Aktüatör Modu: Pi 5 tüm motor ve servoları kendisi sürer
+        bDirectActuatorControl = true;
+        CommandWatchdogTimer = FMath::Max(0.2f, TimeoutSec);
+
+        const TSharedPtr<FJsonObject>* MotorsObj = nullptr;
+        if (ActivePayload->TryGetObjectField(TEXT("motors"), MotorsObj) && MotorsObj && MotorsObj->IsValid())
+        {
+            for (const auto& Pair : (*MotorsObj)->Values)
+            {
+                FName BoneName = FName(*Pair.Key);
+                float Val = (float)Pair.Value->AsNumber();
+                SetMotorTestValue(BoneName, FMath::Clamp(Val, -1.0f, 1.0f));
+            }
+        }
+    }
+    else if (Cmd.Equals(TEXT("drive"), ESearchCase::IgnoreCase) && 
+             (ActivePayload->HasField(TEXT("steering")) || ActivePayload->HasField(TEXT("throttle"))))
+    {
+        // Gazebo Doğrudan Direksiyon & Gaz Modu: Direksiyon servoları ve tekerlekler bağımsız sürülür
+        bDirectActuatorControl = true;
+        CommandWatchdogTimer = FMath::Max(0.2f, TimeoutSec);
+
+        float Steering = ActivePayload->HasField(TEXT("steering")) ? (float)ActivePayload->GetNumberField(TEXT("steering")) : 0.0f;
+        float Throttle = ActivePayload->HasField(TEXT("throttle")) ? (float)ActivePayload->GetNumberField(TEXT("throttle")) : 0.0f;
+        Steering = FMath::Clamp(Steering, -1.0f, 1.0f);
+        Throttle = FMath::Clamp(Throttle, -1.0f, 1.0f);
+
+        for (const auto& Pair : BoneSceneComponents)
+        {
+            FString LowerName = Pair.Key.ToString().ToLower();
+            if (LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo")))
+            {
+                SetMotorTestValue(Pair.Key, Steering);
+            }
+            else if (LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker")))
+            {
+                SetMotorTestValue(Pair.Key, Throttle);
+            }
+        }
+    }
+    else if (Cmd.Equals(TEXT("cmd_vel"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("drive"), ESearchCase::IgnoreCase) || ActivePayload->HasField(TEXT("linear")))
+    {
+        bDirectActuatorControl = false;
         float LinearX = ActivePayload->HasField(TEXT("linear_x")) ? (float)ActivePayload->GetNumberField(TEXT("linear_x")) : 0.0f;
         float AngularZ = ActivePayload->HasField(TEXT("angular_z")) ? (float)ActivePayload->GetNumberField(TEXT("angular_z")) : 0.0f;
 
@@ -1825,6 +1870,7 @@ void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
 
 void APiSimVehicle::SetTwistVelocity(float InLinearX, float InAngularZ, float InTimeoutSec)
 {
+    bDirectActuatorControl = false;
     TargetLinearVelocity = InLinearX;
     TargetAngularVelocity = InAngularZ;
     CommandWatchdogTimer = FMath::Max(0.1f, InTimeoutSec);
@@ -1832,6 +1878,7 @@ void APiSimVehicle::SetTwistVelocity(float InLinearX, float InAngularZ, float In
 
 void APiSimVehicle::StopVehicle()
 {
+    bDirectActuatorControl = false;
     TargetLinearVelocity = 0.0f;
     TargetAngularVelocity = 0.0f;
     CommandWatchdogTimer = 0.0f;
@@ -1841,6 +1888,21 @@ void APiSimVehicle::StopVehicle()
 // @state: WIP - Diferansiyel ve Ackermann kinematiğine göre tekerlek ve direksiyon motorlarını sürer
 void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
 {
+    if (bDirectActuatorControl)
+    {
+        // Gazebo / Doğrudan Aktüatör Modu: Pi 5 tüm aktüatörleri kendisi sürer.
+        // Unreal kinematik müdahalede bulunmaz, sadece watchdog süresini takip eder.
+        if (CommandWatchdogTimer > 0.0f)
+        {
+            CommandWatchdogTimer -= DeltaTime;
+            if (CommandWatchdogTimer <= 0.0f)
+            {
+                ResetAllMotorTestValues();
+            }
+        }
+        return;
+    }
+
     if (CommandWatchdogTimer > 0.0f)
     {
         CommandWatchdogTimer -= DeltaTime;

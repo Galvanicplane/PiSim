@@ -346,6 +346,10 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Swarm")
     float CommandWatchdogTimer = 0.0f; // Saniye
 
+    /** Gazebo / Dogrudan Aktuator Modu: Pi 5 tum actuatorleri kendisi surer, Unreal kinematik mudahale yapmaz */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Swarm")
+    bool bDirectActuatorControl = false;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Swarm")
     int32 CommandPort = 7402;
 

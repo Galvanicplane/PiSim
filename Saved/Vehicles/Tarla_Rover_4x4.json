@@ -2,10 +2,13 @@
   "ProfileName": "Tarla_Rover_4x4",
   "TotalMassKg": 18.0,
   "Description": "4x4 Otonom Tarla ve Arazi İKA Robotu (Hazır Model)",
+  "DriveMode": "Ackermann",
   "Modules": [
     { "Type": "Wheel", "BoneName": "M_Wheel_FL", "WheelMode": "DriveWheel", "RadiusCm": 18.0, "Friction": 0.95, "Channel": 1 },
     { "Type": "Wheel", "BoneName": "M_Wheel_FR", "WheelMode": "DriveWheel", "RadiusCm": 18.0, "Friction": 0.95, "Channel": 1 },
     { "Type": "Wheel", "BoneName": "M_Wheel_RL", "WheelMode": "DriveWheel", "RadiusCm": 18.0, "Friction": 0.95, "Channel": 3 },
-    { "Type": "Wheel", "BoneName": "M_Wheel_RR", "WheelMode": "DriveWheel", "RadiusCm": 18.0, "Friction": 0.95, "Channel": 3 }
+    { "Type": "Wheel", "BoneName": "M_Wheel_RR", "WheelMode": "DriveWheel", "RadiusCm": 18.0, "Friction": 0.95, "Channel": 3 },
+    { "Type": "Servo", "BoneName": "M_Steer_FL", "MinAngle": -35.0, "MaxAngle": 35.0, "Channel": 1, "Function": "Steer" },
+    { "Type": "Servo", "BoneName": "M_Steer_FR", "MinAngle": -35.0, "MaxAngle": 35.0, "Channel": 1, "Function": "Steer" }
   ]
 }
