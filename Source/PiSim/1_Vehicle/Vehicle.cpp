@@ -1208,19 +1208,7 @@ void APiSimVehicle::SetWheelSpinAxisMode(int32 InMode)
                         (ActiveWheelSpinAxisMode == 1) ? TEXT("Twist & Swing1 (ACM_Locked)") :
                                                         TEXT("Twist & Swing2 (ACM_Locked)");
 
-    FString OnScreenMsg = FString::Printf(
-        TEXT("⚙️ [PISIM TEKERLEK EKSENİ DEBUG (Y)]: %s
-"
-             "   ├── 🔄 Tekerlek Dönme Ekseni (LocalSpinAxis) : (%s)
-"
-             "   ├── 🔓 Serbest ACM Fizik Mafsalı (Free DOF)  : %s
-"
-             "   └── 🔒 Kilitli Mafsallar (Locked DOF)        : %s"),
-        *ModeName,
-        *NewAxis.ToString(),
-        *FreeAcm,
-        *LockedAcm
-    );
+    FString OnScreenMsg = FString::Printf(TEXT("[PISIM EKSEN (Y)]: %s | Donme Ekseni: (%s) | Serbest ACM: %s | Kilitli: %s"), *ModeName, *NewAxis.ToString(), *FreeAcm, *LockedAcm);
     UE_LOG(LogTemp, Warning, TEXT("%s"), *OnScreenMsg);
     if (GEngine)
     {
