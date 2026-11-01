@@ -45,8 +45,7 @@ bool UPiSimSaveManager::SaveProfile(APiSimVehicle* TargetVehicle, const FString&
         {
             ModObj->SetStringField(TEXT("Type"), TEXT("Wheel"));
             ModObj->SetStringField(TEXT("BoneName"), Wheel->TargetBoneName.ToString());
-            ModObj->SetStringField(TEXT("WheelMode"), (Wheel->WheelMode == EPiSimWheelMode::SteeredWheel) ? TEXT("SteeredWheel") :
-                                                     (Wheel->WheelMode == EPiSimWheelMode::FreeWheel) ? TEXT("FreeWheel") : TEXT("DriveWheel"));
+            ModObj->SetStringField(TEXT("WheelMode"), (Wheel->WheelMode == EPiSimWheelMode::FreeWheel) ? TEXT("FreeWheel") : TEXT("DriveWheel"));
             ModObj->SetNumberField(TEXT("RadiusCm"), Wheel->RadiusCm);
             ModObj->SetNumberField(TEXT("Friction"), Wheel->FrictionCoefficient);
             ModObj->SetNumberField(TEXT("Channel"), Wheel->ArduPilotChannel);
