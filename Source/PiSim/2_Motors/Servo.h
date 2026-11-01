@@ -63,7 +63,7 @@ public:
 
     /** Sürekli Açı Salınım Testi (MinAngleDeg ve MaxAngleDeg arasında durmaksızın kemiği döndürür) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
-    bool bContinuousSweepTest = true;
+    bool bContinuousSweepTest = false; // [KULLANICI TALEBI] Otonom donusu bozmamasi icin varsayilan KAPALIDIR
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
     float SweepCycleSpeed = 1.0f;

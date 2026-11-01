@@ -29,7 +29,7 @@
 TArray<APiSimVehicle*> APiSimVehicle::ActiveFleet;
 FCriticalSection APiSimVehicle::FleetLock;
 int32 APiSimVehicle::GlobalVehicleSequence = 0;
-int32 APiSimVehicle::ActiveWheelSpinAxisMode = 2; // Sabit dogru eksen: Z (0,0,1) [Swing1 Serbest] // 0=X (1,0,0) [Twist], 1=Y (0,1,0) [Swing2], 2=Z (0,0,1) [Swing1]
+int32 APiSimVehicle::ActiveWheelSpinAxisMode = 1; // Default: Mode 1: Y Ekseni (0,1,0) [Swing2 ACM_Free] // 0=X (1,0,0) [Twist], 1=Y (0,1,0) [Swing2], 2=Z (0,0,1) [Swing1]
 
 // @state: WIP - Araç Pawn yapıcısı, iskelet, köprüler, logger ve kamera bileşenlerini kurar
 APiSimVehicle::APiSimVehicle()

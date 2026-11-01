@@ -370,7 +370,7 @@
                 🛡️ UCX ZIRH [U]
             </button>
             <button id="top-btn-axis" class="cod-btn" style="padding: 3px 8px; font-size: 9.5px; font-weight: 800; border-color: #00e5ff; color: #00e5ff;" onclick="cycleWheelAxis()" title="Tekerlek Dönme Eksenini Değiştir (Y)">
-                🔄 EKSEN: <span id="lbl-active-axis">Z (0,0,1) [Swing1]</span> [Y]
+                🔄 EKSEN: <span id="lbl-active-axis">Y (0,1,0) [Swing2]</span> [Y]
             </button>
             <button id="btn-theme-switcher" class="cod-btn cod-btn-accent" style="padding: 3px 10px; font-size: 10px;" onclick="cycleTheme()">
                 TEMA: 1/5 PETRONAS F1
@@ -1200,7 +1200,7 @@
         }
 
 
-        let currentWheelAxisIdx = 2; // 0=X, 1=Y, 2=Z
+        let currentWheelAxisIdx = 1; // 0=X, 1=Y, 2=Z
         const wheelAxisNames = ["X (1,0,0) [Twist Serbest]", "Y (0,1,0) [Swing2 Serbest]", "Z (0,0,1) [Swing1 Serbest]"];
 
         function cycleWheelAxis() {
