@@ -29,8 +29,12 @@
             left: 0;
             width: 100vw;
             height: calc(100vh - 38px);
-            pointer-events: none; /* Fare 3D aracı çevirebilsin */
+            pointer-events: auto; /* Fare ile tiklayip serbest bakis ve orbit */
             z-index: 1;
+            cursor: grab;
+        }
+        .unreal-viewport-canvas:active {
+            cursor: grabbing;
         }
 
         /* ==================== ÇEKMECELİ (SLIDE-IN) TAKTİK PANELLER ==================== */
@@ -364,9 +368,6 @@
             </button>
             <button id="top-btn-armor" class="cod-btn" style="padding: 3px 8px; font-size: 9.5px; font-weight: 800; border-color: #a855f7; color: #a855f7;" onclick="toggleArmorView()">
                 🛡️ UCX ZIRH [U]
-            </button>
-            <button id="top-btn-axis" class="cod-btn" style="padding: 3px 8px; font-size: 9.5px; font-weight: 800; border-color: #00e5ff; color: #00e5ff;" onclick="cycleWheelAxis()" title="Tekerlek Dönme Eksenini Değiştir (Y)">
-                🔄 EKSEN: <span id="lbl-active-axis">Y (0,1,0)</span> [Y]
             </button>
             <button id="btn-theme-switcher" class="cod-btn cod-btn-accent" style="padding: 3px 10px; font-size: 10px;" onclick="cycleTheme()">
                 TEMA: 1/5 PETRONAS F1
@@ -1195,23 +1196,6 @@
             setTimeout(syncFleetWithBackend, 120);
         }
 
-        let currentWheelAxisIdx = 1; // 0=X, 1=Y, 2=Z
-        const wheelAxisNames = ["X (1,0,0) [Twist]", "Y (0,1,0) [Swing2]", "Z (0,0,1) [Swing1]"];
-
-        function cycleWheelAxis() {
-            currentWheelAxisIdx = (currentWheelAxisIdx + 1) % 3;
-            const lbl = document.getElementById('lbl-active-axis');
-            if (lbl) lbl.innerText = wheelAxisNames[currentWheelAxisIdx];
-
-            // 1. WebUI fetch ile /api/command komutu gönder (7402 portu)
-            fetch('/api/command', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cmd: 'cycle_wheel_axis', mode: currentWheelAxisIdx })
-            }).catch(() => {});
-
-            addLog(`🔄 [TEKERLEK EKSENİ (Y)]: Yeni Mod -> ${wheelAxisNames[currentWheelAxisIdx]}`);
-        }
 
         function enterSelectedVehicleFpvCamera() {
             if (currentVehicleId === null || !fleetData[currentVehicleId]) {
@@ -1739,14 +1723,6 @@
                     return;
                 }
             }
-            if (e.code === 'KeyY' && !e.ctrlKey && !e.altKey) {
-                const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-                if (activeTag !== 'input' && activeTag !== 'textarea') {
-                    e.preventDefault();
-                    cycleWheelAxis();
-                    return;
-                }
-            }
             if (e.key === 'Escape') {
                 if (pendingPlacementProfile) {
                     cancelVehiclePlacement();
@@ -1764,6 +1740,18 @@
 
         window.addEventListener('keyup', (e) => {
             editorKeysHeld[e.code] = false;
+        });
+
+        // Pencere odagi kayboldugunda veya baska sekmeye gecildiginde takili tuslari temizle (Kameranin saga kaymasini onler)
+        window.addEventListener('blur', () => {
+            for (const k in editorKeysHeld) editorKeysHeld[k] = false;
+            isViewportDragging = false;
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                for (const k in editorKeysHeld) editorKeysHeld[k] = false;
+                isViewportDragging = false;
+            }
         });
 
         // 60 FPS Serbest Editör Uçuş Döngüsü (WebUI odaklıyken bile WASD+QE pürüzsüz çalışır)

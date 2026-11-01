@@ -435,6 +435,11 @@ void APiSimSpectatorPawn::AddOrbitDelta(float DeltaX, float DeltaY)
     {
         SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
     }
+    SetActorRotation(CurrentOrbitRotation);
+    if (APlayerController* PC = Cast<APlayerController>(GetController()))
+    {
+        PC->SetControlRotation(CurrentOrbitRotation);
+    }
 }
 
 void APiSimSpectatorPawn::HandleKeyFocus()
