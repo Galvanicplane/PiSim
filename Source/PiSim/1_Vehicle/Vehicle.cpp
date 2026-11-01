@@ -203,6 +203,28 @@ void APiSimVehicle::Tick(float DeltaTime)
     {
         if (APlayerController* PC = World->GetFirstPlayerController())
         {
+            float ManualForward = 0.0f;
+            float ManualSteer = 0.0f;
+
+            if (PC->IsInputKeyDown(EKeys::W)) ManualForward += 1.0f;
+            if (PC->IsInputKeyDown(EKeys::S)) ManualForward -= 1.0f;
+            if (PC->IsInputKeyDown(EKeys::A)) ManualSteer -= 1.0f;
+            if (PC->IsInputKeyDown(EKeys::D)) ManualSteer += 1.0f;
+
+            if (ManualForward != 0.0f || ManualSteer != 0.0f)
+            {
+                float ManualLinear = ManualForward * 2.0f;
+                float ManualAngular = ManualSteer * 1.2f;
+                SetTwistVelocity(ManualLinear, ManualAngular, 0.25f);
+
+                if (GEngine)
+                {
+                    FString Msg = FString::Printf(TEXT("🎮 [WASD MANUEL SÜRÜŞ] Araç: %s | Hız: %+.1f m/s | Dönüş: %+.2f rad/s"),
+                        *VehicleCode, ManualLinear, ManualAngular);
+                    GEngine->AddOnScreenDebugMessage(99235, 0.1f, FColor::Yellow, Msg);
+                }
+            }
+
             if (PC->WasInputKeyJustPressed(EKeys::Y))
             {
                 CycleWheelSpinAxis();
@@ -342,7 +364,7 @@ void APiSimVehicle::Tick(float DeltaTime)
                 DrivenWheels.Add(VisualMeshComponents[i]);
                 float TotalRpm = TestVal * 1200.0f;
                 float AngularSpeedDegPerSec = TotalRpm * 6.0f;
-                FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f);
+                FVector LocalAxle = GetCurrentWheelSpinAxis();
                 FVector WorldAxle = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
 
                 FVector CurrentAngVel = VisualMeshComponents[i]->GetPhysicsAngularVelocityInDegrees();
@@ -696,7 +718,7 @@ void APiSimVehicle::SetMotorTestValue(FName BoneName, float Value)
             if (PrimComp && PrimComp->IsSimulatingPhysics())
             {
                 float AngularSpeedDegPerSec = IndividualRpm * 6.0f;
-                FVector LocalAxle = FVector(1.0f, 0.0f, 0.0f);
+                FVector LocalAxle = GetCurrentWheelSpinAxis();
                 FVector WorldAxle = PrimComp->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
                 FVector CurrentAngVel = PrimComp->GetPhysicsAngularVelocityInDegrees();
                 FVector NonRollVel = CurrentAngVel - (WorldAxle * (CurrentAngVel | WorldAxle));
@@ -1763,7 +1785,7 @@ void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
             if (LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker")))
             {
                 FVector RelLoc = Pair.Value ? Pair.Value->GetRelativeLocation() : FVector::ZeroVector;
-                bool bIsLeft = (RelLoc.Y < -1.0f) || LowerName.Contains(TEXT("_l")) || LowerName.Contains(TEXT("left")) || LowerName.Contains(TEXT("sol"));
+                bool bIsLeft = LowerName.Contains(TEXT("fl")) || LowerName.Contains(TEXT("rl")) || LowerName.EndsWith(TEXT("_l")) || LowerName.EndsWith(TEXT("l")) || LowerName.Contains(TEXT("left")) || LowerName.Contains(TEXT("sol")) || (RelLoc.Y < -1.0f);
                 SetMotorTestValue(Pair.Key, bIsLeft ? LeftVal : RightVal);
             }
         }
@@ -1877,7 +1899,7 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
                 }
 
                 FString BoneLower = Wheel->TargetBoneName.ToString().ToLower();
-                bool bIsLeft = (WheelRelLoc.Y < -1.0f) || BoneLower.Contains(TEXT("_l")) || BoneLower.Contains(TEXT("left")) || BoneLower.Contains(TEXT("sol"));
+                bool bIsLeft = BoneLower.Contains(TEXT("fl")) || BoneLower.Contains(TEXT("rl")) || BoneLower.EndsWith(TEXT("_l")) || BoneLower.EndsWith(TEXT("l")) || BoneLower.Contains(TEXT("left")) || BoneLower.Contains(TEXT("sol")) || (WheelRelLoc.Y < -1.0f);
                 float WheelRPM = bIsLeft ? RpmLeft : RpmRight;
 
                 Wheel->bManualOverride = true;
@@ -1893,7 +1915,11 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
             if (!BoneComp) continue;
 
             FString LowerName = BoneName.ToString().ToLower();
-            bool bIsSteer = LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo"));
+            UPiSimWheelComponent* WheelMod = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName));
+            bool bIsSteeredWheel = (WheelMod && WheelMod->WheelMode == EPiSimWheelMode::SteeredWheel) ||
+                                   LowerName.Contains(TEXT("fl")) || LowerName.Contains(TEXT("fr")) ||
+                                   LowerName.Contains(TEXT("front")) || LowerName.Contains(TEXT("on_"));
+            bool bIsSteer = LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo")) || bIsSteeredWheel;
             bool bIsWheel = LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker"));
 
             if (bIsSteer)
@@ -1901,12 +1927,32 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
                 float CurrentYaw = BoneComp->GetRelativeRotation().Yaw;
                 float SmoothYaw = FMath::FInterpTo(CurrentYaw, DesiredSteerDeg, DeltaTime, 10.0f);
                 BoneComp->SetRelativeRotation(FRotator(0.0f, SmoothYaw, 0.0f));
+                if (bIsPhysicsSimulating)
+                {
+                    UPhysicsConstraintComponent* Constraint = FindConstraintForBone(BoneName);
+                    if (!Constraint)
+                    {
+                        int32 TargetSection = FindVisualSectionForBone(BoneName);
+                        Constraint = FindConstraintForSection(TargetSection);
+                    }
+                    if (Constraint)
+                    {
+                        FVector RelLoc = Constraint->GetRelativeLocation();
+                        int32 TargetSection = FindVisualSectionForBone(BoneName);
+                        if (TargetSection > 0 && StoredVisualSections.IsValidIndex(TargetSection) && StoredVisualSections.IsValidIndex(0))
+                        {
+                            RelLoc = StoredVisualSections[TargetSection].PivotPoint - StoredVisualSections[0].PivotPoint;
+                        }
+                        FTransform SteerPose(FRotator(0.0f, SmoothYaw, 0.0f), RelLoc);
+                        Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
+                    }
+                }
                 MotorTestValues.Add(BoneName, SmoothYaw / 35.0f);
             }
-            else if (bIsWheel)
+            if (bIsWheel)
             {
                 FVector RelLoc = BoneComp->GetRelativeLocation();
-                bool bIsLeft = (RelLoc.Y < -1.0f) || LowerName.Contains(TEXT("_l")) || LowerName.Contains(TEXT("left")) || LowerName.Contains(TEXT("sol"));
+                bool bIsLeft = LowerName.Contains(TEXT("fl")) || LowerName.Contains(TEXT("rl")) || LowerName.EndsWith(TEXT("_l")) || LowerName.EndsWith(TEXT("l")) || LowerName.Contains(TEXT("left")) || LowerName.Contains(TEXT("sol")) || (RelLoc.Y < -1.0f);
                 float NormVal = bIsLeft ? NormLeft : NormRight;
                 MotorTestValues.Add(BoneName, NormVal);
             }
