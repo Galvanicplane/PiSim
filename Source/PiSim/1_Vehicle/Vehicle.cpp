@@ -198,7 +198,17 @@ void APiSimVehicle::Tick(float DeltaTime)
     UpdateKinematicsAndMotors(DeltaTime);
     UpdateLiveTelemetryState(DeltaTime);
 
-    // [KULLANICI KONTROLU] Eksen sabit (0, 0, 1) Z ekseni olarak kilitlidir, Y tusu kaldirilmistir.
+    // 'Y' tuşuna basıldığında tekerlek dönme eksenini ve ACM mafsal serbestisini döngüsel değiştir (Canlı Debug)
+    if (UWorld* World = GetWorld())
+    {
+        if (APlayerController* PC = World->GetFirstPlayerController())
+        {
+            if (PC->WasInputKeyJustPressed(EKeys::Y))
+            {
+                CycleWheelSpinAxis();
+            }
+        }
+    }
 
     // =========================================================================
     // CANLI MOTOR / EYLEYİCİ DÖNÜŞ VE KONTROL BLOĞU (PiSimModelImporter pattern)
@@ -1188,14 +1198,33 @@ void APiSimVehicle::SetWheelSpinAxisMode(int32 InMode)
         }
     }
 
-    FString AxisStr = (ActiveWheelSpinAxisMode == 0) ? TEXT("X (1, 0, 0) | Serbest: Twist") :
-                      (ActiveWheelSpinAxisMode == 1) ? TEXT("Y (0, 1, 0) | Serbest: Swing2") :
-                                                      TEXT("Z (0, 0, 1) | Serbest: Swing1");
-    FString NotifyMsg = FString::Printf(TEXT("⚙️ [TEKERLEK EKSENİ MODU: %s]"), *AxisStr);
-    UE_LOG(LogTemp, Warning, TEXT("%s"), *NotifyMsg);
+    FString ModeName  = (ActiveWheelSpinAxisMode == 0) ? TEXT("MOD 0: X Ekseni (1, 0, 0)") :
+                        (ActiveWheelSpinAxisMode == 1) ? TEXT("MOD 1: Y Ekseni (0, 1, 0)") :
+                                                        TEXT("MOD 2: Z Ekseni (0, 0, 1)");
+    FString FreeAcm   = (ActiveWheelSpinAxisMode == 0) ? TEXT("Twist / Roll (ACM_Free)") :
+                        (ActiveWheelSpinAxisMode == 1) ? TEXT("Swing2 / Pitch (ACM_Free)") :
+                                                        TEXT("Swing1 / Yaw (ACM_Free)");
+    FString LockedAcm = (ActiveWheelSpinAxisMode == 0) ? TEXT("Swing1 & Swing2 (ACM_Locked)") :
+                        (ActiveWheelSpinAxisMode == 1) ? TEXT("Twist & Swing1 (ACM_Locked)") :
+                                                        TEXT("Twist & Swing2 (ACM_Locked)");
+
+    FString OnScreenMsg = FString::Printf(
+        TEXT("⚙️ [PISIM TEKERLEK EKSENİ DEBUG (Y)]: %s
+"
+             "   ├── 🔄 Tekerlek Dönme Ekseni (LocalSpinAxis) : (%s)
+"
+             "   ├── 🔓 Serbest ACM Fizik Mafsalı (Free DOF)  : %s
+"
+             "   └── 🔒 Kilitli Mafsallar (Locked DOF)        : %s"),
+        *ModeName,
+        *NewAxis.ToString(),
+        *FreeAcm,
+        *LockedAcm
+    );
+    UE_LOG(LogTemp, Warning, TEXT("%s"), *OnScreenMsg);
     if (GEngine)
     {
-        GEngine->AddOnScreenDebugMessage(99234, 4.0f, FColor::Yellow, NotifyMsg);
+        GEngine->AddOnScreenDebugMessage(99234, 5.0f, FColor::Cyan, OnScreenMsg);
     }
 }
 
