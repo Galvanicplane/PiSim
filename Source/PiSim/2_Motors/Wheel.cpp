@@ -44,7 +44,7 @@ void UPiSimWheelComponent::SetFromPWM(int32 InPWM, bool bIsSteering)
 
     float Norm = FMath::Clamp((InPWM - 1500) / 500.0f, -1.0f, 1.0f); // -1.0 .. +1.0
 
-    if (bIsSteering || WheelMode == EPiSimWheelMode::SteeredWheel)
+    if (bIsSteering)
     {
         TargetSteerAngleDeg = Norm * MaxSteerAngleDeg;
     }
@@ -62,9 +62,8 @@ void UPiSimWheelComponent::GetInspectableProperties(TArray<FPiSimPropertyDescrip
     ModeDesc.PropertyId = TEXT("WheelMode");
     ModeDesc.DisplayName = TEXT("Tekerlek Modu");
     ModeDesc.PropertyType = EPiSimPropertyType::Dropdown;
-    ModeDesc.CurrentStringValue = (WheelMode == EPiSimWheelMode::DriveWheel) ? TEXT("DriveWheel") :
-                                 (WheelMode == EPiSimWheelMode::SteeredWheel) ? TEXT("SteeredWheel") : TEXT("FreeWheel");
-    ModeDesc.DropdownOptions = { TEXT("DriveWheel"), TEXT("SteeredWheel"), TEXT("FreeWheel") };
+    ModeDesc.CurrentStringValue = (WheelMode == EPiSimWheelMode::DriveWheel) ? TEXT("DriveWheel") : TEXT("FreeWheel");
+    ModeDesc.DropdownOptions = { TEXT("DriveWheel"), TEXT("FreeWheel") };
     ModeDesc.bContinuousTickUpdate = false;
     OutProperties.Add(ModeDesc);
 
@@ -78,18 +77,7 @@ void UPiSimWheelComponent::GetInspectableProperties(TArray<FPiSimPropertyDescrip
     RpmDesc.bContinuousTickUpdate = true;
     OutProperties.Add(RpmDesc);
 
-    if (WheelMode == EPiSimWheelMode::SteeredWheel)
-    {
-        FPiSimPropertyDescriptor SteerDesc;
-        SteerDesc.PropertyId = TEXT("TargetSteerAngleDeg");
-        SteerDesc.DisplayName = TEXT("Direksiyon Açısı (°)");
-        SteerDesc.PropertyType = EPiSimPropertyType::Slider;
-        SteerDesc.MinValue = -MaxSteerAngleDeg;
-        SteerDesc.MaxValue = MaxSteerAngleDeg;
-        SteerDesc.CurrentFloatValue = TargetSteerAngleDeg;
-        SteerDesc.bContinuousTickUpdate = true;
-        OutProperties.Add(SteerDesc);
-    }
+
 
     FPiSimPropertyDescriptor RadiusDesc;
     RadiusDesc.PropertyId = TEXT("RadiusCm");
@@ -166,11 +154,7 @@ void UPiSimWheelComponent::SetInspectablePropertyString(FName PropertyId, const 
 {
     if (PropertyId == TEXT("WheelMode"))
     {
-        if (NewValue == TEXT("SteeredWheel"))
-        {
-            WheelMode = EPiSimWheelMode::SteeredWheel;
-        }
-        else if (NewValue == TEXT("FreeWheel"))
+        if (NewValue == TEXT("FreeWheel"))
         {
             WheelMode = EPiSimWheelMode::FreeWheel;
         }
@@ -251,17 +235,12 @@ void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
 
     if (CachedSkeletalMesh->IsSimulatingPhysics(TargetBoneName))
     {
-        if (WheelMode == EPiSimWheelMode::DriveWheel || WheelMode == EPiSimWheelMode::SteeredWheel)
+        if (WheelMode == EPiSimWheelMode::DriveWheel)
         {
             float DesiredAngularVelocityDeg = TargetRPM * 6.0f;
             FTransform BoneTransform = CachedSkeletalMesh->GetBoneTransform(BoneIndex);
 
             FVector ActiveSpinAxis = LocalSpinAxis;
-            if (WheelMode == EPiSimWheelMode::SteeredWheel && FMath::Abs(CurrentSteerAngleDeg) > 0.01f)
-            {
-                FRotator SteerRot(0.0f, CurrentSteerAngleDeg, 0.0f);
-                ActiveSpinAxis = SteerRot.RotateVector(LocalSpinAxis);
-            }
 
             FVector WorldSpinAxis = BoneTransform.TransformVectorNoScale(ActiveSpinAxis).GetSafeNormal();
 

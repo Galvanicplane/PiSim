@@ -146,8 +146,7 @@ bool UPiSimSaveManager::LoadProfile(APiSimVehicle* TargetVehicle, const FString&
                 FString WMode;
                 if (ModObj->TryGetStringField(TEXT("WheelMode"), WMode))
                 {
-                    if (WMode == TEXT("SteeredWheel")) Wheel->SetWheelMode(EPiSimWheelMode::SteeredWheel);
-                    else if (WMode == TEXT("FreeWheel")) Wheel->SetWheelMode(EPiSimWheelMode::FreeWheel);
+                    if (WMode == TEXT("FreeWheel")) Wheel->SetWheelMode(EPiSimWheelMode::FreeWheel);
                     else Wheel->SetWheelMode(EPiSimWheelMode::DriveWheel);
                 }
                 int32 Ch = 3;

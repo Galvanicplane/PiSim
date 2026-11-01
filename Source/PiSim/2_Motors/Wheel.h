@@ -12,7 +12,6 @@ UENUM(BlueprintType)
 enum class EPiSimWheelMode : uint8
 {
     DriveWheel   UMETA(DisplayName = "Tahrikli Tekerlek (Drive Wheel)"),
-    SteeredWheel UMETA(DisplayName = "Direksiyonlu Tekerlek (Steered Wheel)"),
     FreeWheel    UMETA(DisplayName = "Serbest Sarhoş Tekerlek (Free Caster)")
 };
 

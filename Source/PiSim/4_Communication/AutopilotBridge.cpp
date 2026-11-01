@@ -271,7 +271,7 @@ void UPiSimModularAutopilotBridge::DispatchPwmToVehicleMotors()
         int32 ChIdx = Wheel->ArduPilotChannel - 1;
         if (ChIdx >= 0 && ChIdx < 16)
         {
-            Wheel->SetFromPWM(LocalPWM[ChIdx], Wheel->WheelMode == EPiSimWheelMode::SteeredWheel);
+            Wheel->SetFromPWM(LocalPWM[ChIdx], false);
         }
     }
 }

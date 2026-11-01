@@ -36,11 +36,7 @@ void UPiSimMotorConfigurator::AutoAssignMotorsByBoneNames(APiSimVehicle* TargetV
                 {
                     Wheel->SetWheelMode(EPiSimWheelMode::FreeWheel);
                 }
-                else if (BoneStr.Contains(TEXT("front")) || BoneStr.Contains(TEXT("steer")) || BoneStr.Contains(TEXT("on_")))
-                {
-                    Wheel->SetWheelMode(EPiSimWheelMode::SteeredWheel);
-                    Wheel->ArduPilotChannel = 1;
-                }
+
                 else
                 {
                     Wheel->SetWheelMode(EPiSimWheelMode::DriveWheel);

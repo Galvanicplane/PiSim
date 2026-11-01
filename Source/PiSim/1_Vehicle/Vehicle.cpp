@@ -1915,18 +1915,16 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
             if (!BoneComp) continue;
 
             FString LowerName = BoneName.ToString().ToLower();
-            UPiSimWheelComponent* WheelMod = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName));
-            bool bIsSteeredWheel = (WheelMod && WheelMod->WheelMode == EPiSimWheelMode::SteeredWheel) ||
-                                   LowerName.Contains(TEXT("fl")) || LowerName.Contains(TEXT("fr")) ||
-                                   LowerName.Contains(TEXT("front")) || LowerName.Contains(TEXT("on_"));
-            bool bIsSteer = LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo")) || bIsSteeredWheel;
+            bool bIsSteer = LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo"));
             bool bIsWheel = LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker"));
 
             if (bIsSteer)
             {
+                // Kullanıcının Lerp fonksiyonu ile servo joint yumuşakça hedef açıya döner
                 float CurrentYaw = BoneComp->GetRelativeRotation().Yaw;
-                float SmoothYaw = FMath::FInterpTo(CurrentYaw, DesiredSteerDeg, DeltaTime, 10.0f);
+                float SmoothYaw = FMath::FInterpTo(CurrentYaw, DesiredSteerDeg, DeltaTime, 12.0f);
                 BoneComp->SetRelativeRotation(FRotator(0.0f, SmoothYaw, 0.0f));
+
                 if (bIsPhysicsSimulating)
                 {
                     UPhysicsConstraintComponent* Constraint = FindConstraintForBone(BoneName);
@@ -1949,7 +1947,7 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
                 }
                 MotorTestValues.Add(BoneName, SmoothYaw / 35.0f);
             }
-            if (bIsWheel)
+            else if (bIsWheel)
             {
                 FVector RelLoc = BoneComp->GetRelativeLocation();
                 bool bIsLeft = LowerName.Contains(TEXT("fl")) || LowerName.Contains(TEXT("rl")) || LowerName.EndsWith(TEXT("_l")) || LowerName.EndsWith(TEXT("l")) || LowerName.Contains(TEXT("left")) || LowerName.Contains(TEXT("sol")) || (RelLoc.Y < -1.0f);
