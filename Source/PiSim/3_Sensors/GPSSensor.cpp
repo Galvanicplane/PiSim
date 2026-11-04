@@ -2,6 +2,7 @@
 
 #include "GPSSensor.h"
 #include "Vehicle.h"
+#include "PiSimTopicBridge.h"
 #include "GameFramework/Actor.h"
 
 // @state: WIP - GPS sensörü bileşeni yapıcısı
@@ -66,6 +67,22 @@ void UPiSimGPSSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActor
         // UE (cm/s) -> NED (m/s): X North, Y East, Z Down (-Up)
         GpsData.VelocityNED = FVector(Velocity.X / 100.0f, Velocity.Y / 100.0f, -Velocity.Z / 100.0f);
         CachedVehicle->FeedGPSData(GpsData);
+
+        // Sensör kendi verisini doğrudan araca ait ROS 2 / Zenoh topic'ine basar (Direkt Yayın)
+        if (CachedVehicle->TopicBridge)
+        {
+            double NowSec = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+            int64 Sec = (int64)NowSec;
+            uint32 NanoSec = (uint32)((NowSec - (double)Sec) * 1e9);
+
+            FString GpsPayload = FString::Printf(
+                TEXT("{\"header\":{\"stamp\":{\"sec\":%lld,\"nanosec\":%u},\"frame_id\":\"gps_link\"},"
+                     "\"status\":{\"status\":3,\"service\":1},"
+                     "\"latitude\":%.7f,\"longitude\":%.7f,\"altitude\":%.2f}"),
+                Sec, NanoSec, CurrentLatitude, CurrentLongitude, CurrentAltitudeMeters
+            );
+            CachedVehicle->TopicBridge->PublishTopic(TEXT("gps"), GpsPayload);
+        }
     }
 }
 

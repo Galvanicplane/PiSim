@@ -2,6 +2,7 @@
 
 #include "IMUSensor.h"
 #include "Vehicle.h"
+#include "PiSimTopicBridge.h"
 #include "GameFramework/Actor.h"
 
 // @state: WIP - IMU sensörü yapıcısı
@@ -95,6 +96,25 @@ void UPiSimIMUSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActor
         ImuData.Orientation = OwnerQuat;
         ImuData.MagnetometerGauss = BodyMag;
         CachedVehicle->FeedIMUData(ImuData);
+
+        // Sensör kendi verisini doğrudan araca ait ROS 2 / Zenoh topic'ine basar (Direkt Yayın)
+        if (CachedVehicle->TopicBridge)
+        {
+            double NowSec = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+            int64 Sec = (int64)NowSec;
+            uint32 NanoSec = (uint32)((NowSec - (double)Sec) * 1e9);
+
+            FString ImuPayload = FString::Printf(
+                TEXT("{\"header\":{\"stamp\":{\"sec\":%lld,\"nanosec\":%u},\"frame_id\":\"imu_link\"},"
+                     "\"orientation\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f,\"w\":%.5f},"
+                     "\"angular_velocity\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},"
+                     "\"linear_acceleration\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f}}"),
+                Sec, NanoSec, OwnerQuat.X, OwnerQuat.Y, OwnerQuat.Z, OwnerQuat.W,
+                BodyAngularVelRad.X, BodyAngularVelRad.Y, BodyAngularVelRad.Z,
+                BodyAccel.X, BodyAccel.Y, BodyAccel.Z
+            );
+            CachedVehicle->TopicBridge->PublishTopic(TEXT("imu"), ImuPayload);
+        }
     }
 }
 
