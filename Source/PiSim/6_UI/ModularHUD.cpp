@@ -30,21 +30,17 @@ void APiSimModularHUD::DrawHUD()
         APiSimSpectatorPawn* Spectator = Cast<APiSimSpectatorPawn>(PlayerPawn);
         if (Spectator && Spectator->GetFocusedVehicle())
         {
-            CachedGateway = Spectator->GetFocusedVehicle()->FindComponentByClass<UPiSimTelemetryGateway>();
+            CachedVehicle = Spectator->GetFocusedVehicle();
         }
         else
         {
-            CachedGateway = PlayerPawn->FindComponentByClass<UPiSimTelemetryGateway>();
+            CachedVehicle = Cast<APiSimVehicle>(PlayerPawn);
         }
     }
 
-    if (!CachedGateway && GetWorld())
+    if (!CachedVehicle && GetWorld())
     {
-        AActor* Found = UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass());
-        if (Found)
-        {
-            CachedGateway = Found->FindComponentByClass<UPiSimTelemetryGateway>();
-        }
+        CachedVehicle = Cast<APiSimVehicle>(UGameplayStatics::GetActorOfClass(GetWorld(), APiSimVehicle::StaticClass()));
     }
 
     // Sadece uçuş HUD'ı açıkken PFD göstergelerini çiz (Garajda ekranı temiz tut)
@@ -58,7 +54,7 @@ void APiSimModularHUD::DrawHUD()
 // @state: WIP - Birincil Uçuş Ekranı (PFD) avionik göstergelerini çizer
 void APiSimModularHUD::DrawAvionicsPFD()
 {
-    if (!Canvas || !CachedGateway)
+    if (!Canvas || !CachedVehicle)
     {
         return;
     }
@@ -67,14 +63,14 @@ void APiSimModularHUD::DrawAvionicsPFD()
     float CenterY = Canvas->SizeY * 0.5f;
 
     FPiSimIMUData IMU;
-    CachedGateway->GetLatestIMUData(IMU);
+    CachedVehicle->GetLatestIMUData(IMU);
     FRotator Rot = IMU.Orientation.Rotator();
 
     FPiSimGPSData GPS;
-    CachedGateway->GetLatestGPSData(GPS);
+    CachedVehicle->GetLatestGPSData(GPS);
 
     FPiSimBaroData Baro;
-    CachedGateway->GetLatestBaroData(Baro);
+    CachedVehicle->GetLatestBaroData(Baro);
 
     // 1. Yapay Ufuk ve Yunuslama Merdiveni (Pitch & Roll)
     DrawHorizonLadder(CenterX, CenterY, Rot.Pitch, Rot.Roll);
@@ -151,10 +147,10 @@ void APiSimModularHUD::DrawHeadingTape(float X, float Y, float HeadingDeg)
 // @state: WIP - Sol alt durum ve telemetri çubuğu
 void APiSimModularHUD::DrawStatusOverlay()
 {
-    if (!Canvas || !CachedGateway) return;
+    if (!Canvas || !CachedVehicle) return;
 
     FPiSimGPSData GPS;
-    CachedGateway->GetLatestGPSData(GPS);
+    CachedVehicle->GetLatestGPSData(GPS);
 
     FString StatusStr = FString::Printf(
         TEXT("PiSim Avionics PFD | GPS: %.5f, %.5f | Uydu: %d | İrtifa: %.1fm | Hız: %.1f km/h"),

@@ -8,7 +8,7 @@
 #include "IPiSimInspectableModule.h"
 #include "GPSSensor.generated.h"
 
-class UPiSimTelemetryGateway;
+class APiSimVehicle;
 
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
 class PISIM_API UPiSimGPSSensor : public UActorComponent, public IPiSimInspectableModule
@@ -56,7 +56,7 @@ public:
 
 protected:
     UPROPERTY()
-    UPiSimTelemetryGateway* CachedGateway = nullptr;
+    APiSimVehicle* CachedVehicle = nullptr;
 
     FVector InitialWorldLocation = FVector::ZeroVector;
     bool bInitializedLocation = false;

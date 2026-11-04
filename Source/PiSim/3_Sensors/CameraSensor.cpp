@@ -1,9 +1,7 @@
 // CameraSensor.cpp
 
 #include "CameraSensor.h"
-#include "TelemetryGateway.h"
 #include "Vehicle.h"
-#include "Pi5Bridge.h"
 #include "ProceduralMeshComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -26,7 +24,7 @@ void UPiSimCameraSensor::BeginPlay()
 
     if (GetOwner())
     {
-        CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
+        CachedVehicle = Cast<APiSimVehicle>(GetOwner());
 
         SceneCapture = NewObject<USceneCaptureComponent2D>(GetOwner());
         if (SceneCapture)
@@ -56,7 +54,7 @@ void UPiSimCameraSensor::TickComponent(float DeltaTime, ELevelTick TickType, FAc
     APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
     if (OwnerVehicle)
     {
-        bool bSubscribed = OwnerVehicle->HasVideoSubscribers() || (OwnerVehicle->Pi5Bridge && OwnerVehicle->Pi5Bridge->IsVideoSubscribed());
+        bool bSubscribed = true;
         if (!bSubscribed)
         {
             return;
@@ -146,7 +144,7 @@ bool UPiSimCameraSensor::GetCameraWorldTransform(FVector& OutLocation, FRotator&
 // @state: WIP - Render target verisini okuyup JPEG olarak sıkıştırır ve Gateway'e fırlatır
 void UPiSimCameraSensor::CaptureAndCompressFrame()
 {
-    if (!SceneCapture || !RenderTarget || !CachedGateway)
+    if (!SceneCapture || !RenderTarget || !CachedVehicle)
     {
         return;
     }
@@ -178,7 +176,7 @@ void UPiSimCameraSensor::CaptureAndCompressFrame()
             TArray<uint8> CompressedBytes;
             CompressedBytes.Append(CompressedBytes64.GetData(), CompressedBytes64.Num());
 
-            CachedGateway->FeedCameraFrame(CompressedBytes);
+            CachedVehicle->FeedCameraFrame(CompressedBytes);
         }
     }
 }

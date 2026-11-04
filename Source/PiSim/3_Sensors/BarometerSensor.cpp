@@ -1,7 +1,7 @@
 // BarometerSensor.cpp
 
 #include "BarometerSensor.h"
-#include "TelemetryGateway.h"
+#include "Vehicle.h"
 #include "GameFramework/Actor.h"
 
 // @state: WIP - Barometre bileşeni yapıcısı
@@ -18,7 +18,7 @@ void UPiSimBarometerSensor::BeginPlay()
 
     if (GetOwner())
     {
-        CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
+        CachedVehicle = Cast<APiSimVehicle>(GetOwner());
     }
 }
 
@@ -27,9 +27,9 @@ void UPiSimBarometerSensor::TickComponent(float DeltaTime, ELevelTick TickType, 
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    if (!CachedGateway && GetOwner())
+    if (!CachedVehicle && GetOwner())
     {
-        CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
+        CachedVehicle = Cast<APiSimVehicle>(GetOwner());
     }
 
     CalculateAtmosphericPhysics(DeltaTime);
@@ -121,13 +121,13 @@ void UPiSimBarometerSensor::CalculateAtmosphericPhysics(float DeltaTime)
     DifferentialPressureHPa = DynamicPressurePa / 100.0f;
 
     // Gateway'e besle
-    if (CachedGateway)
+    if (CachedVehicle)
     {
         FPiSimBaroData BaroData;
         BaroData.AbsPressureHPa = AbsolutePressureHPa;
         BaroData.DiffPressureHPa = DifferentialPressureHPa;
         BaroData.PressureAltitudeM = PressureAltitudeM;
         BaroData.TemperatureC = TemperatureC;
-        CachedGateway->FeedBaroData(BaroData);
+        CachedVehicle->FeedBaroData(BaroData);
     }
 }

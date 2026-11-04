@@ -204,5 +204,4 @@ protected:
     bool bSmoothNormals = true;
 
     // Pi5Bridge tarafından yakalanan beacon verisini WebUI'a ileten UI dinleyicisi
-    void HandlePi5BeaconReceived(const FString& BeaconJson);
 };

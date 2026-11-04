@@ -268,32 +268,27 @@ void UPiSimTopicBridge::PublishSensors()
     uint32 NanoSec = (uint32)((NowSec - (double)Sec) * 1e9);
 
     // 1. ROS 2 sensor_msgs/msg/Imu
-    FQuat Rot = CachedVehicle->GetActorQuat();
-    FVector LinAcc = CachedVehicle->GetVelocity(); // Basitleştirilmiş ivme
-    FVector AngVel = CachedVehicle->GetRootComponent() ? CachedVehicle->GetRootComponent()->GetComponentVelocity() : FVector::ZeroVector;
-
+    FPiSimIMUData Imu;
+    CachedVehicle->GetLatestIMUData(Imu);
     FString ImuPayload = FString::Printf(
         TEXT("{\"header\":{\"stamp\":{\"sec\":%lld,\"nanosec\":%u},\"frame_id\":\"base_link\"},"
              "\"orientation\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f,\"w\":%.5f},"
-             "\"angular_velocity\":{\"x\":0.0,\"y\":0.0,\"z\":0.0},"
+             "\"angular_velocity\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f},"
              "\"linear_acceleration\":{\"x\":%.4f,\"y\":%.4f,\"z\":%.4f}}"),
-        Sec, NanoSec, Rot.X, Rot.Y, Rot.Z, Rot.W, LinAcc.X * 0.01f, LinAcc.Y * 0.01f, LinAcc.Z * 0.01f
+        Sec, NanoSec, Imu.Orientation.X, Imu.Orientation.Y, Imu.Orientation.Z, Imu.Orientation.W,
+        Imu.AngularVelocityRad.X, Imu.AngularVelocityRad.Y, Imu.AngularVelocityRad.Z,
+        Imu.LinearAcceleration.X, Imu.LinearAcceleration.Y, Imu.LinearAcceleration.Z
     );
     PublishTopic(TEXT("imu"), ImuPayload);
 
     // 2. ROS 2 sensor_msgs/msg/NavSatFix (GPS)
-    FVector Pos = CachedVehicle->GetActorLocation();
-    const double OriginLat = 39.9334;
-    const double OriginLon = 32.8597;
-    double Lat = OriginLat + ((Pos.X * 0.01) / 111320.0);
-    double Lon = OriginLon + ((Pos.Y * 0.01) / (111320.0 * FMath::Cos(FMath::DegreesToRadians(OriginLat))));
-    double Alt = (Pos.Z * 0.01) + 850.0;
-
+    FPiSimGPSData Gps;
+    CachedVehicle->GetLatestGPSData(Gps);
     FString GpsPayload = FString::Printf(
         TEXT("{\"header\":{\"stamp\":{\"sec\":%lld,\"nanosec\":%u},\"frame_id\":\"gps_link\"},"
-             "\"status\":{\"status\":0,\"service\":1},"
+             "\"status\":{\"status\":%d,\"service\":1},"
              "\"latitude\":%.7f,\"longitude\":%.7f,\"altitude\":%.2f}"),
-        Sec, NanoSec, Lat, Lon, Alt
+        Sec, NanoSec, Gps.FixType, Gps.Latitude, Gps.Longitude, Gps.AltitudeMeters
     );
     PublishTopic(TEXT("gps"), GpsPayload);
 }

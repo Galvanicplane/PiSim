@@ -1,7 +1,7 @@
 // IMUSensor.cpp
 
 #include "IMUSensor.h"
-#include "TelemetryGateway.h"
+#include "Vehicle.h"
 #include "GameFramework/Actor.h"
 
 // @state: WIP - IMU sensörü yapıcısı
@@ -18,7 +18,7 @@ void UPiSimIMUSensor::BeginPlay()
 
     if (GetOwner())
     {
-        CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
+        CachedVehicle = Cast<APiSimVehicle>(GetOwner());
         PreviousVelocity = GetOwner()->GetVelocity();
         bHasPreviousVelocity = true;
     }
@@ -34,9 +34,9 @@ void UPiSimIMUSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActor
         return;
     }
 
-    if (!CachedGateway)
+    if (!CachedVehicle)
     {
-        CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
+        CachedVehicle = Cast<APiSimVehicle>(GetOwner());
     }
 
     FVector CurrentVelocity = GetOwner()->GetVelocity();
@@ -87,14 +87,14 @@ void UPiSimIMUSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActor
     FVector WorldMag(0.22f, 0.01f, 0.42f);
     FVector BodyMag = OwnerQuat.UnrotateVector(WorldMag);
 
-    if (CachedGateway)
+    if (CachedVehicle)
     {
         FPiSimIMUData ImuData;
         ImuData.LinearAcceleration = BodyAccel;
         ImuData.AngularVelocityRad = BodyAngularVelRad;
         ImuData.Orientation = OwnerQuat;
         ImuData.MagnetometerGauss = BodyMag;
-        CachedGateway->FeedIMUData(ImuData);
+        CachedVehicle->FeedIMUData(ImuData);
     }
 }
 

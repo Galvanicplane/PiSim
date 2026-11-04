@@ -1,7 +1,7 @@
 // GPSSensor.cpp
 
 #include "GPSSensor.h"
-#include "TelemetryGateway.h"
+#include "Vehicle.h"
 #include "GameFramework/Actor.h"
 
 // @state: WIP - GPS sensörü bileşeni yapıcısı
@@ -18,7 +18,7 @@ void UPiSimGPSSensor::BeginPlay()
 
     if (GetOwner())
     {
-        CachedGateway = GetOwner()->FindComponentByClass<UPiSimTelemetryGateway>();
+        CachedVehicle = Cast<APiSimVehicle>(GetOwner());
         InitialWorldLocation = GetOwner()->GetActorLocation();
         bInitializedLocation = true;
     }
@@ -56,7 +56,7 @@ void UPiSimGPSSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActor
     FVector Velocity = GetOwner()->GetVelocity();
     CurrentSpeedKmh = (Velocity.Size() / 100.0f) * 3.6f;
 
-    if (CachedGateway)
+    if (CachedVehicle)
     {
         FPiSimGPSData GpsData;
         GpsData.Latitude = CurrentLatitude;
@@ -65,7 +65,7 @@ void UPiSimGPSSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActor
         GpsData.SpeedKmh = CurrentSpeedKmh;
         // UE (cm/s) -> NED (m/s): X North, Y East, Z Down (-Up)
         GpsData.VelocityNED = FVector(Velocity.X / 100.0f, Velocity.Y / 100.0f, -Velocity.Z / 100.0f);
-        CachedGateway->FeedGPSData(GpsData);
+        CachedVehicle->FeedGPSData(GpsData);
     }
 }
 

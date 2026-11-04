@@ -8,7 +8,7 @@
 #include "IPiSimInspectableModule.h"
 #include "IMUSensor.generated.h"
 
-class UPiSimTelemetryGateway;
+class APiSimVehicle;
 
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
 class PISIM_API UPiSimIMUSensor : public UActorComponent, public IPiSimInspectableModule
@@ -41,7 +41,7 @@ public:
 
 protected:
     UPROPERTY()
-    UPiSimTelemetryGateway* CachedGateway = nullptr;
+    APiSimVehicle* CachedVehicle = nullptr;
 
     FVector PreviousVelocity = FVector::ZeroVector;
     bool bHasPreviousVelocity = false;

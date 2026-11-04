@@ -12,7 +12,6 @@ class USkeletalMeshComponent;
 class UProceduralMeshComponent;
 class USpringArmComponent;
 class UCameraComponent;
-class UPiSimTelemetryGateway;
 class UPhysicsConstraintComponent;
 
 USTRUCT(BlueprintType)
@@ -47,6 +46,69 @@ struct PISIM_API FPiSimVehicleSubscriptions
     /** Bu aracın canlı JPEG video yayınını izleyen aktif istemciler (Web Dashboard, Harici Ekran) - KESİNLİKLE DEPOLANMAZ */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Subscription")
     TArray<FPiSimClientEndpoint> VideoSubscribers;
+};
+
+USTRUCT(BlueprintType)
+struct PISIM_API FPiSimIMUData
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|IMU")
+    FVector LinearAcceleration = FVector::ZeroVector;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|IMU")
+    FVector AngularVelocityRad = FVector::ZeroVector;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|IMU")
+    FQuat Orientation = FQuat::Identity;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|IMU")
+    FVector MagnetometerGauss = FVector(0.22f, 0.01f, 0.42f);
+};
+
+USTRUCT(BlueprintType)
+struct PISIM_API FPiSimBaroData
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Baro")
+    float AbsPressureHPa = 1013.25f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Baro")
+    float DiffPressureHPa = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Baro")
+    float PressureAltitudeM = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Baro")
+    float TemperatureC = 15.0f;
+};
+
+USTRUCT(BlueprintType)
+struct PISIM_API FPiSimGPSData
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GPS")
+    double Latitude = 39.9334;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GPS")
+    double Longitude = 32.8597;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GPS")
+    float AltitudeMeters = 850.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GPS")
+    float SpeedKmh = 0.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GPS")
+    FVector VelocityNED = FVector::ZeroVector;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GPS")
+    int32 FixType = 3;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|GPS")
+    int32 Satellites = 14;
 };
 
 USTRUCT(BlueprintType)
@@ -227,11 +289,35 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Camera")
     UCameraComponent* OrbitCamera;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Gateway")
-    UPiSimTelemetryGateway* TelemetryGateway;
+    // --- Dahili Sensör Veri Yolu (Internal Sensor Bus) ---
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Sensors")
+    void FeedIMUData(const FPiSimIMUData& InData);
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Communication")
-    class UPiSimPi5Bridge* Pi5Bridge;
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Sensors")
+    void FeedBaroData(const FPiSimBaroData& InData);
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Sensors")
+    void FeedGPSData(const FPiSimGPSData& InData);
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Sensors")
+    void FeedCameraFrame(const TArray<uint8>& InJpegBytes);
+
+    bool GetLatestIMUData(FPiSimIMUData& OutData);
+    bool GetLatestBaroData(FPiSimBaroData& OutData);
+    bool GetLatestGPSData(FPiSimGPSData& OutData);
+    bool GetLatestCameraFrame(TArray<uint8>& OutJpegBytes);
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
+    FPiSimIMUData LatestIMUData;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
+    FPiSimBaroData LatestBaroData;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
+    FPiSimGPSData LatestGPSData;
+
+    TArray<uint8> LatestCameraJpeg;
+    FCriticalSection SensorDataLock;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Communication")
     class UPiSimTopicBridge* TopicBridge;

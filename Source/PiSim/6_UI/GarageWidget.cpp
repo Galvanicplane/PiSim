@@ -18,10 +18,11 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Kismet/GameplayStatics.h"
+#include "Sockets.h"
+#include "SocketSubsystem.h"
+#include "PiSimTopicBridge.h"
 #include "Misc/Paths.h"
 #include "SWebBrowser.h"
-#include "TelemetryGateway.h" 
-#include "Pi5Bridge.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -32,8 +33,6 @@ void UPiSimModularGarageWidget::NativeConstruct()
 {
     Super::NativeConstruct();
 
-    // Pi 5 bağlantı/keşif olaylarını dinlemek üzere Pi5Bridge'e abone ol
-    UPiSimPi5Bridge::OnPi5BeaconDiscovered.AddUObject(this, &UPiSimModularGarageWidget::HandlePi5BeaconReceived);
 
     if (!TargetVehicle && GetWorld())
     {
@@ -50,7 +49,6 @@ void UPiSimModularGarageWidget::NativeConstruct()
 
 void UPiSimModularGarageWidget::NativeDestruct()
 {
-    UPiSimPi5Bridge::OnPi5BeaconDiscovered.RemoveAll(this);
 
     Super::NativeDestruct();
 }
@@ -91,13 +89,13 @@ void UPiSimModularGarageWidget::NativeTick(const FGeometry& MyGeometry, float In
         WebBrowserWidget->ExecuteJavascript(FleetScript);
 
         APiSimVehicle* VehicleToCheck = TargetVehicle ? TargetVehicle : (FleetVehicles.Num() > 0 ? FleetVehicles[0] : nullptr);
-        if (VehicleToCheck && VehicleToCheck->Pi5Bridge)
+        if (VehicleToCheck && VehicleToCheck->TopicBridge)
         {
-            FString Target = VehicleToCheck->Pi5Bridge->TargetIP;
+            FString Target = VehicleToCheck->TopicBridge->TargetHost;
             if (!Target.IsEmpty() && Target != TEXT("127.0.0.1") && Target != TEXT("0.0.0.0"))
             {
                 FString Script = FString::Printf(TEXT("if (typeof onBeaconDeviceDiscovered === 'function') { onBeaconDeviceDiscovered({name:'Raspberry Pi 5 (Companion)', ip:'%s', telemetry_port:%d, port:%d, msg:'HI FROM PI5', status:'ONLINE'}); }"),
-                    *Target, VehicleToCheck->Pi5Bridge->TelemetryPort, VehicleToCheck->Pi5Bridge->TelemetryPort);
+                    *Target, VehicleToCheck->TopicBridge->TargetPort, VehicleToCheck->TopicBridge->BridgePort);
                 WebBrowserWidget->ExecuteJavascript(Script);
             }
         }
@@ -1504,7 +1502,7 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
         int32 TelemetryPort = 7400;
         int32 VideoPort = 7401;
         int32 DedicatedCmdPort = 7402 + Vehicle->VehicleId;
-        bool bVideoSub = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->IsVideoSubscribed() : false;
+        bool bVideoSub = false;
 
         VObj->SetNumberField(TEXT("sitl_listen_port"), SitlListen);
         VObj->SetNumberField(TEXT("sitl_send_port"), SitlSend);
@@ -1528,10 +1526,10 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
         double Lon = 32.8597 + (Loc.Y / 100.0) / (111320.0 * FMath::Cos(FMath::DegreesToRadians(39.9334)));
         float AltM = 850.0f + (Loc.Z / 100.0f);
 
-        if (Vehicle->TelemetryGateway)
+        if (Vehicle)
         {
             FPiSimGPSData Gps;
-            if (Vehicle->TelemetryGateway->GetLatestGPSData(Gps))
+            if (Vehicle->GetLatestGPSData(Gps))
             {
                 SpeedKmh = Gps.SpeedKmh;
                 if (FMath::Abs(Gps.Latitude) > 0.001) Lat = Gps.Latitude;
@@ -1693,8 +1691,8 @@ void UPiSimModularGarageWidget::SetVehicleVideoSubscribed(int32 InVehicleId, boo
     {
         if (Vehicle && Vehicle->VehicleId == InVehicleId)
         {
-            FString TargetIp = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->TargetIP : TEXT("127.0.0.1");
-            int32 VideoPort = Vehicle->Pi5Bridge ? Vehicle->Pi5Bridge->VideoPort : (7401 + Vehicle->VehicleId * 10);
+            FString TargetIp = Vehicle->TopicBridge ? Vehicle->TopicBridge->TargetHost : TEXT("127.0.0.1");
+            int32 VideoPort = 7401 + Vehicle->VehicleId * 10;
             if (bSubscribe)
             {
                 Vehicle->AddVideoSubscriber(TargetIp, VideoPort);
@@ -1702,11 +1700,6 @@ void UPiSimModularGarageWidget::SetVehicleVideoSubscribed(int32 InVehicleId, boo
             else
             {
                 Vehicle->RemoveVideoSubscriber(TargetIp, VideoPort);
-            }
-
-            if (Vehicle->Pi5Bridge)
-            {
-                Vehicle->Pi5Bridge->SetVideoSubscribed(bSubscribe);
             }
             return;
         }
@@ -1741,45 +1734,20 @@ void UPiSimModularGarageWidget::NavigateToPage(const FString& PageFileName)
 // @state: WIP - WebUI'dan probe talebi geldiğinde TelemetryGateway üzerinden fırlatır
 void UPiSimModularGarageWidget::TriggerBeaconProbe()
 {
-    UPiSimTelemetryGateway::BroadcastProbe(TEXT("HI FROM UNREAL"));
+    
 }
 
 // @state: WIP - WebUI'dan manuel IP ayarlandığında Pi5Bridge köprüsüne iletir ve görsel arayüzü günceller
 bool UPiSimModularGarageWidget::SetTargetIP(const FString& InIP, int32 InPort)
 {
-    int32 SafePort = (InPort >= 9000 || InPort <= 0) ? 7400 : InPort;
-    APiSimVehicle* VehicleToConfig = TargetVehicle ? TargetVehicle : (FleetVehicles.Num() > 0 ? FleetVehicles[0] : nullptr);
-    if (VehicleToConfig)
+    if (WebBrowserWidget.IsValid())
     {
-        if (VehicleToConfig->Pi5Bridge)
-        {
-            bool bSuccess = VehicleToConfig->Pi5Bridge->SetTargetIP(InIP, SafePort);
-
-            if (WebBrowserWidget.IsValid())
-            {
-                FString Script = FString::Printf(TEXT("if (typeof setUeBridgeNodesActive === 'function') { setUeBridgeNodesActive(true, '%s', %d); }"), *InIP, SafePort);
-                WebBrowserWidget->ExecuteJavascript(Script);
-            }
-
-            return bSuccess;
-        }
+        FString Script = FString::Printf(TEXT("if (typeof setUeBridgeNodesActive === 'function') { setUeBridgeNodesActive(true, '%s', %d); }"), *InIP, InPort);
+        WebBrowserWidget->ExecuteJavascript(Script);
     }
-
-    return false;
+    return true;
 }
 
 // @state: WIP - Pi5Bridge tarafından yakalanan beacon paketini WebUI arayüzüne iletir (Görsel Katman)
-void UPiSimModularGarageWidget::HandlePi5BeaconReceived(const FString& BeaconJson)
-{
-    UE_LOG(LogTemp, Warning, TEXT("📡 [GarageWidget] Pi 5 Beacon Alındı ve Web Arayüzüne İletiliyor: %s"), *BeaconJson);
-    AsyncTask(ENamedThreads::GameThread, [this, BeaconJson]()
-    {
-        if (WebBrowserWidget.IsValid())
-        {
-            FString CleanJson = BeaconJson.Replace(TEXT("\n"), TEXT(" ")).Replace(TEXT("\r"), TEXT(""));
-            FString Script = FString::Printf(TEXT("if (typeof onBeaconDeviceDiscovered === 'function') { onBeaconDeviceDiscovered(%s); }"), *CleanJson);
-            WebBrowserWidget->ExecuteJavascript(Script);
-        }
-    });
-}
+
 

@@ -9,7 +9,7 @@
 #include "IPiSimInspectableModule.h"
 #include "BarometerSensor.generated.h"
 
-class UPiSimTelemetryGateway;
+class APiSimVehicle;
 
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
 class PISIM_API UPiSimBarometerSensor : public UActorComponent, public IPiSimInspectableModule
@@ -61,7 +61,7 @@ public:
 
 protected:
     UPROPERTY()
-    UPiSimTelemetryGateway* CachedGateway = nullptr;
+    APiSimVehicle* CachedVehicle = nullptr;
 
     void CalculateAtmosphericPhysics(float DeltaTime);
 };

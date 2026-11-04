@@ -10,7 +10,7 @@
 
 class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
-class UPiSimTelemetryGateway;
+class APiSimVehicle;
 
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
 class PISIM_API UPiSimCameraSensor : public UActorComponent, public IPiSimInspectableModule
@@ -70,7 +70,7 @@ protected:
     UTextureRenderTarget2D* RenderTarget = nullptr;
 
     UPROPERTY()
-    UPiSimTelemetryGateway* CachedGateway = nullptr;
+    APiSimVehicle* CachedVehicle = nullptr;
 
     float TimeSinceLastCapture = 0.0f;
 

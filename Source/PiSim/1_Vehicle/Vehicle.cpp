@@ -1,8 +1,6 @@
 #include "Vehicle.h"
 #include "IPiSimActuatorInterface.h"
 #include "PiSimTopicBridge.h"
-#include "TelemetryGateway.h"
-#include "Pi5Bridge.h"
 #include "CameraSensor.h"
 #include "ModelFbxImporter.h"
 #include "GarageWidget.h"
@@ -55,11 +53,9 @@ APiSimVehicle::APiSimVehicle()
     OrbitCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("OrbitCamera"));
     OrbitCamera->SetupAttachment(CameraSpringArm);
 
-    TelemetryGateway = CreateDefaultSubobject<UPiSimTelemetryGateway>(TEXT("TelemetryGateway"));
 
 
 
-    Pi5Bridge = CreateDefaultSubobject<UPiSimPi5Bridge>(TEXT("Pi5Bridge"));
 
     TopicBridge = CreateDefaultSubobject<UPiSimTopicBridge>(TEXT("TopicBridge"));
 
@@ -1998,10 +1994,7 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
 
 void APiSimVehicle::UpdateLiveTelemetryState(float DeltaTime)
 {
-    if (!TelemetryGateway)
-    {
-        return;
-    }
+    // Sensör güncellemesi
 
     // 1. Gerçek 3B Dünya Konumu (Unreal cm -> Metre)
     FVector WorldLocCm = GetActorLocation();
@@ -2055,13 +2048,13 @@ void APiSimVehicle::UpdateLiveTelemetryState(float DeltaTime)
     ImuData.Orientation = WorldRot.Quaternion();
     ImuData.AngularVelocityRad = FVector(0.0f, 0.0f, TargetAngularVelocity);
     ImuData.LinearAcceleration = FVector(0.0f, 0.0f, -9.80665f);
-    TelemetryGateway->FeedIMUData(ImuData);
+    FeedIMUData(ImuData);
 
     // 6. Barometre Verisini Besle
     FPiSimBaroData BaroData;
     BaroData.PressureAltitudeM = (float)PosZ_m;
     BaroData.DiffPressureHPa = (0.5f * 1.225f * SpeedMs * SpeedMs) / 100.0f;
-    TelemetryGateway->FeedBaroData(BaroData);
+    FeedBaroData(BaroData);
 
     // 7. GPS ve Konum Verisini Besle
     FPiSimGPSData GpsData;
@@ -2070,5 +2063,57 @@ void APiSimVehicle::UpdateLiveTelemetryState(float DeltaTime)
     GpsData.AltitudeMeters = (float)PosZ_m;
     GpsData.SpeedKmh = SpeedKmh;
     GpsData.VelocityNED = FVector(VelMs.X, VelMs.Y, -VelMs.Z);
-    TelemetryGateway->FeedGPSData(GpsData);
+    FeedGPSData(GpsData);
+}
+
+void APiSimVehicle::FeedIMUData(const FPiSimIMUData& InData)
+{
+    FScopeLock Lock(&SensorDataLock);
+    LatestIMUData = InData;
+}
+
+void APiSimVehicle::FeedBaroData(const FPiSimBaroData& InData)
+{
+    FScopeLock Lock(&SensorDataLock);
+    LatestBaroData = InData;
+}
+
+void APiSimVehicle::FeedGPSData(const FPiSimGPSData& InData)
+{
+    FScopeLock Lock(&SensorDataLock);
+    LatestGPSData = InData;
+}
+
+void APiSimVehicle::FeedCameraFrame(const TArray<uint8>& InJpegBytes)
+{
+    FScopeLock Lock(&SensorDataLock);
+    LatestCameraJpeg = InJpegBytes;
+}
+
+bool APiSimVehicle::GetLatestIMUData(FPiSimIMUData& OutData)
+{
+    FScopeLock Lock(&SensorDataLock);
+    OutData = LatestIMUData;
+    return true;
+}
+
+bool APiSimVehicle::GetLatestBaroData(FPiSimBaroData& OutData)
+{
+    FScopeLock Lock(&SensorDataLock);
+    OutData = LatestBaroData;
+    return true;
+}
+
+bool APiSimVehicle::GetLatestGPSData(FPiSimGPSData& OutData)
+{
+    FScopeLock Lock(&SensorDataLock);
+    OutData = LatestGPSData;
+    return true;
+}
+
+bool APiSimVehicle::GetLatestCameraFrame(TArray<uint8>& OutJpegBytes)
+{
+    FScopeLock Lock(&SensorDataLock);
+    OutJpegBytes = LatestCameraJpeg;
+    return OutJpegBytes.Num() > 0;
 }

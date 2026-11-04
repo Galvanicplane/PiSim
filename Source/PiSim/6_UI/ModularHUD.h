@@ -6,7 +6,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
-#include "TelemetryGateway.h"
+#include "Vehicle.h"
 #include "ModularHUD.generated.h"
 
 UCLASS()
@@ -36,7 +36,7 @@ protected:
     bool bShowAvionicsHUD = false;
 
     UPROPERTY()
-    UPiSimTelemetryGateway* CachedGateway = nullptr;
+    APiSimVehicle* CachedVehicle = nullptr;
 
     void DrawAvionicsPFD();
     void DrawHorizonLadder(float CenterX, float CenterY, float PitchDeg, float RollDeg);
