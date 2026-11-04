@@ -239,6 +239,9 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Communication")
     class UPiSimPi5Bridge* Pi5Bridge;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Communication")
+    class UPiSimTopicBridge* TopicBridge;
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
     class UPiSimCameraSensor* CameraSensor;
 

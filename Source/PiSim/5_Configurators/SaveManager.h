@@ -28,4 +28,12 @@ public:
     // Mevcut tüm profil isimlerini listeler
     UFUNCTION(BlueprintCallable, Category = "PiSim|Save")
     static void GetSavedProfileNames(TArray<FString>& OutProfileNames);
+
+    // Aracı standart robotik URDF (XML) formatında Saved/Vehicles/{ProfileName}.urdf olarak dışa aktarır
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Save")
+    static bool ExportURDF(APiSimVehicle* TargetVehicle, const FString& ProfileName, FString& OutMessage);
+
+    // Aracı ArduPilot SITL / Donanım için Saved/Vehicles/{ProfileName}.param olarak dışa aktarır
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Save")
+    static bool ExportArduPilotParams(APiSimVehicle* TargetVehicle, const FString& ProfileName, FString& OutMessage);
 };

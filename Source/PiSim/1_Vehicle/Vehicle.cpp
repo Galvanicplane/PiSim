@@ -1,4 +1,6 @@
 #include "Vehicle.h"
+#include "IPiSimActuatorInterface.h"
+#include "PiSimTopicBridge.h"
 #include "TelemetryGateway.h"
 #include "TelemetryLogger.h"
 #include "AutopilotBridge.h"
@@ -62,6 +64,8 @@ APiSimVehicle::APiSimVehicle()
     AutopilotBridge = CreateDefaultSubobject<UPiSimModularAutopilotBridge>(TEXT("AutopilotBridge"));
 
     Pi5Bridge = CreateDefaultSubobject<UPiSimPi5Bridge>(TEXT("Pi5Bridge"));
+
+    TopicBridge = CreateDefaultSubobject<UPiSimTopicBridge>(TEXT("TopicBridge"));
 
     CameraSensor = CreateDefaultSubobject<UPiSimCameraSensor>(TEXT("CameraSensor"));
 
@@ -302,10 +306,10 @@ void APiSimVehicle::Tick(float DeltaTime)
                 if (WheelPrim && WheelPrim->IsSimulatingPhysics() && !DrivenWheels.Contains(WheelPrim))
                 {
                     DrivenWheels.Add(WheelPrim);
-                    UPiSimWheelComponent* WheelMod = Cast<UPiSimWheelComponent>(GetModuleAtBone(BoneName));
-                    float TotalRpm = (WheelMod && FMath::Abs(WheelMod->TargetRPM) > 0.001f) ? WheelMod->TargetRPM : (TestVal * 250.0f);
+                    IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(GetModuleAtBone(BoneName));
+                    float TotalRpm = (Actuator && FMath::Abs(Actuator->GetActuatorNormalized()) > 0.001f) ? (Actuator->GetActuatorNormalized() * 250.0f) : (TestVal * 250.0f);
                     float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
-                    FVector LocalAxle = WheelMod ? WheelMod->LocalSpinAxis.GetSafeNormal() : GetCurrentWheelSpinAxis();
+                    FVector LocalAxle = Actuator ? Actuator->GetActuatorAxis().GetSafeNormal() : GetCurrentWheelSpinAxis();
                     FVector WorldAxle = WheelPrim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
 
                     FVector CurrentAngVel = WheelPrim->GetPhysicsAngularVelocityInDegrees();
@@ -648,23 +652,10 @@ void APiSimVehicle::SetMotorTestValue(FName BoneName, float Value)
     FString ModStatus = TEXT("🔘 Modül Atanmamış");
     if (Mod)
     {
-        if (UPiSimWheelComponent* Wheel = Cast<UPiSimWheelComponent>(Mod))
+        if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(Mod))
         {
-            Wheel->bManualOverride = (FMath::Abs(Value) > 0.01f);
-            Wheel->SetTargetRPM(Value * 250.0f);
-            ModStatus = FString::Printf(TEXT("🚗 Tekerlek (Hedef RPM: %.1f)"), Value * 250.0f);
-        }
-        else if (UPiSimServoComponent* Servo = Cast<UPiSimServoComponent>(Mod))
-        {
-            Servo->bManualOverride = (FMath::Abs(Value) > 0.01f);
-            Servo->SetTargetAngle(Value * 45.0f);
-            ModStatus = FString::Printf(TEXT("🦾 Servo (Hedef Açı: %+.1f°)"), Value * 45.0f);
-        }
-        else if (UPiSimPropellerComponent* Prop = Cast<UPiSimPropellerComponent>(Mod))
-        {
-            Prop->bManualOverride = (FMath::Abs(Value) > 0.01f);
-            Prop->SetThrottle(FMath::Max(0.0f, Value));
-            ModStatus = FString::Printf(TEXT("🛸 Pervane (Gaz: %.1f%%)"), Value * 100.0f);
+            Actuator->SetActuatorNormalized(Value);
+            ModStatus = FString::Printf(TEXT("⚙️ %s: %+.2f"), *Actuator->GetActuatorType(), Value);
         }
     }
 
@@ -804,20 +795,9 @@ void APiSimVehicle::ResetAllMotorTestValues()
     {
         if (Pair.Value)
         {
-            if (UPiSimWheelComponent* Wheel = Cast<UPiSimWheelComponent>(Pair.Value))
+            if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(Pair.Value))
             {
-                Wheel->SetTargetRPM(0.0f);
-                Wheel->bManualOverride = false;
-            }
-            else if (UPiSimServoComponent* Servo = Cast<UPiSimServoComponent>(Pair.Value))
-            {
-                Servo->SetTargetAngle(0.0f);
-                Servo->bManualOverride = false;
-            }
-            else if (UPiSimPropellerComponent* Prop = Cast<UPiSimPropellerComponent>(Pair.Value))
-            {
-                Prop->SetThrottle(0.0f);
-                Prop->bManualOverride = false;
+                Actuator->SetActuatorNormalized(0.0f);
             }
         }
     }

@@ -1,6 +1,7 @@
 // SaveManager.cpp
 
 #include "SaveManager.h"
+#include "IPiSimActuatorInterface.h"
 #include "Vehicle.h"
 #include "Wheel.h"
 #include "Servo.h"
@@ -90,7 +91,11 @@ bool UPiSimSaveManager::SaveProfile(APiSimVehicle* TargetVehicle, const FString&
 
     if (FFileHelper::SaveStringToFile(OutputString, *FilePath))
     {
-        OutMessage = FString::Printf(TEXT("Profil başarıyla kaydedildi: %s"), *FilePath);
+        FString UrdfMsg, ParamMsg;
+        ExportURDF(TargetVehicle, ProfileName, UrdfMsg);
+        ExportArduPilotParams(TargetVehicle, ProfileName, ParamMsg);
+
+        OutMessage = FString::Printf(TEXT("Profil JSON, URDF ve ArduPilot PARAM başarıyla kaydedildi: %s"), *FilePath);
         return true;
     }
 
@@ -187,4 +192,133 @@ void UPiSimSaveManager::GetSavedProfileNames(TArray<FString>& OutProfileNames)
     {
         OutProfileNames.Add(FPaths::GetBaseFilename(FileName));
     }
+}
+
+
+// @state: Implemented - Standart robotik URDF XML dosyasını Saved/Vehicles/{ProfileName}.urdf olarak kaydeder
+bool UPiSimSaveManager::ExportURDF(APiSimVehicle* TargetVehicle, const FString& ProfileName, FString& OutMessage)
+{
+    if (!TargetVehicle || ProfileName.IsEmpty())
+    {
+        OutMessage = TEXT("Hata: Geçersiz araç veya profil adı.");
+        return false;
+    }
+
+    FString Urdf;
+    Urdf += TEXT("<?xml version=\"1.0\"?>\n");
+    Urdf += FString::Printf(TEXT("<robot name=\"%s\">\n"), *ProfileName);
+    Urdf += TEXT("  <!-- Base Link -->\n");
+    Urdf += TEXT("  <link name=\"base_link\">\n");
+    Urdf += TEXT("    <inertial>\n");
+    Urdf += FString::Printf(TEXT("      <mass value=\"%.2f\"/>\n"), TargetVehicle->TotalMassKg);
+    Urdf += TEXT("      <inertia ixx=\"1.0\" ixy=\"0.0\" ixz=\"0.0\" iyy=\"1.0\" izz=\"1.0\"/>\n");
+    Urdf += TEXT("    </inertial>\n");
+    Urdf += TEXT("  </link>\n\n");
+
+    TArray<UActorComponent*> Comps;
+    TargetVehicle->GetComponents(Comps);
+
+    for (UActorComponent* Comp : Comps)
+    {
+        if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(Comp))
+        {
+            FName BoneName = Actuator->GetTargetBoneName();
+            FString BoneStr = BoneName.ToString();
+            if (BoneStr.IsEmpty()) continue;
+
+            FString ActType = Actuator->GetActuatorType();
+            FVector Axis = Actuator->GetActuatorAxis();
+            FString JointType = TEXT("continuous");
+
+            if (ActType == TEXT("Servo"))
+            {
+                JointType = TEXT("revolute");
+            }
+
+            Urdf += FString::Printf(TEXT("  <!-- Actuator: %s (%s) -->\n"), *BoneStr, *ActType);
+            Urdf += FString::Printf(TEXT("  <link name=\"%s_link\"/>\n"), *BoneStr);
+            Urdf += FString::Printf(TEXT("  <joint name=\"%s_joint\" type=\"%s\">\n"), *BoneStr, *JointType);
+            Urdf += TEXT("    <parent link=\"base_link\"/>\n");
+            Urdf += FString::Printf(TEXT("    <child link=\"%s_link\"/>\n"), *BoneStr);
+            Urdf += FString::Printf(TEXT("    <axis xyz=\"%.1f %.1f %.1f\"/>\n"), Axis.X, Axis.Y, Axis.Z);
+            if (JointType == TEXT("revolute"))
+            {
+                Urdf += TEXT("    <limit lower=\"-1.57\" upper=\"1.57\" effort=\"100\" velocity=\"10\"/>\n");
+            }
+            Urdf += TEXT("  </joint>\n\n");
+        }
+    }
+
+    Urdf += TEXT("</robot>\n");
+
+    FString SaveDir = FPaths::ProjectSavedDir() / TEXT("Vehicles");
+    IFileManager::Get().MakeDirectory(*SaveDir, true);
+    FString FilePath = SaveDir / (ProfileName + TEXT(".urdf"));
+
+    if (FFileHelper::SaveStringToFile(Urdf, *FilePath))
+    {
+        OutMessage = FString::Printf(TEXT("URDF başarıyla kaydedildi: %s"), *FilePath);
+        return true;
+    }
+
+    OutMessage = TEXT("Hata: URDF dosyası yazılamadı.");
+    return false;
+}
+
+// @state: Implemented - ArduPilot SITL / Donanım için SERVOx_FUNCTION parametrelerini Saved/Vehicles/{ProfileName}.param olarak kaydeder
+bool UPiSimSaveManager::ExportArduPilotParams(APiSimVehicle* TargetVehicle, const FString& ProfileName, FString& OutMessage)
+{
+    if (!TargetVehicle || ProfileName.IsEmpty())
+    {
+        OutMessage = TEXT("Hata: Geçersiz araç veya profil adı.");
+        return false;
+    }
+
+    FString ParamContent;
+    ParamContent += FString::Printf(TEXT("# PiSim ArduPilot Parameters for %s\n"), *ProfileName);
+    ParamContent += TEXT("# Format: PARAMETER_NAME,VALUE\n");
+
+    TArray<UActorComponent*> Comps;
+    TargetVehicle->GetComponents(Comps);
+
+    for (UActorComponent* Comp : Comps)
+    {
+        if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(Comp))
+        {
+            int32 Ch = Actuator->GetArduPilotChannel();
+            if (Ch >= 1 && Ch <= 16)
+            {
+                FString ActType = Actuator->GetActuatorType();
+                int32 FuncId = 0;
+
+                if (ActType == TEXT("Wheel"))
+                {
+                    FuncId = 70; // Throttle
+                }
+                else if (ActType == TEXT("Servo"))
+                {
+                    FuncId = 26; // GroundSteering
+                }
+                else if (ActType == TEXT("Propeller"))
+                {
+                    FuncId = 33; // Motor 1
+                }
+
+                ParamContent += FString::Printf(TEXT("SERVO%d_FUNCTION,%d\n"), Ch, FuncId);
+            }
+        }
+    }
+
+    FString SaveDir = FPaths::ProjectSavedDir() / TEXT("Vehicles");
+    IFileManager::Get().MakeDirectory(*SaveDir, true);
+    FString FilePath = SaveDir / (ProfileName + TEXT(".param"));
+
+    if (FFileHelper::SaveStringToFile(ParamContent, *FilePath))
+    {
+        OutMessage = FString::Printf(TEXT("ArduPilot .param başarıyla kaydedildi: %s"), *FilePath);
+        return true;
+    }
+
+    OutMessage = TEXT("Hata: ArduPilot .param dosyası yazılamadı.");
+    return false;
 }

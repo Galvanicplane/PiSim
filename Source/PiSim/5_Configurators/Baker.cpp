@@ -1,6 +1,7 @@
 // Baker.cpp
 
 #include "Baker.h"
+#include "IPiSimActuatorInterface.h"
 #include "Vehicle.h"
 #include "Wheel.h"
 #include "Servo.h"
@@ -32,9 +33,13 @@ bool UPiSimBaker::BakeVehicle(APiSimVehicle* TargetVehicle, FString& OutBakeSumm
 
     for (UActorComponent* Comp : AllComps)
     {
-        if (Cast<UPiSimWheelComponent>(Comp)) WheelCount++;
-        else if (Cast<UPiSimServoComponent>(Comp)) ServoCount++;
-        else if (Cast<UPiSimPropellerComponent>(Comp)) PropCount++;
+        if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(Comp))
+        {
+            FString Type = Actuator->GetActuatorType();
+            if (Type == TEXT("Wheel")) WheelCount++;
+            else if (Type == TEXT("Servo")) ServoCount++;
+            else if (Type == TEXT("Propeller")) PropCount++;
+        }
         else if (Cast<UPiSimLiftBodyComponent>(Comp)) LiftCount++;
     }
 

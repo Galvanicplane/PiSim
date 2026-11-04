@@ -6,10 +6,11 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "IPiSimInspectableModule.h"
+#include "IPiSimActuatorInterface.h"
 #include "Propeller.generated.h"
 
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
-class PISIM_API UPiSimPropellerComponent : public UActorComponent, public IPiSimInspectableModule
+class PISIM_API UPiSimPropellerComponent : public UActorComponent, public IPiSimInspectableModule, public IPiSimActuatorInterface
 {
     GENERATED_BODY()
 
@@ -23,6 +24,19 @@ public:
     virtual void SetInspectablePropertyFloat(FName PropertyId, float NewValue) override;
     virtual void SetInspectablePropertyString(FName PropertyId, const FString& NewValue) override;
     virtual void TriggerInspectableAction(FName ActionId) override;
+
+    // IPiSimActuatorInterface
+    virtual void SetActuatorNormalized(float Value) override { SetThrottle(FMath::Clamp(Value, 0.0f, 1.0f)); }
+    virtual void SetActuatorDirect(float PhysicalValue) override { SetThrottle(FMath::Clamp(PhysicalValue / FMath::Max(1.0f, MaxRPM), 0.0f, 1.0f)); }
+    virtual void SetActuatorPWM(int32 InPWM) override { SetFromPWM(InPWM); }
+    virtual float GetActuatorNormalized() const override { return Throttle; }
+    virtual FName GetTargetBoneName() const override { return TargetBoneName; }
+    virtual void SetTargetBoneName(FName InBoneName) override { TargetBoneName = InBoneName; }
+    virtual FString GetActuatorType() const override { return TEXT("Propeller"); }
+    virtual int32 GetArduPilotChannel() const override { return ArduPilotChannel; }
+    virtual void SetArduPilotChannel(int32 InChannel) override { ArduPilotChannel = InChannel; }
+    virtual FVector GetActuatorAxis() const override { return LocalThrustDirection; }
+    virtual void SetActuatorAxis(const FVector& InAxis) override { LocalThrustDirection = InAxis; }
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Propeller")
     void SetThrottle(float InThrottleNormalized); // 0.0 .. 1.0

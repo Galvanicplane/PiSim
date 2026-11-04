@@ -253,3 +253,9 @@ void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
         }
     }
 }
+
+void UPiSimWheelComponent::SetActuatorNormalized(float Value)
+{
+    bManualOverride = (FMath::Abs(Value) > 0.001f);
+    SetTargetRPM(Value * 250.0f);
+}

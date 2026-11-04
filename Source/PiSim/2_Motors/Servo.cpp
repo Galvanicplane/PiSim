@@ -310,3 +310,10 @@ void UPiSimServoComponent::ApplyServoPhysics(float DeltaTime)
         }
     }
 }
+
+void UPiSimServoComponent::SetActuatorNormalized(float Value)
+{
+    bManualOverride = (FMath::Abs(Value) > 0.001f);
+    float TargetDeg = (Value >= 0.0f) ? (Value * MaxAngleDeg) : (-Value * MinAngleDeg);
+    SetTargetAngle(TargetDeg);
+}

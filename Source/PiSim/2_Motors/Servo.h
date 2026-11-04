@@ -6,10 +6,11 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "IPiSimInspectableModule.h"
+#include "IPiSimActuatorInterface.h"
 #include "Servo.generated.h"
 
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
-class PISIM_API UPiSimServoComponent : public UActorComponent, public IPiSimInspectableModule
+class PISIM_API UPiSimServoComponent : public UActorComponent, public IPiSimInspectableModule, public IPiSimActuatorInterface
 {
     GENERATED_BODY()
 
@@ -23,6 +24,19 @@ public:
     virtual void SetInspectablePropertyFloat(FName PropertyId, float NewValue) override;
     virtual void SetInspectablePropertyString(FName PropertyId, const FString& NewValue) override;
     virtual void TriggerInspectableAction(FName ActionId) override;
+
+    // IPiSimActuatorInterface
+    virtual void SetActuatorNormalized(float Value) override;
+    virtual void SetActuatorDirect(float PhysicalValue) override { SetTargetAngle(PhysicalValue); }
+    virtual void SetActuatorPWM(int32 InPWM) override { SetFromPWM(InPWM); }
+    virtual float GetActuatorNormalized() const override { return (MaxAngleDeg > 0.0f) ? (CurrentAngleDeg / MaxAngleDeg) : 0.0f; }
+    virtual FName GetTargetBoneName() const override { return TargetBoneName; }
+    virtual void SetTargetBoneName(FName InBoneName) override { TargetBoneName = InBoneName; }
+    virtual FString GetActuatorType() const override { return TEXT("Servo"); }
+    virtual int32 GetArduPilotChannel() const override { return ArduPilotChannel; }
+    virtual void SetArduPilotChannel(int32 InChannel) override { ArduPilotChannel = InChannel; }
+    virtual FVector GetActuatorAxis() const override { return LocalRotationAxis; }
+    virtual void SetActuatorAxis(const FVector& InAxis) override { LocalRotationAxis = InAxis; }
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Servo")
     void SetTargetAngle(float InAngleDeg);

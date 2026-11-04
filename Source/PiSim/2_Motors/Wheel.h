@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "IPiSimInspectableModule.h"
+#include "IPiSimActuatorInterface.h"
 #include "Wheel.generated.h"
 
 UENUM(BlueprintType)
@@ -16,7 +17,7 @@ enum class EPiSimWheelMode : uint8
 };
 
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
-class PISIM_API UPiSimWheelComponent : public UActorComponent, public IPiSimInspectableModule
+class PISIM_API UPiSimWheelComponent : public UActorComponent, public IPiSimInspectableModule, public IPiSimActuatorInterface
 {
     GENERATED_BODY()
 
@@ -30,6 +31,19 @@ public:
     virtual void SetInspectablePropertyFloat(FName PropertyId, float NewValue) override;
     virtual void SetInspectablePropertyString(FName PropertyId, const FString& NewValue) override;
     virtual void TriggerInspectableAction(FName ActionId) override;
+
+    // IPiSimActuatorInterface
+    virtual void SetActuatorNormalized(float Value) override;
+    virtual void SetActuatorDirect(float PhysicalValue) override { SetTargetRPM(PhysicalValue); }
+    virtual void SetActuatorPWM(int32 InPWM) override { SetFromPWM(InPWM); }
+    virtual float GetActuatorNormalized() const override { return TargetRPM / 250.0f; }
+    virtual FName GetTargetBoneName() const override { return TargetBoneName; }
+    virtual void SetTargetBoneName(FName InBoneName) override { TargetBoneName = InBoneName; }
+    virtual FString GetActuatorType() const override { return TEXT("Wheel"); }
+    virtual int32 GetArduPilotChannel() const override { return ArduPilotChannel; }
+    virtual void SetArduPilotChannel(int32 InChannel) override { ArduPilotChannel = InChannel; }
+    virtual FVector GetActuatorAxis() const override { return LocalSpinAxis; }
+    virtual void SetActuatorAxis(const FVector& InAxis) override { LocalSpinAxis = InAxis; }
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Wheel")
     void SetTargetRPM(float InRPM) { TargetRPM = InRPM; }
