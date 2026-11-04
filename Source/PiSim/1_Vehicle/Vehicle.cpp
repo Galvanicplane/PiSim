@@ -2,8 +2,6 @@
 #include "IPiSimActuatorInterface.h"
 #include "PiSimTopicBridge.h"
 #include "TelemetryGateway.h"
-#include "TelemetryLogger.h"
-#include "AutopilotBridge.h"
 #include "Pi5Bridge.h"
 #include "CameraSensor.h"
 #include "ModelFbxImporter.h"
@@ -59,9 +57,7 @@ APiSimVehicle::APiSimVehicle()
 
     TelemetryGateway = CreateDefaultSubobject<UPiSimTelemetryGateway>(TEXT("TelemetryGateway"));
 
-    TelemetryLogger = CreateDefaultSubobject<UPiSimTelemetryLogger>(TEXT("TelemetryLogger"));
 
-    AutopilotBridge = CreateDefaultSubobject<UPiSimModularAutopilotBridge>(TEXT("AutopilotBridge"));
 
     Pi5Bridge = CreateDefaultSubobject<UPiSimPi5Bridge>(TEXT("Pi5Bridge"));
 
@@ -131,7 +127,7 @@ void APiSimVehicle::InitVehicleIdentity(int32 InId)
 // @state: WIP - Başlangıçta fare kontrollerini açar, hedef modeli arar ve uygun arayüzü ekrana basar
 void APiSimVehicle::BeginPlay()
 {
-    // ÖNEMLİ: Bileşenlerin (Pi5Bridge, TelemetryLogger, AutopilotBridge) BeginPlay'i çalışmadan ÖNCE
+    // ÖNEMLİ: Bileşenlerin (Pi5Bridge, TopicBridge) BeginPlay'i çalışmadan ÖNCE
     // aracın eşsiz kimliği (VehicleId, VehicleCode, VehicleName) ve filo kaydı tamamlanmalıdır!
     {
         FScopeLock Lock(&APiSimVehicle::FleetLock);

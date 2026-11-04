@@ -7,7 +7,6 @@
 #include "HAL/PlatformProcess.h"
 #include "GameFramework/Actor.h"
 #include "Vehicle.h"
-#include "TelemetryLogger.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -598,15 +597,10 @@ void UPiSimPi5Bridge::ExecuteTelemetryLoop(FThreadSafeBool& bRunning)
                     }
                     else if (RecvStr.Contains(TEXT("PISIM_REQ_SQL_TABLE")))
                     {
-                        if (OwnerVehicle && OwnerVehicle->TelemetryLogger)
-                        {
-                            FString TableJson = OwnerVehicle->TelemetryLogger->GetRecentTelemetryTableJson(50);
-                            FString RespPayload = FString::Printf(TEXT("{\"magic\":\"PISIM_RESP_SQL_TABLE\",\"data\":%s}\n"), *TableJson);
-                            FTCHARToUTF8 Utf8Resp(*RespPayload);
-                            int32 RespBytes = 0;
-                            DiscoverySocket->SendTo((const uint8*)Utf8Resp.Get(), Utf8Resp.Length(), RespBytes, *SenderAddr);
-                            UE_LOG(LogTemp, Warning, TEXT("📤 [Pi5Bridge] Pi 5'e SQL Telemetri Tablosu Gönderildi -> %s"), *SenderAddr->ToString(true));
-                        }
+                        FString RespPayload = TEXT("{\"magic\":\"PISIM_RESP_SQL_TABLE\",\"data\":{\"total_logged\":0,\"rows\":[]}}\n");
+                        FTCHARToUTF8 Utf8Resp(*RespPayload);
+                        int32 RespBytes = 0;
+                        DiscoverySocket->SendTo((const uint8*)Utf8Resp.Get(), Utf8Resp.Length(), RespBytes, *SenderAddr);
                     }
                 }
             }

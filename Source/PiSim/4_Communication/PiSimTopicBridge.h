@@ -15,6 +15,15 @@
 
 class APiSimVehicle;
 
+UENUM(BlueprintType)
+enum class EPiSimTopicControlMode : uint8
+{
+    Auto            UMETA(DisplayName = "Otomatik (PWM Öncelikli)"),
+    DirectActuator  UMETA(DisplayName = "Doğrudan Aktüatör (-1.0 .. +1.0)"),
+    PWMChannels     UMETA(DisplayName = "ArduPilot PWM (1000..2000 us)"),
+    CmdVel          UMETA(DisplayName = "Kinematik Twist (cmd_vel)")
+};
+
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
 class PISIM_API UPiSimTopicBridge : public UActorComponent
 {
@@ -38,6 +47,21 @@ public:
     /** Belirtilen topic altına veri yayınlar (ROS 2 / Zenoh uyumlu) */
     UFUNCTION(BlueprintCallable, Category = "PiSim|ROS2")
     void PublishTopic(const FString& TopicSuffix, const FString& JsonPayload);
+
+    /** Ağ doğrulama için Ping/Echo test yanıtlayıcısı */
+    UFUNCTION(BlueprintCallable, Category = "PiSim|ROS2")
+    void HandlePingTest(const FString& InJsonStr);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Control")
+    EPiSimTopicControlMode ControlMode = EPiSimTopicControlMode::Auto;
+
+    /** Son ArduPilot PWM paketinin alındığı simülasyon zamanı */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Control")
+    float LastPwmReceivedTime = -100.0f;
+
+    /** PWM öncelik geçerlilik süresi (saniye) - bu süre boyunca PWM akarsa diğer modlar kilitlenir */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Control")
+    float PwmTimeoutSec = 0.5f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|ROS2")
     FString TopicPrefix; // Örn: "/rover_01"
@@ -67,3 +91,4 @@ protected:
     UPROPERTY()
     APiSimVehicle* CachedVehicle = nullptr;
 };
+

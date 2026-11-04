@@ -20,10 +20,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "Misc/Paths.h"
 #include "SWebBrowser.h"
-#include "TelemetryLogger.h"
 #include "TelemetryGateway.h" 
 #include "Pi5Bridge.h"
-#include "AutopilotBridge.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -1501,8 +1499,8 @@ FString UPiSimModularGarageWidget::GetActiveFleetJson()
         VObj->SetStringField(TEXT("name"), Vehicle->VehicleName);
         VObj->SetBoolField(TEXT("is_focused"), Vehicle->bIsFocusedVehicle);
 
-        int32 SitlListen = Vehicle->AutopilotBridge ? Vehicle->AutopilotBridge->ListenPort : (9002 + Vehicle->VehicleId * 10);
-        int32 SitlSend = Vehicle->AutopilotBridge ? Vehicle->AutopilotBridge->SendPort : (9003 + Vehicle->VehicleId * 10);
+        int32 SitlListen = 9002 + Vehicle->VehicleId * 10;
+        int32 SitlSend = 9003 + Vehicle->VehicleId * 10;
         int32 TelemetryPort = 7400;
         int32 VideoPort = 7401;
         int32 DedicatedCmdPort = 7402 + Vehicle->VehicleId;
@@ -1718,41 +1716,13 @@ void UPiSimModularGarageWidget::SetVehicleVideoSubscribed(int32 InVehicleId, boo
 // @state: WIP - Belirtilen aracın 1 dakikalık periyotlarla kaydedilen telemetri tablosunu JSON olarak çeker
 FString UPiSimModularGarageWidget::GetTelemetryTableJson(int32 InVehicleId, int32 MaxRows)
 {
-    for (APiSimVehicle* Vehicle : FleetVehicles)
-    {
-        if (Vehicle && Vehicle->VehicleId == InVehicleId)
-        {
-            if (Vehicle->TelemetryLogger)
-            {
-                return Vehicle->TelemetryLogger->GetRecentTelemetryTableJson(MaxRows);
-            }
-        }
-    }
-
-    if (TargetVehicle && TargetVehicle->TelemetryLogger)
-    {
-        return TargetVehicle->TelemetryLogger->GetRecentTelemetryTableJson(MaxRows);
-    }
-
     return TEXT("{\"total_logged\":0,\"rows\":[]}");
 }
 
 // @state: WIP - Tüm filodaki birikmiş telemetri satırlarını anında SQL dosyasına kaydeder
 void UPiSimModularGarageWidget::FlushTelemetryToSql()
 {
-    for (APiSimVehicle* Vehicle : FleetVehicles)
-    {
-        if (Vehicle && Vehicle->TelemetryLogger)
-        {
-            Vehicle->TelemetryLogger->FlushBatchToSql();
-        }
-    }
-
-    if (TargetVehicle && TargetVehicle->bShowDebugVisualsAndMessages && GEngine)
-    {
-        GEngine->AddOnScreenDebugMessage(811, 3.5f, FColor::Cyan,
-            TEXT("💾 [SQL Telemetri] 1 Dakikalık Batch Veritabanına Başarıyla Yazıldı (Saved/Telemetry/flight_telemetry.sql)"));
-    }
+    // Eski SQL kaydı devre dışı - Zenoh P2P In-Memory Mesh aktif.
 }
 
 // @state: WIP - WebUI sayfaları arasında geçiş yapar (garage.html <-> dashboardUnreal.html)

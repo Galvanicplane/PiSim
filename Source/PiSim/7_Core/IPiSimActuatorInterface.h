@@ -46,3 +46,4 @@ public:
     virtual FVector GetActuatorAxis() const = 0;
     virtual void SetActuatorAxis(const FVector& InAxis) = 0;
 };
+

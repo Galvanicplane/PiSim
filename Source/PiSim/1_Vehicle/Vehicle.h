@@ -230,12 +230,6 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Gateway")
     UPiSimTelemetryGateway* TelemetryGateway;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Telemetry")
-    class UPiSimTelemetryLogger* TelemetryLogger;
-
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Communication")
-    class UPiSimModularAutopilotBridge* AutopilotBridge;
-
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Communication")
     class UPiSimPi5Bridge* Pi5Bridge;
 

@@ -116,17 +116,24 @@ void UPiSimTopicBridge::PollIncomingPackets()
                 FString Topic = JsonObj->HasField(TEXT("topic")) ? JsonObj->GetStringField(TEXT("topic")) : TEXT("");
                 FString Cmd = JsonObj->HasField(TEXT("cmd")) ? JsonObj->GetStringField(TEXT("cmd")) : TEXT("");
 
-                if (Topic.Contains(TEXT("actuators")) || Cmd.Equals(TEXT("actuators"), ESearchCase::IgnoreCase))
+                if (Topic.Contains(TEXT("ping")) || Cmd.Equals(TEXT("ping"), ESearchCase::IgnoreCase))
                 {
-                    DispatchActuatorsJson(JsonStr);
+                    HandlePingTest(JsonStr);
                 }
                 else if (Topic.Contains(TEXT("channels")) || Cmd.Equals(TEXT("channels"), ESearchCase::IgnoreCase))
                 {
                     DispatchChannelsJson(JsonStr);
                 }
+                else if (Topic.Contains(TEXT("actuators")) || Cmd.Equals(TEXT("actuators"), ESearchCase::IgnoreCase))
+                {
+                    DispatchActuatorsJson(JsonStr);
+                }
                 else if (Topic.Contains(TEXT("cmd_vel")) || Cmd.Equals(TEXT("cmd_vel"), ESearchCase::IgnoreCase))
                 {
-                    if (CachedVehicle)
+                    float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+                    bool bPwmActive = (ControlMode == EPiSimTopicControlMode::PWMChannels) ||
+                                     (ControlMode == EPiSimTopicControlMode::Auto && (Now - LastPwmReceivedTime) < PwmTimeoutSec);
+                    if (!bPwmActive && CachedVehicle)
                     {
                         CachedVehicle->ProcessCommandJson(JsonStr);
                     }
@@ -136,9 +143,27 @@ void UPiSimTopicBridge::PollIncomingPackets()
     }
 }
 
+void UPiSimTopicBridge::HandlePingTest(const FString& InJsonStr)
+{
+    double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    FString CleanCode = CachedVehicle ? CachedVehicle->VehicleCode : TEXT("rover");
+    FString PongMsg = FString::Printf(TEXT("{\"status\":\"ok\",\"msg\":\"Unreal Engine Zenoh Topic Bridge Alive!\",\"vehicle\":\"%s\",\"sim_time\":%.3f}"), *CleanCode, Now);
+    PublishTopic(TEXT("pong"), PongMsg);
+}
+
 void UPiSimTopicBridge::DispatchActuatorsJson(const FString& InJsonStr)
 {
     if (!CachedVehicle) return;
+
+    float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+    if (ControlMode == EPiSimTopicControlMode::PWMChannels)
+    {
+        return; // PWM modunda kilitli
+    }
+    if (ControlMode == EPiSimTopicControlMode::Auto && (Now - LastPwmReceivedTime) < PwmTimeoutSec)
+    {
+        return; // ArduPilot PWM akışı aktif, öncelik PWM'de!
+    }
 
     TSharedPtr<FJsonObject> JsonObj;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(InJsonStr);
@@ -176,6 +201,8 @@ void UPiSimTopicBridge::DispatchActuatorsJson(const FString& InJsonStr)
 void UPiSimTopicBridge::DispatchChannelsJson(const FString& InJsonStr)
 {
     if (!CachedVehicle) return;
+
+    LastPwmReceivedTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
 
     TSharedPtr<FJsonObject> JsonObj;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(InJsonStr);
@@ -269,38 +296,5 @@ void UPiSimTopicBridge::PublishSensors()
         Sec, NanoSec, Lat, Lon, Alt
     );
     PublishTopic(TEXT("gps"), GpsPayload);
-
-    // 3. ROS 2 sensor_msgs/msg/JointState
-    TArray<UActorComponent*> Comps;
-    CachedVehicle->GetComponents(Comps);
-    FString NamesJson = TEXT("[");
-    FString PosJson = TEXT("[");
-    bool bFirst = true;
-
-    for (UActorComponent* Comp : Comps)
-    {
-        if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(Comp))
-        {
-            FName Bone = Actuator->GetTargetBoneName();
-            if (Bone.IsNone()) continue;
-
-            if (!bFirst)
-            {
-                NamesJson += TEXT(",");
-                PosJson += TEXT(",");
-            }
-            NamesJson += FString::Printf(TEXT("\"%s\""), *Bone.ToString());
-            PosJson += FString::Printf(TEXT("%.4f"), Actuator->GetActuatorNormalized());
-            bFirst = false;
-        }
-    }
-    NamesJson += TEXT("]");
-    PosJson += TEXT("]");
-
-    FString JointStatePayload = FString::Printf(
-        TEXT("{\"header\":{\"stamp\":{\"sec\":%lld,\"nanosec\":%u},\"frame_id\":\"base_link\"},"
-             "\"name\":%s,\"position\":%s}"),
-        Sec, NanoSec, *NamesJson, *PosJson
-    );
-    PublishTopic(TEXT("joint_states"), JointStatePayload);
 }
+
