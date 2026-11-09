@@ -87,6 +87,7 @@ protected:
     FSocket* ListenSocket = nullptr;
     FSocket* SendSocket = nullptr;
     float LastSensorPublishTime = 0.0f;
+    double LastCameraPublishTime = 0.0;
 
     UPROPERTY()
     APiSimVehicle* CachedVehicle = nullptr;

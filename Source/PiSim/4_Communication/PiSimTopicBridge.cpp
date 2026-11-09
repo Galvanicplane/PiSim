@@ -301,13 +301,12 @@ void UPiSimTopicBridge::PublishSensors()
     PublishTopic(TEXT("gps"), GpsPayload);
 
     // 3. ROS 2 sensor_msgs/msg/CompressedImage (Camera JPEG - 10 Hz)
-    static double LastCamTime = 0.0;
-    if (NowSec - LastCamTime >= 0.10)
+    if (NowSec - LastCameraPublishTime >= 0.10)
     {
         TArray<uint8> CamBytes;
         if (CachedVehicle->GetLatestCameraFrame(CamBytes) && CamBytes.Num() > 64)
         {
-            LastCamTime = NowSec;
+            LastCameraPublishTime = NowSec;
             FString B64 = FBase64::Encode(CamBytes);
             FString CamPayload = FString::Printf(
                 TEXT("{\"header\":{\"stamp\":{\"sec\":%lld,\"nanosec\":%u},\"frame_id\":\"camera_link\"},"
