@@ -172,6 +172,10 @@ void UPiSimTopicBridge::DispatchActuatorsJson(const FString& InJsonStr)
     const TSharedPtr<FJsonObject>* MotorsObj = nullptr;
     if (JsonObj->TryGetObjectField(TEXT("motors"), MotorsObj) && MotorsObj && MotorsObj->IsValid())
     {
+        // Gazebo / Doğrudan Aktüatör Modunu aktifleştir ve watchdog süresini kur
+        CachedVehicle->bDirectActuatorControl = true;
+        CachedVehicle->CommandWatchdogTimer = 0.8f;
+
         TArray<UActorComponent*> Comps;
         CachedVehicle->GetComponents(Comps);
 
@@ -195,6 +199,9 @@ void UPiSimTopicBridge::DispatchActuatorsJson(const FString& InJsonStr)
             // 2. Mafsal ve Chaos dinamik değer haritasını güncelle
             CachedVehicle->SetMotorTestValue(BoneName, Value);
         }
+
+        // 3. Aracı fiziksel olarak doğrudan tetikle
+        CachedVehicle->ProcessCommandJson(InJsonStr);
     }
 }
 
