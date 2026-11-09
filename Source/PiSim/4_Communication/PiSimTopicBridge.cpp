@@ -8,6 +8,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonWriter.h"
+#include "Misc/Base64.h"
 
 UPiSimTopicBridge::UPiSimTopicBridge()
 {
@@ -298,5 +299,23 @@ void UPiSimTopicBridge::PublishSensors()
         Sec, NanoSec, Gps.FixType, Gps.Latitude, Gps.Longitude, Gps.AltitudeMeters
     );
     PublishTopic(TEXT("gps"), GpsPayload);
+
+    // 3. ROS 2 sensor_msgs/msg/CompressedImage (Camera JPEG - 10 Hz)
+    static double LastCamTime = 0.0;
+    if (NowSec - LastCamTime >= 0.10)
+    {
+        TArray<uint8> CamBytes;
+        if (CachedVehicle->GetLatestCameraFrame(CamBytes) && CamBytes.Num() > 64)
+        {
+            LastCamTime = NowSec;
+            FString B64 = FBase64::Encode(CamBytes);
+            FString CamPayload = FString::Printf(
+                TEXT("{\"header\":{\"stamp\":{\"sec\":%lld,\"nanosec\":%u},\"frame_id\":\"camera_link\"},"
+                     "\"format\":\"jpeg\",\"data\":\"%s\"}"),
+                Sec, NanoSec, *B64
+            );
+            PublishTopic(TEXT("camera/compressed"), CamPayload);
+        }
+    }
 }
 

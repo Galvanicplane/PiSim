@@ -45,7 +45,7 @@ public:
     int32 JpegQuality = 55;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
-    float CaptureFps = 15.0f;
+    float CaptureFps = 10.0f;
 
     /** Kameranın araç merkezine göre yerel konumu (cm): X=İleri, Y=Sağ, Z=Yukarı */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")

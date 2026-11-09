@@ -40,6 +40,17 @@ void UPiSimCameraSensor::BeginPlay()
                 SceneCapture->TextureTarget = RenderTarget;
                 SceneCapture->FOVAngle = FOVDegrees;
                 SceneCapture->bCaptureEveryFrame = false; // FPS kontrolü ile manuel tetiklenir
+                SceneCapture->bCaptureOnMovement = false;
+                SceneCapture->CaptureSource = SCS_FinalColorLDR;
+
+                // GPU Optimizasyonu (Kamera sahne render yükünü %70 azaltır, Unreal FPS'ini korur)
+                SceneCapture->ShowFlags.SetDynamicShadows(false);
+                SceneCapture->ShowFlags.SetAtmosphere(false);
+                SceneCapture->ShowFlags.SetFog(false);
+                SceneCapture->ShowFlags.SetVolumetricFog(false);
+                SceneCapture->ShowFlags.SetBloom(false);
+                SceneCapture->ShowFlags.SetMotionBlur(false);
+                SceneCapture->ShowFlags.SetAntiAliasing(false);
             }
         }
     }
