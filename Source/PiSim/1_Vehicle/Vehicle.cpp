@@ -1642,15 +1642,36 @@ void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
     }
 
     FString Cmd = JsonObj->HasField(TEXT("cmd")) ? JsonObj->GetStringField(TEXT("cmd")) : TEXT("cmd_vel");
+    FString TopicField = JsonObj->HasField(TEXT("topic")) ? JsonObj->GetStringField(TEXT("topic")) : TEXT("");
     float TimeoutSec = JsonObj->HasField(TEXT("timeout_ms")) ? (float)JsonObj->GetNumberField(TEXT("timeout_ms")) / 1000.0f : 0.6f;
 
-    if (Cmd.Equals(TEXT("actuators"), ESearchCase::IgnoreCase) || 
+    if (Cmd.Equals(TEXT("ack"), ESearchCase::IgnoreCase) || TopicField.EndsWith(TEXT("/ack"), ESearchCase::IgnoreCase))
+    {
+        if (TopicBridge)
+        {
+            TopicBridge->DispatchAckJson(JsonStr);
+        }
+        return;
+    }
+    else if (Cmd.Equals(TEXT("channels"), ESearchCase::IgnoreCase) || TopicField.EndsWith(TEXT("/channels"), ESearchCase::IgnoreCase) || ActivePayload->HasField(TEXT("channels")))
+    {
+        if (TopicBridge)
+        {
+            TopicBridge->DispatchChannelsJson(JsonStr);
+        }
+        return;
+    }
+    else if (Cmd.Equals(TEXT("actuators"), ESearchCase::IgnoreCase) || 
         Cmd.Equals(TEXT("motors"), ESearchCase::IgnoreCase) ||
         Cmd.Equals(TEXT("set_motors"), ESearchCase::IgnoreCase))
     {
         // Gazebo / Doğrudan Aktüatör Modu: Pi 5 tüm motor ve servoları kendisi sürer
         bDirectActuatorControl = true;
         CommandWatchdogTimer = FMath::Max(0.2f, TimeoutSec);
+        if (TopicBridge)
+        {
+            TopicBridge->TopicAckStatusMap.Add(TopicBridge->TopicPrefix + TEXT("/actuators"), 2);
+        }
 
         const TSharedPtr<FJsonObject>* MotorsObj = nullptr;
         if (ActivePayload->TryGetObjectField(TEXT("motors"), MotorsObj) && MotorsObj && MotorsObj->IsValid())

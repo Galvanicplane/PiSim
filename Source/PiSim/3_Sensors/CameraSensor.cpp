@@ -2,12 +2,14 @@
 
 #include "CameraSensor.h"
 #include "Vehicle.h"
+#include "PiSimTopicBridge.h"
 #include "ProceduralMeshComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "IImageWrapperModule.h"
 #include "IImageWrapper.h"
 #include "Modules/ModuleManager.h"
+#include "Misc/Base64.h"
 #include "GameFramework/Actor.h"
 
 // @state: WIP - Kamera sensörü yapıcısı
@@ -54,22 +56,91 @@ void UPiSimCameraSensor::BeginPlay()
             }
         }
     }
+
+    // Standby Mavi Ekran (Blue Screen) çerçevesini bir kez üret (~200 byte, sıfır GPU yükü)
+    GenerateStandbyBlueScreen();
 }
 
-// @state: WIP - İstenen FPS aralığında (sadece canlı video abonesi varken) kamera çerçevesi yakalar
+void UPiSimCameraSensor::GenerateStandbyBlueScreen()
+{
+    const int32 TinyW = 32;
+    const int32 TinyH = 32;
+    TArray<FColor> BluePixels;
+    BluePixels.Init(FColor(10, 65, 235, 255), TinyW * TinyH); // Parlak Mavi Ekran (Standby)
+
+    IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(FName("ImageWrapper"));
+    TSharedPtr<IImageWrapper> JpegWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::JPEG);
+    if (JpegWrapper.IsValid() && JpegWrapper->SetRaw(BluePixels.GetData(), BluePixels.Num() * sizeof(FColor), TinyW, TinyH, ERGBFormat::BGRA, 8))
+    {
+        TArray64<uint8> Comp64 = JpegWrapper->GetCompressed(35);
+        StandbyBlueScreenBytes.Reset();
+        StandbyBlueScreenBytes.Append(Comp64.GetData(), Comp64.Num());
+    }
+}
+
+void UPiSimCameraSensor::HandleAckTrigger(int32 AckCode)
+{
+    double NowSec = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    if (AckCode == 3)
+    {
+        bLiveH264StreamActive = true;
+        LastTriggerAckTime = NowSec;
+    }
+    else if (AckCode == 4)
+    {
+        bLiveH264StreamActive = false;
+    }
+}
+
+void UPiSimCameraSensor::PublishStandbyBlueScreen()
+{
+    if (!CachedVehicle || StandbyBlueScreenBytes.Num() == 0)
+    {
+        return;
+    }
+
+    CachedVehicle->FeedCameraFrame(StandbyBlueScreenBytes);
+
+    if (CachedVehicle->TopicBridge)
+    {
+        double NowSec = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+        int64 Sec = (int64)NowSec;
+        uint32 NanoSec = (uint32)((NowSec - (double)Sec) * 1e9);
+        FString B64 = FBase64::Encode(StandbyBlueScreenBytes);
+
+        FString CamPayload = FString::Printf(
+            TEXT("{\"header\":{\"stamp\":{\"sec\":%lld,\"nanosec\":%u},\"frame_id\":\"camera_optical_frame\"},"
+                 "\"format\":\"h264\",\"mode\":\"standby_blue\",\"data\":\"%s\"}"),
+            Sec, NanoSec, *B64
+        );
+        CachedVehicle->TopicBridge->PublishTopic(TEXT("camera/h264"), CamPayload);
+        CachedVehicle->TopicBridge->PublishTopic(TEXT("camera/compressed"), CamPayload);
+    }
+}
+
+// @state: WIP - ACK=3 tetiklemesi varsa canlı H.264 yakalar; yoksa veya 4sn ACK gelmezse hafif Mavi Ekran (Standby) basar
 void UPiSimCameraSensor::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    // On-Demand Kuralı: Abone yoksa sahne yakalama ve ReadPixels yapma (GPU/CPU tasarrufu)
-    APiSimVehicle* OwnerVehicle = Cast<APiSimVehicle>(GetOwner());
-    if (OwnerVehicle)
+    double NowSec = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+
+    // Uzun süre ACK=3 gelmediğinde otomatik olarak Mavi Ekran (Standby) moduna geri dön
+    if (bLiveH264StreamActive && (NowSec - LastTriggerAckTime) > (double)TriggerWatchdogTimeoutSec)
     {
-        bool bSubscribed = true;
-        if (!bSubscribed)
+        bLiveH264StreamActive = false;
+    }
+
+    if (!bLiveH264StreamActive)
+    {
+        // Standby Modu: GPU SceneCapture ve ReadPixels ÇAĞRILMAZ! Sadece 2 Hz'de hafif Mavi Ekran (~200 byte) yayınlanır.
+        TimeSinceLastStandbyPublish += DeltaTime;
+        if (TimeSinceLastStandbyPublish >= 0.50f)
         {
-            return;
+            TimeSinceLastStandbyPublish = 0.0f;
+            PublishStandbyBlueScreen();
         }
+        return;
     }
 
     TimeSinceLastCapture += DeltaTime;
@@ -188,6 +259,23 @@ void UPiSimCameraSensor::CaptureAndCompressFrame()
             CompressedBytes.Append(CompressedBytes64.GetData(), CompressedBytes64.Num());
 
             CachedVehicle->FeedCameraFrame(CompressedBytes);
+
+            // Kamera modülü doğrudan kendi H.264 topic'ine yayın yapar (Port 7500 -> Zenoh Bridge Binary CDR)
+            if (CachedVehicle->TopicBridge)
+            {
+                double NowSec = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+                int64 Sec = (int64)NowSec;
+                uint32 NanoSec = (uint32)((NowSec - (double)Sec) * 1e9);
+                FString B64 = FBase64::Encode(CompressedBytes);
+
+                FString CamPayload = FString::Printf(
+                    TEXT("{\"header\":{\"stamp\":{\"sec\":%lld,\"nanosec\":%u},\"frame_id\":\"camera_optical_frame\"},"
+                         "\"format\":\"h264\",\"mode\":\"live_h264\",\"data\":\"%s\"}"),
+                    Sec, NanoSec, *B64
+                );
+                CachedVehicle->TopicBridge->PublishTopic(TEXT("camera/h264"), CamPayload);
+                CachedVehicle->TopicBridge->PublishTopic(TEXT("camera/compressed"), CamPayload);
+            }
         }
     }
 }

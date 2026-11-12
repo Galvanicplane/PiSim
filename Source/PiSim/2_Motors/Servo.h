@@ -66,11 +66,11 @@ public:
     float SpeedDegPerSec = 240.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
-    int32 ArduPilotChannel = 1; // 1 - 16
+    int32 ArduPilotChannel = 2; // Kanal 2: Direksiyon Servoları (Sağ / Sol Steer, 1 - 16)
 
-    /** Servo Rolü: Aileron, Elevator, Rudder, Elevon_Left, Elevon_Right, Flap, Steer */
+    /** Servo Rolü: Steer, Aileron, Elevator, Rudder, Elevon_Left, Elevon_Right, Flap */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
-    FString ArduPilotFunction = TEXT("Aileron");
+    FString ArduPilotFunction = TEXT("Steer");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
     FVector LocalRotationAxis = FVector(0.0f, 0.0f, 1.0f); // Varsayılan Z Yaw ekseni

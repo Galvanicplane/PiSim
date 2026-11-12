@@ -62,6 +62,18 @@ public:
     /** Aracın üzerindeki kameranın anlık Dünya (World) Konum ve Rotasyonunu hesaplar (FPV ve RenderTarget için) */
     bool GetCameraWorldTransform(FVector& OutLocation, FRotator& OutRotation) const;
 
+    /** ACK Mesajı üzerinden kamera modunu tetikler: 3 = Canlı H.264 Yayınını Aç, 4 = Mavi Ekran (Standby) Moduna Dön */
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Camera")
+    void HandleAckTrigger(int32 AckCode);
+
+    /** Kamera şu an canlı H.264 sahne yakalama modunda mı? (False ise hafif Mavi Ekran / Standby yayınlar) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Camera")
+    bool bLiveH264StreamActive = false;
+
+    /** ACK=3 gelmediğinde kameranın otomatik olarak Mavi Ekran (Standby) moduna döneceği süre (saniye) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
+    float TriggerWatchdogTimeoutSec = 4.0f;
+
 protected:
     UPROPERTY()
     USceneCaptureComponent2D* SceneCapture = nullptr;
@@ -73,6 +85,13 @@ protected:
     APiSimVehicle* CachedVehicle = nullptr;
 
     float TimeSinceLastCapture = 0.0f;
+    float TimeSinceLastStandbyPublish = 0.0f;
+    double LastTriggerAckTime = -100.0;
 
+    /** Hafif Mavi Ekran (Standby) çerçeve önbelleği (~200 byte, GPU kullanmaz, GPS paketi kadar hafiftir) */
+    TArray<uint8> StandbyBlueScreenBytes;
+
+    void GenerateStandbyBlueScreen();
+    void PublishStandbyBlueScreen();
     void CaptureAndCompressFrame();
 };

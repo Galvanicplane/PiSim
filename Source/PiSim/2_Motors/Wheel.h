@@ -85,7 +85,7 @@ public:
     float FrictionCoefficient = 0.85f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
-    int32 ArduPilotChannel = 3; // Gaz veya Direksiyon kanalı
+    int32 ArduPilotChannel = 1; // Kanal 1: Sürüş Tekerlekleri (İleri / Geri Gaz)
 
     /** Manuel UI testi açıksa ağ / otopilot komutları değeri ezmez */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")

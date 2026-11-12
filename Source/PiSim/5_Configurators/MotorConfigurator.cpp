@@ -40,7 +40,7 @@ void UPiSimMotorConfigurator::AutoAssignMotorsByBoneNames(APiSimVehicle* TargetV
                 else
                 {
                     Wheel->SetWheelMode(EPiSimWheelMode::DriveWheel);
-                    Wheel->ArduPilotChannel = 3;
+                    Wheel->ArduPilotChannel = 1; // Kanal 1: Sürüş Tekerlekleri (İleri/Geri)
                 }
             }
         }
@@ -50,7 +50,12 @@ void UPiSimMotorConfigurator::AutoAssignMotorsByBoneNames(APiSimVehicle* TargetV
             UActorComponent* Comp = AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Servo"));
             if (UPiSimServoComponent* Servo = Cast<UPiSimServoComponent>(Comp))
             {
-                if (BoneStr.Contains(TEXT("elevon_l")) || BoneStr.Contains(TEXT("aileron_l")))
+                if (BoneStr.Contains(TEXT("steer")) || BoneStr.Contains(TEXT("servo")))
+                {
+                    Servo->ArduPilotFunction = TEXT("Steer");
+                    Servo->ArduPilotChannel = 2; // Kanal 2: Direksiyon Servoları (Sağ/Sol)
+                }
+                else if (BoneStr.Contains(TEXT("elevon_l")) || BoneStr.Contains(TEXT("aileron_l")))
                 {
                     Servo->ArduPilotFunction = TEXT("Elevon_Left");
                     Servo->ArduPilotChannel = 1;
@@ -69,6 +74,11 @@ void UPiSimMotorConfigurator::AutoAssignMotorsByBoneNames(APiSimVehicle* TargetV
                 {
                     Servo->ArduPilotFunction = TEXT("Rudder");
                     Servo->ArduPilotChannel = 4;
+                }
+                else
+                {
+                    Servo->ArduPilotFunction = TEXT("Steer");
+                    Servo->ArduPilotChannel = 2;
                 }
             }
         }

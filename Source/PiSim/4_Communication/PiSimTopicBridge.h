@@ -40,9 +40,21 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|ROS2")
     void DispatchActuatorsJson(const FString& InJsonStr);
 
-    /** Eyleyici topic'i üzerinden gelen doğrudan ArduPilot PWM kanallarını (1..16) dağıtır */
+    /** Eyleyici topic'i üzerinden gelen doğrudan ArduPilot PWM/Joystick kanallarını (1: Tekerlek, 2: Steer Servo...) dağıtır */
     UFUNCTION(BlueprintCallable, Category = "PiSim|ROS2")
     void DispatchChannelsJson(const FString& InJsonStr);
+
+    /** Karşı taraftan (Pi 5 / Dashboard) gelen ACK ve Kamera Tetikleme (3=Aç, 4=Standby Mavi Ekran) mesajlarını işler */
+    UFUNCTION(BlueprintCallable, Category = "PiSim|ROS2")
+    void DispatchAckJson(const FString& InJsonStr);
+
+    /** Aracın kendi topic sağlık ve ACK tablosunu (/ack) yayınlar (0=Yok, 1=Bozuk, 2=Sağlıklı, 3=Trigger, 4=Standby) */
+    UFUNCTION(BlueprintCallable, Category = "PiSim|ROS2")
+    void PublishAckStatus();
+
+    /** Topic bazlı anlık ACK durum haritası (Debug ve UI gösterimi için) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|ROS2")
+    TMap<FString, int32> TopicAckStatusMap;
 
     /** Belirtilen topic altına veri yayınlar (ROS 2 / Zenoh uyumlu) */
     UFUNCTION(BlueprintCallable, Category = "PiSim|ROS2")
@@ -88,6 +100,7 @@ protected:
     FSocket* SendSocket = nullptr;
     float LastSensorPublishTime = 0.0f;
     double LastCameraPublishTime = 0.0;
+    double LastAckPublishTime = 0.0;
 
     UPROPERTY()
     APiSimVehicle* CachedVehicle = nullptr;

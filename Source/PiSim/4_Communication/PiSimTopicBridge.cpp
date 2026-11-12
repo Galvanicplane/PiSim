@@ -2,6 +2,7 @@
 
 #include "PiSimTopicBridge.h"
 #include "Vehicle.h"
+#include "CameraSensor.h"
 #include "IPiSimActuatorInterface.h"
 #include "Common/UdpSocketBuilder.h"
 #include "Dom/JsonObject.h"
@@ -121,6 +122,10 @@ void UPiSimTopicBridge::PollIncomingPackets()
                 {
                     HandlePingTest(JsonStr);
                 }
+                else if (Topic.Contains(TEXT("ack")) || Cmd.Equals(TEXT("ack"), ESearchCase::IgnoreCase))
+                {
+                    DispatchAckJson(JsonStr);
+                }
                 else if (Topic.Contains(TEXT("channels")) || Cmd.Equals(TEXT("channels"), ESearchCase::IgnoreCase))
                 {
                     DispatchChannelsJson(JsonStr);
@@ -210,23 +215,61 @@ void UPiSimTopicBridge::DispatchChannelsJson(const FString& InJsonStr)
 {
     if (!CachedVehicle) return;
 
-    LastPwmReceivedTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
-
     TSharedPtr<FJsonObject> JsonObj;
     TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(InJsonStr);
-    if (!FJsonSerializer::Deserialize(Reader, JsonObj) || !JsonObj.IsValid()) return;
+    if (!FJsonSerializer::Deserialize(Reader, JsonObj) || !JsonObj.IsValid())
+    {
+        TopicAckStatusMap.Add(TopicPrefix + TEXT("/channels"), 1); // 1 = Veri yapısı bozuk
+        return;
+    }
 
     const TSharedPtr<FJsonObject>* ChansObj = nullptr;
-    if (JsonObj->TryGetObjectField(TEXT("channels"), ChansObj) && ChansObj && ChansObj->IsValid())
+    if (!JsonObj->TryGetObjectField(TEXT("channels"), ChansObj) || !ChansObj || !ChansObj->IsValid())
     {
+        const TSharedPtr<FJsonObject>* MsgObj = nullptr;
+        if (JsonObj->TryGetObjectField(TEXT("msg"), MsgObj) && MsgObj && MsgObj->IsValid())
+        {
+            (*MsgObj)->TryGetObjectField(TEXT("channels"), ChansObj);
+        }
+    }
+
+    if (ChansObj && ChansObj->IsValid())
+    {
+        LastPwmReceivedTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+        CachedVehicle->bDirectActuatorControl = true;
+        CachedVehicle->CommandWatchdogTimer = 0.8f;
+        TopicAckStatusMap.Add(TopicPrefix + TEXT("/channels"), 2); // 2 = Sağlıklı
+
         TArray<UActorComponent*> Comps;
         CachedVehicle->GetComponents(Comps);
 
         for (const auto& Pair : (*ChansObj)->Values)
         {
-            int32 ChNum = FCString::Atoi(*Pair.Key);
-            int32 PwmVal = (int32)Pair.Value->AsNumber();
+            FString KeyClean = Pair.Key;
+            KeyClean.RemoveFromStart(TEXT("ch"), ESearchCase::IgnoreCase);
+            int32 ChNum = FCString::Atoi(*KeyClean);
+            if (ChNum <= 0) continue;
 
+            float RawVal = (float)Pair.Value->AsNumber();
+            float NormVal = 0.0f;
+            int32 PwmVal = 1500;
+
+            // Hem normalize (-1.0 .. +1.0) hem de ArduPilot PWM (1000 .. 2000) değerlerini otomatik destekle
+            if (FMath::Abs(RawVal) <= 2.5f)
+            {
+                NormVal = FMath::Clamp(RawVal, -1.0f, 1.0f);
+                PwmVal = FMath::RoundToInt(1500.0f + NormVal * 500.0f);
+            }
+            else
+            {
+                PwmVal = FMath::Clamp((int32)RawVal, 800, 2200);
+                NormVal = FMath::Clamp((PwmVal - 1500.0f) / 500.0f, -1.0f, 1.0f);
+            }
+
+            bool bHandledByModule = false;
+            // 1. Her motor modülü kendi ArduPilotChannel değişkenini kontrol eder ve kendi komutunu uygular
+            //    Channel 1 -> Sürüş Tekerlekleri (İleri/Geri)
+            //    Channel 2 -> Direksiyon Servoları (Sağ/Sol)
             for (UActorComponent* Comp : Comps)
             {
                 if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(Comp))
@@ -234,11 +277,103 @@ void UPiSimTopicBridge::DispatchChannelsJson(const FString& InJsonStr)
                     if (Actuator->GetArduPilotChannel() == ChNum)
                     {
                         Actuator->SetActuatorPWM(PwmVal);
+                        FName BoneName = Actuator->GetTargetBoneName();
+                        if (!BoneName.IsNone())
+                        {
+                            CachedVehicle->SetMotorTestValue(BoneName, NormVal);
+                        }
+                        bHandledByModule = true;
                     }
+                }
+            }
+
+            // 2. Kemik sahne bileşenleri için yedek eşleştirme (Channel 1 = Tekerlekler, Channel 2 = Steer Servolar)
+            for (const auto& BonePair : CachedVehicle->BoneSceneComponents)
+            {
+                FString LowerName = BonePair.Key.ToString().ToLower();
+                if (ChNum == 1 && (LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker"))))
+                {
+                    CachedVehicle->SetMotorTestValue(BonePair.Key, NormVal);
+                }
+                else if (ChNum == 2 && (LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo"))))
+                {
+                    CachedVehicle->SetMotorTestValue(BonePair.Key, NormVal);
                 }
             }
         }
     }
+    else
+    {
+        TopicAckStatusMap.Add(TopicPrefix + TEXT("/channels"), 1); // 1 = İstenen yapıda değil
+    }
+}
+
+void UPiSimTopicBridge::DispatchAckJson(const FString& InJsonStr)
+{
+    if (!CachedVehicle) return;
+
+    TSharedPtr<FJsonObject> JsonObj;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(InJsonStr);
+    if (!FJsonSerializer::Deserialize(Reader, JsonObj) || !JsonObj.IsValid()) return;
+
+    const TSharedPtr<FJsonObject>* TopicsObj = nullptr;
+    if (!JsonObj->TryGetObjectField(TEXT("topics"), TopicsObj) || !TopicsObj || !TopicsObj->IsValid())
+    {
+        const TSharedPtr<FJsonObject>* MsgObj = nullptr;
+        if (JsonObj->TryGetObjectField(TEXT("msg"), MsgObj) && MsgObj && MsgObj->IsValid())
+        {
+            (*MsgObj)->TryGetObjectField(TEXT("topics"), TopicsObj);
+        }
+    }
+
+    if (TopicsObj && TopicsObj->IsValid())
+    {
+        for (const auto& Pair : (*TopicsObj)->Values)
+        {
+            FString TopicKey = Pair.Key;
+            int32 StatusCode = (int32)Pair.Value->AsNumber();
+            TopicAckStatusMap.Add(TopicKey, StatusCode);
+
+            // Kamera topic'i için ACK=3 (Canlı H.264 Aç) veya ACK=4 (Standby Mavi Ekran'a Dön) tetiklemesi
+            if (TopicKey.Contains(TEXT("camera"), ESearchCase::IgnoreCase) || TopicKey.Contains(TEXT("h264"), ESearchCase::IgnoreCase))
+            {
+                if (CachedVehicle->CameraSensor)
+                {
+                    CachedVehicle->CameraSensor->HandleAckTrigger(StatusCode);
+                }
+            }
+        }
+    }
+}
+
+void UPiSimTopicBridge::PublishAckStatus()
+{
+    if (!CachedVehicle) return;
+
+    float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+    FString CleanCode = CachedVehicle->VehicleCode.IsEmpty() ? TEXT("rover_01") : CachedVehicle->VehicleCode;
+
+    int32 ImuCode = 2; // 2 = Sağlıklı
+    int32 GpsCode = 2; // 2 = Sağlıklı
+    int32 CamCode = (CachedVehicle->CameraSensor && CachedVehicle->CameraSensor->bLiveH264StreamActive) ? 3 : 4; // 3=Canlı H264, 4=Standby Mavi Ekran
+    int32 ChCode = ((Now - LastPwmReceivedTime) < 3.0f) ? 2 : TopicAckStatusMap.FindRef(TopicPrefix + TEXT("/channels"));
+    int32 ActCode = (CachedVehicle->CommandWatchdogTimer > 0.0f) ? 2 : TopicAckStatusMap.FindRef(TopicPrefix + TEXT("/actuators"));
+
+    FString AckPayload = FString::Printf(
+        TEXT("{\"vehicle_code\":\"%s\",\"source\":\"unreal\",\"topics\":{"
+             "\"%s/imu\":%d,"
+             "\"%s/gps\":%d,"
+             "\"%s/camera/h264\":%d,"
+             "\"%s/channels\":%d,"
+             "\"%s/actuators\":%d}}"),
+        *CleanCode,
+        *TopicPrefix, ImuCode,
+        *TopicPrefix, GpsCode,
+        *TopicPrefix, CamCode,
+        *TopicPrefix, ChCode,
+        *TopicPrefix, ActCode
+    );
+    PublishTopic(TEXT("ack"), AckPayload);
 }
 
 void UPiSimTopicBridge::PublishTopic(const FString& TopicSuffix, const FString& JsonPayload)
@@ -300,21 +435,11 @@ void UPiSimTopicBridge::PublishSensors()
     );
     PublishTopic(TEXT("gps"), GpsPayload);
 
-    // 3. ROS 2 sensor_msgs/msg/CompressedImage (Camera JPEG - 10 Hz)
-    if (NowSec - LastCameraPublishTime >= 0.10)
+    // 3. Araca Özel ACK Sağlık ve Kamera Durum Tablosu (2 Hz: /<vehicle_code>/ack)
+    if (NowSec - LastAckPublishTime >= 0.50)
     {
-        TArray<uint8> CamBytes;
-        if (CachedVehicle->GetLatestCameraFrame(CamBytes) && CamBytes.Num() > 64)
-        {
-            LastCameraPublishTime = NowSec;
-            FString B64 = FBase64::Encode(CamBytes);
-            FString CamPayload = FString::Printf(
-                TEXT("{\"header\":{\"stamp\":{\"sec\":%lld,\"nanosec\":%u},\"frame_id\":\"camera_link\"},"
-                     "\"format\":\"jpeg\",\"data\":\"%s\"}"),
-                Sec, NanoSec, *B64
-            );
-            PublishTopic(TEXT("camera/compressed"), CamPayload);
-        }
+        LastAckPublishTime = NowSec;
+        PublishAckStatus();
     }
 }
 
