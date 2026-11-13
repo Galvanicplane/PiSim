@@ -203,32 +203,11 @@ void APiSimVehicle::Tick(float DeltaTime)
     UpdateLiveTelemetryState(DeltaTime);
 
     // 'Y' tuşuna basıldığında tekerlek dönme eksenini ve ACM mafsal serbestisini döngüsel değiştir (Canlı Debug)
+    // NOT: Araç WASD ile doğrudan klavyeden sürülmez; tüm sürüş komutları yalnızca Pi 5 / Zenoh Topic'leri üzerinden gelir.
     if (UWorld* World = GetWorld())
     {
         if (APlayerController* PC = World->GetFirstPlayerController())
         {
-            float ManualForward = 0.0f;
-            float ManualSteer = 0.0f;
-
-            if (PC->IsInputKeyDown(EKeys::W)) ManualForward += 1.0f;
-            if (PC->IsInputKeyDown(EKeys::S)) ManualForward -= 1.0f;
-            if (PC->IsInputKeyDown(EKeys::A)) ManualSteer -= 1.0f;
-            if (PC->IsInputKeyDown(EKeys::D)) ManualSteer += 1.0f;
-
-            if (ManualForward != 0.0f || ManualSteer != 0.0f)
-            {
-                float ManualLinear = ManualForward * 2.0f;
-                float ManualAngular = ManualSteer * 1.2f;
-                SetTwistVelocity(ManualLinear, ManualAngular, 0.25f);
-
-                if (GEngine)
-                {
-                    FString Msg = FString::Printf(TEXT("🎮 [WASD MANUEL SÜRÜŞ] Araç: %s | Hız: %+.1f m/s | Dönüş: %+.2f rad/s"),
-                        *VehicleCode, ManualLinear, ManualAngular);
-                    GEngine->AddOnScreenDebugMessage(99235, 0.1f, FColor::Yellow, Msg);
-                }
-            }
-
             if (PC->WasInputKeyJustPressed(EKeys::Y) && !bSensorPlacementMode)
             {
                 CycleWheelSpinAxis();
@@ -285,178 +264,7 @@ void APiSimVehicle::Tick(float DeltaTime)
         }
     }
 
-    // =========================================================================
-    // CANLI MOTOR / EYLEYİCİ DÖNÜŞ VE KONTROL BLOĞU (PiSimModelImporter pattern)
-    // =========================================================================
-    // 1) STEER VE SERVO AÇISINI HER TICK HİZALA (PiSimModelImporter lines 904-940)
-    for (const auto& Pair : MotorTestValues)
-    {
-        FName BoneName = Pair.Key;
-        float TestVal = Pair.Value;
-        FString LowerName = BoneName.ToString().ToLower();
-
-        bool bIsSteer = LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo")) ||
-                        LowerName.Contains(TEXT("joint")) || LowerName.Contains(TEXT("arm")) ||
-                        LowerName.Contains(TEXT("elevon")) || LowerName.Contains(TEXT("aileron")) ||
-                        LowerName.Contains(TEXT("rudder")) || LowerName.Contains(TEXT("flap"));
-
-        if (bIsSteer)
-        {
-            float TargetAngle = TestVal * 45.0f;
-            float SmoothAngle = TargetAngle;
-            if (USceneComponent* SteerComp = GetSceneComponentForBone(BoneName))
-            {
-                float CurrentYaw = SteerComp->GetRelativeRotation().Yaw;
-                SmoothAngle = FMath::FInterpTo(CurrentYaw, TargetAngle, DeltaTime, 12.0f);
-                SteerComp->SetRelativeRotation(FRotator(0.0f, SmoothAngle, 0.0f));
-            }
-
-            if (bIsPhysicsSimulating)
-            {
-                UPhysicsConstraintComponent* Constraint = FindConstraintForBone(BoneName);
-                if (!Constraint)
-                {
-                    int32 TargetSection = FindVisualSectionForBone(BoneName);
-                    Constraint = FindConstraintForSection(TargetSection);
-                }
-                if (Constraint)
-                {
-                    FVector RelLoc = Constraint->GetRelativeLocation();
-                    int32 TargetSection = FindVisualSectionForBone(BoneName);
-                    if (TargetSection > 0 && StoredVisualSections.IsValidIndex(TargetSection) && StoredVisualSections.IsValidIndex(0))
-                    {
-                        RelLoc = StoredVisualSections[TargetSection].PivotPoint - StoredVisualSections[0].PivotPoint;
-                    }
-                    FTransform SteerPose(FRotator(0.0f, SmoothAngle, 0.0f), RelLoc);
-                    Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
-                }
-            }
-        }
-    }
-
-    // 2) CANLI TEKERLEK SÜRÜŞÜ VE İTKİ FİZİĞİ (PiSimModelImporter lines 948-1020)
-    if (bIsPhysicsSimulating)
-    {
-        TSet<UPrimitiveComponent*> DrivenWheels;
-
-        for (const auto& Pair : MotorTestValues)
-        {
-            FName BoneName = Pair.Key;
-            float TestVal = Pair.Value;
-            if (FMath::Abs(TestVal) < 0.001f) continue;
-
-            FString LowerName = BoneName.ToString().ToLower();
-            bool bIsWheel = LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker")) || LowerName.Contains(TEXT("caster"));
-            bool bIsThruster = LowerName.Contains(TEXT("thrust")) || LowerName.Contains(TEXT("prop")) || LowerName.Contains(TEXT("rotor")) || LowerName.Contains(TEXT("motor"));
-
-            if (bIsWheel)
-            {
-                UPrimitiveComponent* WheelPrim = GetPrimitiveComponentForBone(BoneName);
-                if (WheelPrim && WheelPrim->IsSimulatingPhysics() && !DrivenWheels.Contains(WheelPrim))
-                {
-                    DrivenWheels.Add(WheelPrim);
-                    IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(GetModuleAtBone(BoneName));
-                    float TotalRpm = (Actuator && FMath::Abs(Actuator->GetActuatorNormalized()) > 0.001f) ? (Actuator->GetActuatorNormalized() * 250.0f) : (TestVal * 250.0f);
-                    float AngularSpeedDegPerSec = TotalRpm * 6.0f; // 1 RPM = 6 deg/sec
-                    FVector LocalAxle = Actuator ? Actuator->GetActuatorAxis().GetSafeNormal() : GetCurrentWheelSpinAxis();
-                    FVector WorldAxle = WheelPrim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
-
-                    FVector CurrentAngVel = WheelPrim->GetPhysicsAngularVelocityInDegrees();
-                    FVector NonRollVel = CurrentAngVel - (WorldAxle * (CurrentAngVel | WorldAxle));
-                    FVector DesiredRollVel = WorldAxle * AngularSpeedDegPerSec;
-                    WheelPrim->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
-                }
-            }
-            else if (bIsThruster)
-            {
-                float MaxThrustN = 25.0f;
-                float ThrustNewtons = TestVal * MaxThrustN;
-                FVector LocalThrustAxis = FVector(0.0f, 1.0f, 0.0f);
-                int32 VisIdx = FindVisualSectionForBone(BoneName);
-                if (VisIdx > 0 && StoredVisualSections.IsValidIndex(VisIdx) && !StoredVisualSections[VisIdx].BoneDirection.IsNearlyZero())
-                {
-                    LocalThrustAxis = StoredVisualSections[VisIdx].BoneDirection;
-                }
-
-                // Pervane görsel dönüşü
-                if (USceneComponent* PropComp = GetSceneComponentForBone(BoneName))
-                {
-                    float PropRpm = TestVal * 3000.0f;
-                    FQuat SpinQuat(LocalThrustAxis, FMath::DegreesToRadians(PropRpm * 6.0f * DeltaTime));
-                    PropComp->AddLocalRotation(SpinQuat);
-                }
-
-                // Şasiye itki kuvveti uygula (1 Newton = 100 Unreal Force Units)
-                if (VisualMeshComponents.IsValidIndex(0) && VisualMeshComponents[0])
-                {
-                    FVector WorldThrustAxis = VisualMeshComponents[0]->GetComponentTransform().TransformVectorNoScale(LocalThrustAxis).GetSafeNormal();
-                    VisualMeshComponents[0]->AddForce(WorldThrustAxis * ThrustNewtons * 100.0f);
-                }
-            }
-        }
-
-        // Görsel Mesh'ler için ek kontrol (VisualMeshComponents[i], i > 0)
-        for (int32 i = 1; i < VisualMeshComponents.Num(); ++i)
-        {
-            if (!VisualMeshComponents[i] || DrivenWheels.Contains(VisualMeshComponents[i]) || !StoredVisualSections.IsValidIndex(i)) continue;
-
-            FName BoneName = FName(*StoredVisualSections[i].MeshName);
-            float TestVal = MotorTestValues.FindRef(BoneName);
-            if (FMath::Abs(TestVal) < 0.001f)
-            {
-                FString Clean = StoredVisualSections[i].MeshName;
-                Clean.RemoveFromStart(TEXT("M_"), ESearchCase::IgnoreCase);
-                TestVal = MotorTestValues.FindRef(FName(*Clean));
-            }
-            if (FMath::Abs(TestVal) < 0.001f) continue;
-
-            FString LowerName = StoredVisualSections[i].MeshName.ToLower();
-            bool bIsWheel = LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker")) || LowerName.Contains(TEXT("caster"));
-            if (bIsWheel && VisualMeshComponents[i]->IsSimulatingPhysics())
-            {
-                DrivenWheels.Add(VisualMeshComponents[i]);
-                float TotalRpm = TestVal * 1200.0f;
-                float AngularSpeedDegPerSec = TotalRpm * 6.0f;
-                FVector LocalAxle = GetCurrentWheelSpinAxis();
-                FVector WorldAxle = VisualMeshComponents[i]->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
-
-                FVector CurrentAngVel = VisualMeshComponents[i]->GetPhysicsAngularVelocityInDegrees();
-                FVector NonRollVel = CurrentAngVel - (WorldAxle * (CurrentAngVel | WorldAxle));
-                FVector DesiredRollVel = WorldAxle * AngularSpeedDegPerSec;
-                VisualMeshComponents[i]->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
-            }
-        }
-    }
-    else
-    {
-        // STATİK GARAJ MODUNDA GÖRSEL DÖNÜŞ (Fizik kapalıyken)
-        for (const auto& Pair : MotorTestValues)
-        {
-            FName BoneName = Pair.Key;
-            float TestVal = Pair.Value;
-            if (FMath::Abs(TestVal) < 0.001f) continue;
-
-            FString LowerName = BoneName.ToString().ToLower();
-            bool bIsWheel = LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker")) || LowerName.Contains(TEXT("caster"));
-            bool bIsThruster = LowerName.Contains(TEXT("thrust")) || LowerName.Contains(TEXT("prop")) || LowerName.Contains(TEXT("rotor")) || LowerName.Contains(TEXT("motor"));
-
-            if (bIsWheel)
-            {
-                if (USceneComponent* Comp = GetSceneComponentForBone(BoneName))
-                {
-                    float TotalRpm = TestVal * 1200.0f;
-                    Comp->AddLocalRotation(FRotator(TotalRpm * 0.1f * DeltaTime * 60.0f, 0.0f, 0.0f));
-                }
-            }
-            else if (bIsThruster)
-            {
-                if (USceneComponent* Comp = GetSceneComponentForBone(BoneName))
-                {
-                    Comp->AddLocalRotation(FRotator(0.0f, TestVal * 3000.0f * 0.1f * DeltaTime * 60.0f, 0.0f));
-                }
-            }
-        }
-    }
+    // NOT: Tüm motor / servo / aktüatör modülleri kendi içlerinden TopicBridge kontrol topic'lerini dinleyerek kendi hareketlerini uygular; APiSimVehicle dışarıdan BoneSceneComponents taraması veya müdahale yapmaz.
 }
 
 void APiSimVehicle::AddOrbitDelta(float DeltaX, float DeltaY)
@@ -1657,12 +1465,18 @@ void APiSimVehicle::RemoveVideoSubscriber(const FString& InIP, int32 InPort)
 
 
 // =========================================================================
-// Profesyonel Sürü & Bağımsız Komut Alıcısı (UDP Port 7402, SO_REUSEADDR)
+// Tekil Kontrol Topic Alıcısı (UDP Port 7402 -> TopicBridge)
 // =========================================================================
 
 void APiSimVehicle::InitCommandSocket()
 {
     CloseCommandSocket();
+
+    // Ana dinleyici TopicBridge bileşenidir; çift soket bind çakışmasını önlemek için TopicBridge varsa ikinci soket açılmaz
+    if (TopicBridge)
+    {
+        return;
+    }
 
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
     if (!SocketSubsystem)
@@ -1670,28 +1484,12 @@ void APiSimVehicle::InitCommandSocket()
         return;
     }
 
-    // 1. Ortak Sürü & İsim/UID Tabanlı Kanal (UDP Port 7402 - SO_REUSEADDR)
     CommandSocket = FUdpSocketBuilder(TEXT("PiSimVehicleCommandSocket"))
         .AsNonBlocking()
         .AsReusable()
         .BoundToPort(CommandPort)
         .WithBroadcast()
         .WithReceiveBufferSize(65535);
-
-    // 2. Araca Özel Doğrudan Alt-Port Kanalı (Örn: Araç 1 -> 7403, Araç 2 -> 7404, Araç 3 -> 7405)
-    DedicatedCommandPort = CommandPort + FMath::Max(1, VehicleId);
-    DedicatedCommandSocket = FUdpSocketBuilder(TEXT("PiSimVehicleDedicatedCommandSocket"))
-        .AsNonBlocking()
-        .AsReusable()
-        .BoundToPort(DedicatedCommandPort)
-        .WithBroadcast()
-        .WithReceiveBufferSize(65535);
-
-    if (CommandSocket)
-    {
-        UE_LOG(LogTemp, Log, TEXT("🎮 [APiSimVehicle] Araç '%s' (#%d) Komut Dinleyicileri Aktif! (Sürü Portu: %d | Doğrudan Özel Port: %d)"),
-            *VehicleCode, VehicleId, CommandPort, DedicatedCommandPort);
-    }
 }
 
 void APiSimVehicle::CloseCommandSocket()
@@ -1702,341 +1500,50 @@ void APiSimVehicle::CloseCommandSocket()
         if (SocketSubsystem) SocketSubsystem->DestroySocket(CommandSocket);
         CommandSocket = nullptr;
     }
-    if (DedicatedCommandSocket)
-    {
-        if (SocketSubsystem) SocketSubsystem->DestroySocket(DedicatedCommandSocket);
-        DedicatedCommandSocket = nullptr;
-    }
 }
 
 void APiSimVehicle::PollCommandSocket()
 {
+    if (!CommandSocket)
+    {
+        return;
+    }
+
     ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
     if (!SocketSubsystem)
     {
         return;
     }
 
-    // 1. Ortak Port 7402: Gelen paketi aktif filodaki tüm araçlara dağıt (Windows SO_REUSEADDR unicast paketini hangi sokete verirse versin hedef araç yakalar)
-    if (CommandSocket)
+    uint32 PendingSize = 0;
+    while (CommandSocket->HasPendingData(PendingSize))
     {
-        uint32 PendingSize = 0;
-        while (CommandSocket->HasPendingData(PendingSize))
+        TArray<uint8> RecvBuffer;
+        RecvBuffer.SetNumUninitialized(FMath::Min(PendingSize, 4096u));
+        TSharedRef<FInternetAddr> SenderAddr = SocketSubsystem->CreateInternetAddr();
+        int32 BytesRead = 0;
+        if (CommandSocket->RecvFrom(RecvBuffer.GetData(), RecvBuffer.Num(), BytesRead, *SenderAddr) && BytesRead > 0)
         {
-            TArray<uint8> RecvBuffer;
-            RecvBuffer.SetNumUninitialized(FMath::Min(PendingSize, 4096u));
-            TSharedRef<FInternetAddr> SenderAddr = SocketSubsystem->CreateInternetAddr();
-            int32 BytesRead = 0;
-            if (CommandSocket->RecvFrom(RecvBuffer.GetData(), RecvBuffer.Num(), BytesRead, *SenderAddr) && BytesRead > 0)
+            RecvBuffer.Add(0);
+            FString JsonStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
+            FScopeLock Lock(&APiSimVehicle::FleetLock);
+            for (APiSimVehicle* Veh : APiSimVehicle::ActiveFleet)
             {
-                RecvBuffer.Add(0);
-                FString JsonStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
-                FScopeLock Lock(&APiSimVehicle::FleetLock);
-                for (APiSimVehicle* Veh : APiSimVehicle::ActiveFleet)
+                if (Veh && IsValid(Veh))
                 {
-                    if (Veh && IsValid(Veh))
-                    {
-                        Veh->ProcessCommandJson(JsonStr);
-                    }
-                }
-            }
-        }
-    }
-
-    // 2. Doğrudan Özel Alt-Port (7402 + VehicleId): Bu porta gelen paket doğrudan BU araca aittir
-    if (DedicatedCommandSocket)
-    {
-        uint32 PendingSize = 0;
-        while (DedicatedCommandSocket->HasPendingData(PendingSize))
-        {
-            TArray<uint8> RecvBuffer;
-            RecvBuffer.SetNumUninitialized(FMath::Min(PendingSize, 4096u));
-            TSharedRef<FInternetAddr> SenderAddr = SocketSubsystem->CreateInternetAddr();
-            int32 BytesRead = 0;
-            if (DedicatedCommandSocket->RecvFrom(RecvBuffer.GetData(), RecvBuffer.Num(), BytesRead, *SenderAddr) && BytesRead > 0)
-            {
-                RecvBuffer.Add(0);
-                FString JsonStr = UTF8_TO_TCHAR((const char*)RecvBuffer.GetData());
-                // Doğrudan bu aracın portuna (Örn: 7403) atıldıysa target belirtilmese bile bu araç çalıştırır
-                TSharedPtr<FJsonObject> JsonObj;
-                TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonStr);
-                if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid())
-                {
-                    JsonObj->SetStringField(TEXT("target"), VehicleCode);
-                    FString RewrittenJson;
-                    TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&RewrittenJson);
-                    FJsonSerializer::Serialize(JsonObj.ToSharedRef(), Writer);
-                    ProcessCommandJson(RewrittenJson);
+                    Veh->ProcessCommandJson(JsonStr);
                 }
             }
         }
     }
 }
 
+// @state: WIP - Araç kontrol komutları dışarıdan kemik taramasıyla değil, yalnızca TopicBridge üzerinden modüllerin kendi içine yayınlanır
 void APiSimVehicle::ProcessCommandJson(const FString& JsonStr)
 {
-    TSharedPtr<FJsonObject> JsonObj;
-    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonStr);
-    if (!FJsonSerializer::Deserialize(Reader, JsonObj) || !JsonObj.IsValid())
+    if (TopicBridge)
     {
-        return;
-    }
-
-    // 1. ROS 2 rosbridge_suite / Topic Name Ayrıştırma: {"op":"publish", "topic":"/rover_01/cmd_vel", "msg":{...}}
-    FString Target = JsonObj->HasField(TEXT("target")) ? JsonObj->GetStringField(TEXT("target")) : TEXT("all");
-    if (JsonObj->HasField(TEXT("topic")))
-    {
-        FString TopicStr = JsonObj->GetStringField(TEXT("topic")); // Örn: "/rover_01/cmd_vel" veya "/RV01-8F3A9C/cmd_vel"
-        TArray<FString> TopicParts;
-        TopicStr.ParseIntoArray(TopicParts, TEXT("/"), true);
-        if (TopicParts.Num() >= 2 && !TopicParts[0].Equals(TEXT("cmd_vel"), ESearchCase::IgnoreCase))
-        {
-            Target = TopicParts[0];
-        }
-    }
-
-    // Hedef Araç Eşleştirme (Target Filtering):
-    // "all" -> Tüm sürüye aynı anda
-    // "rover_01" / "RV01-..." -> Yalnızca ilgili araç
-    // "1" -> Araç ID'si 1 olan
-    FString LegacyCode = FString::Printf(TEXT("rover_%02d"), VehicleId);
-    bool bTargetMatch = Target.Equals(TEXT("all"), ESearchCase::IgnoreCase) ||
-                        Target.Equals(VehicleCode, ESearchCase::IgnoreCase) ||
-                        Target.Equals(VehicleName, ESearchCase::IgnoreCase) ||
-                        Target.Equals(LegacyCode, ESearchCase::IgnoreCase) ||
-                        VehicleCode.StartsWith(Target, ESearchCase::IgnoreCase) ||
-                        Target.Equals(FString::FromInt(VehicleId));
-
-    if (!bTargetMatch)
-    {
-        return; // Bu paket başka bir araca ait, sessizce geç
-    }
-
-    // Eğer rosbridge sarmalayıcısı ("msg": {...}) varsa iç mesaj nesnesini al
-    TSharedPtr<FJsonObject> ActivePayload = JsonObj;
-    const TSharedPtr<FJsonObject>* MsgObjPtr = nullptr;
-    if (JsonObj->TryGetObjectField(TEXT("msg"), MsgObjPtr) && MsgObjPtr && MsgObjPtr->IsValid())
-    {
-        ActivePayload = *MsgObjPtr;
-    }
-
-    FString Cmd = JsonObj->HasField(TEXT("cmd")) ? JsonObj->GetStringField(TEXT("cmd")) : TEXT("cmd_vel");
-    FString TopicField = JsonObj->HasField(TEXT("topic")) ? JsonObj->GetStringField(TEXT("topic")) : TEXT("");
-    float TimeoutSec = JsonObj->HasField(TEXT("timeout_ms")) ? (float)JsonObj->GetNumberField(TEXT("timeout_ms")) / 1000.0f : 0.6f;
-
-    if (Cmd.Equals(TEXT("ack"), ESearchCase::IgnoreCase) || TopicField.EndsWith(TEXT("/ack"), ESearchCase::IgnoreCase))
-    {
-        if (TopicBridge)
-        {
-            TopicBridge->DispatchAckJson(JsonStr);
-        }
-        return;
-    }
-    else if (Cmd.Equals(TEXT("channels"), ESearchCase::IgnoreCase) || TopicField.EndsWith(TEXT("/channels"), ESearchCase::IgnoreCase) || ActivePayload->HasField(TEXT("channels")))
-    {
-        if (TopicBridge)
-        {
-            TopicBridge->DispatchChannelsJson(JsonStr);
-        }
-        return;
-    }
-    else if (Cmd.Equals(TEXT("actuators"), ESearchCase::IgnoreCase) || 
-        Cmd.Equals(TEXT("motors"), ESearchCase::IgnoreCase) ||
-        Cmd.Equals(TEXT("set_motors"), ESearchCase::IgnoreCase))
-    {
-        // Gazebo / Doğrudan Aktüatör Modu: Pi 5 tüm motor ve servoları kendisi sürer
-        bDirectActuatorControl = true;
-        CommandWatchdogTimer = FMath::Max(0.2f, TimeoutSec);
-        if (TopicBridge)
-        {
-            TopicBridge->TopicAckStatusMap.Add(TopicBridge->TopicPrefix + TEXT("/actuators"), 2);
-        }
-
-        const TSharedPtr<FJsonObject>* MotorsObj = nullptr;
-        if (ActivePayload->TryGetObjectField(TEXT("motors"), MotorsObj) && MotorsObj && MotorsObj->IsValid())
-        {
-            for (const auto& Pair : (*MotorsObj)->Values)
-            {
-                FName BoneName = FName(*Pair.Key);
-                float Val = (float)Pair.Value->AsNumber();
-                SetMotorTestValue(BoneName, FMath::Clamp(Val, -1.0f, 1.0f));
-            }
-        }
-    }
-    else if (Cmd.Equals(TEXT("drive"), ESearchCase::IgnoreCase) && 
-             (ActivePayload->HasField(TEXT("steering")) || ActivePayload->HasField(TEXT("throttle"))))
-    {
-        // Gazebo Doğrudan Direksiyon & Gaz Modu: Direksiyon servoları ve tekerlekler bağımsız sürülür
-        bDirectActuatorControl = true;
-        CommandWatchdogTimer = FMath::Max(0.2f, TimeoutSec);
-
-        float Steering = ActivePayload->HasField(TEXT("steering")) ? (float)ActivePayload->GetNumberField(TEXT("steering")) : 0.0f;
-        float Throttle = ActivePayload->HasField(TEXT("throttle")) ? (float)ActivePayload->GetNumberField(TEXT("throttle")) : 0.0f;
-        Steering = FMath::Clamp(Steering, -1.0f, 1.0f);
-        Throttle = FMath::Clamp(Throttle, -1.0f, 1.0f);
-
-        for (const auto& Pair : BoneSceneComponents)
-        {
-            FString LowerName = Pair.Key.ToString().ToLower();
-            if (LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo")))
-            {
-                SetMotorTestValue(Pair.Key, Steering);
-            }
-            else if (LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker")))
-            {
-                SetMotorTestValue(Pair.Key, Throttle);
-            }
-        }
-    }
-    else if (Cmd.Equals(TEXT("cmd_vel"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("drive"), ESearchCase::IgnoreCase) || ActivePayload->HasField(TEXT("linear")))
-    {
-        bDirectActuatorControl = false;
-        float LinearX = ActivePayload->HasField(TEXT("linear_x")) ? (float)ActivePayload->GetNumberField(TEXT("linear_x")) : 0.0f;
-        float AngularZ = ActivePayload->HasField(TEXT("angular_z")) ? (float)ActivePayload->GetNumberField(TEXT("angular_z")) : 0.0f;
-
-        // Standart ROS 2 geometry_msgs/msg/Twist iç içe JSON desteği: {"linear": {"x": 1.5, "y": 0, "z": 0}, "angular": {"x": 0, "y": 0, "z": 0.5}}
-        const TSharedPtr<FJsonObject>* LinearObj = nullptr;
-        if (ActivePayload->TryGetObjectField(TEXT("linear"), LinearObj) && LinearObj && LinearObj->IsValid())
-        {
-            if ((*LinearObj)->HasField(TEXT("x"))) LinearX = (float)(*LinearObj)->GetNumberField(TEXT("x"));
-        }
-        const TSharedPtr<FJsonObject>* AngularObj = nullptr;
-        if (ActivePayload->TryGetObjectField(TEXT("angular"), AngularObj) && AngularObj && AngularObj->IsValid())
-        {
-            if ((*AngularObj)->HasField(TEXT("z"))) AngularZ = (float)(*AngularObj)->GetNumberField(TEXT("z"));
-        }
-
-        SetTwistVelocity(LinearX, AngularZ, TimeoutSec);
-    }
-    else if (Cmd.Equals(TEXT("motor"), ESearchCase::IgnoreCase) || 
-             Cmd.Equals(TEXT("set_motor"), ESearchCase::IgnoreCase) || 
-             Cmd.Equals(TEXT("test_motor"), ESearchCase::IgnoreCase))
-    {
-        // @state: WIP - Pi5'ten gelen tekil motor/kemik test komutunu (-1.0 .. +1.0) uygular
-        // Kesinlikle araca özel hardcoded isim kullanılmaz! Modelin Section Index'i veya kemik adıyla çalışır.
-        FString BoneStr = ActivePayload->HasField(TEXT("bone")) ? ActivePayload->GetStringField(TEXT("bone")) : TEXT("");
-        float Val = ActivePayload->HasField(TEXT("val")) ? (float)ActivePayload->GetNumberField(TEXT("val")) :
-                   (ActivePayload->HasField(TEXT("value")) ? (float)ActivePayload->GetNumberField(TEXT("value")) : 0.0f);
-
-        // 1. Doğrudan Model Section Index desteği (örn: index=1, 2, 3...)
-        if (ActivePayload->HasField(TEXT("index")))
-        {
-            int32 SecIdx = (int32)ActivePayload->GetIntegerField(TEXT("index"));
-            if (StoredVisualSections.IsValidIndex(SecIdx))
-            {
-                BoneStr = StoredVisualSections[SecIdx].MeshName;
-            }
-        }
-        else if (ActivePayload->HasField(TEXT("wheel_index")))
-        {
-            // Sadece tekerlekler arası sıra indeksi (0, 1, 2, 3...)
-            int32 TargetWIdx = (int32)ActivePayload->GetIntegerField(TEXT("wheel_index"));
-            int32 WCount = 0;
-            for (int32 i = 1; i < StoredVisualSections.Num(); ++i)
-            {
-                FString LName = StoredVisualSections[i].MeshName.ToLower();
-                if (LName.Contains(TEXT("wheel")) || LName.Contains(TEXT("teker")) || LName.StartsWith(TEXT("w_")))
-                {
-                    if (WCount == TargetWIdx)
-                    {
-                        BoneStr = StoredVisualSections[i].MeshName;
-                        break;
-                    }
-                    WCount++;
-                }
-            }
-        }
-        else if (!BoneStr.IsEmpty() && BoneStr.IsNumeric())
-        {
-            int32 SecIdx = FCString::Atoi(*BoneStr);
-            if (StoredVisualSections.IsValidIndex(SecIdx))
-            {
-                BoneStr = StoredVisualSections[SecIdx].MeshName;
-            }
-        }
-
-        if (!BoneStr.IsEmpty())
-        {
-            CommandWatchdogTimer = FMath::Max(1.0f, TimeoutSec);
-            SetMotorTestValue(FName(*BoneStr), FMath::Clamp(Val, -1.0f, 1.0f));
-            UE_LOG(LogTemp, Warning, TEXT("⚡ [Pİ5 MOTOR TESTİ] Araç: %s | Hedef Parça: '%s' -> Değer: %+.2f"), *VehicleCode, *BoneStr, Val);
-        }
-    }
-    else if (Cmd.Equals(TEXT("steer"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("set_steer"), ESearchCase::IgnoreCase))
-    {
-        // @state: WIP - Pi5'ten gelen direksiyon açısı test komutunu (-35° .. +35°) uygular
-        float AngleDeg = ActivePayload->HasField(TEXT("angle")) ? (float)ActivePayload->GetNumberField(TEXT("angle")) : 
-                        (ActivePayload->HasField(TEXT("value")) ? (float)ActivePayload->GetNumberField(TEXT("value")) * 35.0f : 0.0f);
-        AngleDeg = FMath::Clamp(AngleDeg, -35.0f, 35.0f);
-        float NormVal = AngleDeg / 35.0f;
-        CommandWatchdogTimer = FMath::Max(1.0f, TimeoutSec);
-
-        for (const auto& Pair : BoneSceneComponents)
-        {
-            FString LowerName = Pair.Key.ToString().ToLower();
-            if (LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo")))
-            {
-                SetMotorTestValue(Pair.Key, NormVal);
-            }
-        }
-        UE_LOG(LogTemp, Warning, TEXT("⚡ [Pİ5 DİREKSİYON TESTİ] Araç: %s | Açı: %+.1f°"), *VehicleCode, AngleDeg);
-    }
-    else if (Cmd.Equals(TEXT("drive_wheels"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("wheels"), ESearchCase::IgnoreCase))
-    {
-        // @state: WIP - Pi5'ten gelen tüm tekerlekleri doğrudan döndürme testini uygular
-        float LeftVal = ActivePayload->HasField(TEXT("left")) ? (float)ActivePayload->GetNumberField(TEXT("left")) : 0.0f;
-        float RightVal = ActivePayload->HasField(TEXT("right")) ? (float)ActivePayload->GetNumberField(TEXT("right")) : LeftVal;
-        if (ActivePayload->HasField(TEXT("speed")))
-        {
-            float Spd = (float)ActivePayload->GetNumberField(TEXT("speed"));
-            LeftVal = Spd;
-            RightVal = Spd;
-        }
-        LeftVal = FMath::Clamp(LeftVal, -1.0f, 1.0f);
-        RightVal = FMath::Clamp(RightVal, -1.0f, 1.0f);
-        CommandWatchdogTimer = FMath::Max(1.0f, TimeoutSec);
-
-        for (const auto& Pair : BoneSceneComponents)
-        {
-            FString LowerName = Pair.Key.ToString().ToLower();
-            if (LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker")))
-            {
-                FVector RelLoc = Pair.Value ? Pair.Value->GetRelativeLocation() : FVector::ZeroVector;
-                bool bIsLeft = LowerName.Contains(TEXT("fl")) || LowerName.Contains(TEXT("rl")) || LowerName.EndsWith(TEXT("_l")) || LowerName.EndsWith(TEXT("l")) || LowerName.Contains(TEXT("left")) || LowerName.Contains(TEXT("sol")) || (RelLoc.Y < -1.0f);
-                SetMotorTestValue(Pair.Key, bIsLeft ? LeftVal : RightVal);
-            }
-        }
-    }
-    else if (Cmd.Equals(TEXT("cycle_wheel_axis"), ESearchCase::IgnoreCase) || 
-             Cmd.Equals(TEXT("cycle_axis"), ESearchCase::IgnoreCase) ||
-             Cmd.Equals(TEXT("axis"), ESearchCase::IgnoreCase) ||
-             Cmd.Equals(TEXT("wheel_axis"), ESearchCase::IgnoreCase))
-    {
-        // @state: WIP - Tekerlek dönme eksenini ve kısıtlamalarını (ACM) döngüsel değiştirir
-        if (ActivePayload->HasField(TEXT("mode")))
-        {
-            SetWheelSpinAxisMode(ActivePayload->GetIntegerField(TEXT("mode")));
-        }
-        else if (ActivePayload->HasField(TEXT("axis")))
-        {
-            FString AxStr = ActivePayload->GetStringField(TEXT("axis")).ToLower();
-            if (AxStr == TEXT("x")) SetWheelSpinAxisMode(0);
-            else if (AxStr == TEXT("y")) SetWheelSpinAxisMode(1);
-            else if (AxStr == TEXT("z")) SetWheelSpinAxisMode(2);
-            else CycleWheelSpinAxis();
-        }
-        else
-        {
-            CycleWheelSpinAxis();
-        }
-    }
-    else if (Cmd.Equals(TEXT("reset_motors"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("reset"), ESearchCase::IgnoreCase))
-    {
-        ResetAllMotorTestValues();
-    }
-    else if (Cmd.Equals(TEXT("stop"), ESearchCase::IgnoreCase) || Cmd.Equals(TEXT("estop"), ESearchCase::IgnoreCase))
-    {
-        StopVehicle();
+        TopicBridge->ProcessIncomingPacketJson(JsonStr);
     }
 }
 
@@ -2054,27 +1561,15 @@ void APiSimVehicle::StopVehicle()
     TargetLinearVelocity = 0.0f;
     TargetAngularVelocity = 0.0f;
     CommandWatchdogTimer = 0.0f;
-    ResetAllMotorTestValues();
+    if (TopicBridge)
+    {
+        TopicBridge->ProcessIncomingPacketJson(FString::Printf(TEXT("{\"topic\":\"/%s/channels\",\"cmd\":\"stop\",\"target\":\"%s\",\"channels\":{\"1\":1500,\"2\":1500,\"3\":1500,\"4\":1500}}"), *VehicleCode, *VehicleCode));
+    }
 }
 
-// @state: WIP - Diferansiyel ve Ackermann kinematiğine göre tekerlek ve direksiyon motorlarını sürer
+// @state: WIP - APiSimVehicle içinden dış motor/kemik taraması ve kinematik müdahale tamamen kaldırıldı; her modül kendi topic'ini dinler
 void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
 {
-    if (bDirectActuatorControl)
-    {
-        // Gazebo / Doğrudan Aktüatör Modu: Pi 5 tüm aktüatörleri kendisi sürer.
-        // Unreal kinematik müdahalede bulunmaz, sadece watchdog süresini takip eder.
-        if (CommandWatchdogTimer > 0.0f)
-        {
-            CommandWatchdogTimer -= DeltaTime;
-            if (CommandWatchdogTimer <= 0.0f)
-            {
-                ResetAllMotorTestValues();
-            }
-        }
-        return;
-    }
-
     if (CommandWatchdogTimer > 0.0f)
     {
         CommandWatchdogTimer -= DeltaTime;
@@ -2082,112 +1577,6 @@ void APiSimVehicle::UpdateKinematicsAndMotors(float DeltaTime)
         {
             TargetLinearVelocity = 0.0f;
             TargetAngularVelocity = 0.0f;
-            ResetAllMotorTestValues();
-            return;
-        }
-
-        // =====================================================================
-        // Diferansiyel & Ackermann Sürüş Kinematiği
-        // =====================================================================
-        const float TrackWidth = 0.6f;  // Tekerlekler arası eksen genişliği (60 cm)
-        const float MaxSpeed = 3.0f;    // Nominal azami hız 3.0 m/s
-        float VLeft = TargetLinearVelocity - (TargetAngularVelocity * TrackWidth * 0.5f);
-        float VRight = TargetLinearVelocity + (TargetAngularVelocity * TrackWidth * 0.5f);
-
-        float NormLeft = FMath::Clamp(VLeft / MaxSpeed, -1.0f, 1.0f);
-        float NormRight = FMath::Clamp(VRight / MaxSpeed, -1.0f, 1.0f);
-
-        // Ackermann Direksiyon Açısı (Derece: -35° .. +35°)
-        // tan(delta) = L * omega / V (L ~= 0.34m)
-        float DesiredSteerDeg = 0.0f;
-        if (FMath::Abs(TargetLinearVelocity) > 0.05f)
-        {
-            float TurnRadius = FMath::Abs(TargetLinearVelocity) / FMath::Max(0.01f, FMath::Abs(TargetAngularVelocity));
-            float AckermannRad = FMath::Atan(0.34f / TurnRadius);
-            DesiredSteerDeg = FMath::RadiansToDegrees(AckermannRad) * FMath::Sign(TargetAngularVelocity);
-        }
-        else
-        {
-            DesiredSteerDeg = FMath::RadiansToDegrees(TargetAngularVelocity * 0.45f);
-        }
-        DesiredSteerDeg = FMath::Clamp(DesiredSteerDeg, -35.0f, 35.0f);
-        float NormSteer = DesiredSteerDeg / 35.0f;
-
-        // Gerçekçi Tekerlek RPM hesabı: RPM = (V / (2 * PI * Radius_m)) * 60
-        // Ortalama tekerlek yarıçapı: 0.18m (18 cm) -> 1.0 m/s ~= 53 RPM, 3.0 m/s ~= 160 RPM
-        const float WheelRadiusM = 0.18f;
-        float RpmLeft = (VLeft / (2.0f * PI * WheelRadiusM)) * 60.0f;
-        float RpmRight = (VRight / (2.0f * PI * WheelRadiusM)) * 60.0f;
-
-        // 1. UPiSimWheelComponent Modüllerini Güncelle
-        TArray<UPiSimWheelComponent*> Wheels;
-        GetComponents<UPiSimWheelComponent>(Wheels);
-        for (UPiSimWheelComponent* Wheel : Wheels)
-        {
-            if (Wheel)
-            {
-                FVector WheelRelLoc = FVector::ZeroVector;
-                if (USceneComponent* SceneComp = GetSceneComponentForBone(Wheel->TargetBoneName))
-                {
-                    WheelRelLoc = SceneComp->GetRelativeLocation();
-                }
-
-                FString BoneLower = Wheel->TargetBoneName.ToString().ToLower();
-                bool bIsLeft = BoneLower.Contains(TEXT("fl")) || BoneLower.Contains(TEXT("rl")) || BoneLower.EndsWith(TEXT("_l")) || BoneLower.EndsWith(TEXT("l")) || BoneLower.Contains(TEXT("left")) || BoneLower.Contains(TEXT("sol")) || (WheelRelLoc.Y < -1.0f);
-                float WheelRPM = bIsLeft ? RpmLeft : RpmRight;
-
-                Wheel->bManualOverride = true;
-                Wheel->SetTargetRPM(WheelRPM);
-            }
-        }
-
-        // 2. Kemik Haritasını Güncelle (MotorTestValues -> Chaos Fizik & Animasyon)
-        for (const auto& Pair : BoneSceneComponents)
-        {
-            FName BoneName = Pair.Key;
-            USceneComponent* BoneComp = Pair.Value;
-            if (!BoneComp) continue;
-
-            FString LowerName = BoneName.ToString().ToLower();
-            bool bIsSteer = LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo"));
-            bool bIsWheel = LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker"));
-
-            if (bIsSteer)
-            {
-                // Kullanıcının Lerp fonksiyonu ile servo joint yumuşakça hedef açıya döner
-                float CurrentYaw = BoneComp->GetRelativeRotation().Yaw;
-                float SmoothYaw = FMath::FInterpTo(CurrentYaw, DesiredSteerDeg, DeltaTime, 12.0f);
-                BoneComp->SetRelativeRotation(FRotator(0.0f, SmoothYaw, 0.0f));
-
-                if (bIsPhysicsSimulating)
-                {
-                    UPhysicsConstraintComponent* Constraint = FindConstraintForBone(BoneName);
-                    if (!Constraint)
-                    {
-                        int32 TargetSection = FindVisualSectionForBone(BoneName);
-                        Constraint = FindConstraintForSection(TargetSection);
-                    }
-                    if (Constraint)
-                    {
-                        FVector RelLoc = Constraint->GetRelativeLocation();
-                        int32 TargetSection = FindVisualSectionForBone(BoneName);
-                        if (TargetSection > 0 && StoredVisualSections.IsValidIndex(TargetSection) && StoredVisualSections.IsValidIndex(0))
-                        {
-                            RelLoc = StoredVisualSections[TargetSection].PivotPoint - StoredVisualSections[0].PivotPoint;
-                        }
-                        FTransform SteerPose(FRotator(0.0f, SmoothYaw, 0.0f), RelLoc);
-                        Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
-                    }
-                }
-                MotorTestValues.Add(BoneName, SmoothYaw / 35.0f);
-            }
-            else if (bIsWheel)
-            {
-                FVector RelLoc = BoneComp->GetRelativeLocation();
-                bool bIsLeft = LowerName.Contains(TEXT("fl")) || LowerName.Contains(TEXT("rl")) || LowerName.EndsWith(TEXT("_l")) || LowerName.EndsWith(TEXT("l")) || LowerName.Contains(TEXT("left")) || LowerName.Contains(TEXT("sol")) || (RelLoc.Y < -1.0f);
-                float NormVal = bIsLeft ? NormLeft : NormRight;
-                MotorTestValues.Add(BoneName, NormVal);
-            }
         }
     }
 }

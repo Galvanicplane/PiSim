@@ -8,7 +8,7 @@
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Modül içi araç kimliğini, Zenoh Bridge ACK aboneliğini ve UCX sürtünme materyalini başlatır
+// @state: WIP - Modül içi araç kimliğini, Zenoh Bridge ACK + kontrol topic aboneliğini ve UCX sürtünme materyalini başlatır
 void UPiSimWheelComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -28,9 +28,32 @@ void UPiSimWheelComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
                     HandleAckMessage(TopicName, AckCode);
                 }
             });
+
+            Bridge->OnControlTopicReceived.RemoveAll(this);
+            Bridge->OnControlTopicReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<FJsonObject>& PayloadObj)
+            {
+                HandleControlTopic(InVehicleCode, TopicName, SourceType, PayloadObj);
+            });
+            bTopicBridgeBound = true;
         }
     }
     ApplyFrictionToCollisionMesh();
+}
+
+// @state: WIP - Tekerlek modülünün kendi içinden ArduPilot PWM (öncelikli) veya ROS kontrol topiğini dinlemesi
+void UPiSimWheelComponent::HandleControlTopic(const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<FJsonObject>& PayloadObj)
+{
+    const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    const int32 MyCh = (ServoChannel > 0) ? ServoChannel : ArduPilotChannel;
+    int32 PwmVal = 1500;
+    if (UPiSimTopicBridge::ParseControlTopicForChannel(
+        Now, ParentVehicleName, VehicleIndex, TargetBoneName, MyCh,
+        InVehicleCode, TopicName, SourceType, PayloadObj,
+        LastArduPilotPwmTime, LastControlTopicTime, PwmVal))
+    {
+        bManualOverride = false;
+        SetFromPWM(PwmVal, false);
+    }
 }
 
 // @state: WIP - Sürtünme katsayısını (FrictionCoefficient) çalışma anında UCX çarpışma mesh'ine PhysicalMaterial olarak aktarır
@@ -63,10 +86,25 @@ UPiSimWheelComponent::UPiSimWheelComponent()
     PrimaryComponentTick.TickGroup = TG_PrePhysics;
 }
 
-// @state: WIP - Her frame tekerlek fizik durumunu günceller
+// @state: WIP - Her frame tekerlek topic aboneliğini, watchdog sıfırlamasını ve fizik durumunu günceller
 void UPiSimWheelComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+    if (!bTopicBridgeBound && GetOwner())
+    {
+        if (APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner()))
+        {
+            InitializeModuleIdentity(Vehicle);
+        }
+    }
+
+    const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    if (!bManualOverride && LastControlTopicTime > 0.0 && (Now - LastControlTopicTime) > TopicWatchdogTimeoutSec)
+    {
+        SetFromPWM(1500, false);
+        LastControlTopicTime = -100.0;
+    }
 
     if (!CachedSkeletalMesh && GetOwner())
     {
@@ -299,12 +337,14 @@ void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
                     FVector WorldAxle = Prim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
                     FVector CurrentAngVel = Prim->GetPhysicsAngularVelocityInDegrees();
                     float CurrentRollDeg = (CurrentAngVel | WorldAxle);
-                    float ErrorDeg = DesiredAngularVelocityDeg - CurrentRollDeg;
+                    FVector NonRollVel = CurrentAngVel - (WorldAxle * CurrentRollDeg);
+                    Prim->SetPhysicsAngularVelocityInDegrees(NonRollVel + WorldAxle * DesiredAngularVelocityDeg, false);
 
                     // Tork sınırlı fiziksel sürüş
+                    float ErrorDeg = DesiredAngularVelocityDeg - CurrentRollDeg;
                     float TorqueScale = FMath::Clamp(ErrorDeg / 360.0f, -1.0f, 1.0f) * DriveTorque * 10000.0f;
                     Prim->AddTorqueInRadians(WorldAxle * TorqueScale, NAME_None, false);
-                    CurrentRPM = CurrentRollDeg / 6.0f;
+                    CurrentRPM = EffectiveRPM;
                 }
             }
         }
@@ -347,6 +387,5 @@ void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
 void UPiSimWheelComponent::SetActuatorNormalized(float Value)
 {
     ChannelTestSlider = FMath::Clamp(Value, -1.0f, 1.0f);
-    bManualOverride = (FMath::Abs(ChannelTestSlider) > 0.001f);
     SetTargetRPM(ChannelTestSlider * MaxRPM);
 }

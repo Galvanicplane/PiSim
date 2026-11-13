@@ -9,7 +9,7 @@
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Modül içi araç kimliğini doldurur ve Zenoh Bridge ACK topic'ini doğrudan dinler
+// @state: WIP - Modül içi araç kimliğini doldurur ve Zenoh Bridge ACK + kontrol topic'ini doğrudan dinler
 void UPiSimServoComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -30,7 +30,31 @@ void UPiSimServoComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
                     HandleAckMessage(TopicName, AckCode);
                 }
             });
+
+            Bridge->OnControlTopicReceived.RemoveAll(this);
+            Bridge->OnControlTopicReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<FJsonObject>& PayloadObj)
+            {
+                HandleControlTopic(InVehicleCode, TopicName, SourceType, PayloadObj);
+            });
+            bTopicBridgeBound = true;
         }
+    }
+}
+
+// @state: WIP - Servo modülünün kendi içinden ArduPilot PWM (öncelikli) veya ROS kontrol topiğini dinlemesi
+void UPiSimServoComponent::HandleControlTopic(const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<FJsonObject>& PayloadObj)
+{
+    const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    const int32 MyCh = (ServoChannel > 0) ? ServoChannel : ArduPilotChannel;
+    int32 PwmVal = 1500;
+    if (UPiSimTopicBridge::ParseControlTopicForChannel(
+        Now, ParentVehicleName, VehicleIndex, TargetBoneName, MyCh,
+        InVehicleCode, TopicName, SourceType, PayloadObj,
+        LastArduPilotPwmTime, LastControlTopicTime, PwmVal))
+    {
+        bManualOverride = false;
+        bContinuousSweepTest = false;
+        SetFromPWM(PwmVal);
     }
 }
 
@@ -41,10 +65,25 @@ UPiSimServoComponent::UPiSimServoComponent()
     PrimaryComponentTick.TickGroup = TG_PrePhysics;
 }
 
-// @state: WIP - Her frame servonun hedef açıya doğru hareketini uygular
+// @state: WIP - Her frame servo topic aboneliğini, watchdog sıfırlamasını ve hedef açı hareketini uygular
 void UPiSimServoComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+    if (!bTopicBridgeBound && GetOwner())
+    {
+        if (APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner()))
+        {
+            InitializeModuleIdentity(Vehicle);
+        }
+    }
+
+    const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    if (!bManualOverride && !bContinuousSweepTest && LastControlTopicTime > 0.0 && (Now - LastControlTopicTime) > TopicWatchdogTimeoutSec)
+    {
+        SetFromPWM(1500);
+        LastControlTopicTime = -100.0;
+    }
 
     if (!CachedSkeletalMesh && GetOwner())
     {
@@ -242,6 +281,7 @@ void UPiSimServoComponent::SetInspectablePropertyFloat(FName PropertyId, float N
     {
         ChannelTestSlider = FMath::Clamp(NewValue, -1.0f, 1.0f);
         bContinuousSweepTest = false;
+        bManualOverride = (FMath::Abs(ChannelTestSlider) > 0.001f);
         SetActuatorNormalized(ChannelTestSlider);
     }
     else if (PropertyId == TEXT("bFlipDirection"))
@@ -344,7 +384,7 @@ void UPiSimServoComponent::ApplyServoPhysics(float DeltaTime)
 
     if (bPhysicsActive && Vehicle)
     {
-        // 1) Açısal fiziksel eklem sürücüsü (Constraint Angular Motor Drive)
+        // 1) Açısal fiziksel eklem sürücüsü (Constraint Angular Motor Drive + Frame1 Pozisyonu)
         UPhysicsConstraintComponent* Constraint = Vehicle->FindConstraintForBone(TargetBoneName);
         if (!Constraint)
         {
@@ -353,11 +393,36 @@ void UPiSimServoComponent::ApplyServoPhysics(float DeltaTime)
         }
         if (Constraint)
         {
+            FVector RelLoc = Constraint->GetRelativeLocation();
+            int32 TargetSection = Vehicle->FindVisualSectionForBone(TargetBoneName);
+            if (TargetSection > 0 && Vehicle->StoredVisualSections.IsValidIndex(TargetSection) && Vehicle->StoredVisualSections.IsValidIndex(0))
+            {
+                RelLoc = Vehicle->StoredVisualSections[TargetSection].PivotPoint - Vehicle->StoredVisualSections[0].PivotPoint;
+            }
+            FTransform SteerPose(TargetLocalQuat.Rotator(), RelLoc);
+            Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
+
             Constraint->SetAngularDriveMode(EAngularDriveMode::SLERP);
             Constraint->SetOrientationDriveSLERP(true);
             Constraint->SetAngularOrientationTarget(TargetLocalQuat.Rotator());
             float EffectiveForceLimit = FMath::Max(0.0f, (MaxTorqueNewtons - JointResistanceForce) * 10000.0f);
             Constraint->SetAngularDriveParams(500.0f, 50.0f, EffectiveForceLimit);
+        }
+
+        // Görsel kemik bileşeni fizik simüle etmiyorsa açıyı kendi içinden görsel olarak da hizala
+        if (TargetSceneComponent)
+        {
+            UPrimitiveComponent* TargetPrim = Cast<UPrimitiveComponent>(TargetSceneComponent);
+            if (!TargetPrim || !TargetPrim->IsSimulatingPhysics())
+            {
+                if (!bHasRestRotation)
+                {
+                    RestRotation = TargetSceneComponent->GetRelativeRotation();
+                    bHasRestRotation = true;
+                }
+                FQuat RestQ = RestRotation.Quaternion();
+                TargetSceneComponent->SetRelativeRotation((RestQ * TargetLocalQuat).Rotator());
+            }
         }
 
         // 2) UCX fizik gövdesine doğrudan tork uygulaması (statik/kinetik eklem direncini yenerek)
@@ -402,7 +467,6 @@ void UPiSimServoComponent::SetActuatorNormalized(float Value)
     float EffectiveVal = FMath::Clamp(Value, -1.0f, 1.0f);
     ChannelTestSlider = EffectiveVal;
     if (bFlipDirection) EffectiveVal = -EffectiveVal;
-    bManualOverride = (FMath::Abs(EffectiveVal) > 0.001f);
     float TargetDeg = (EffectiveVal >= 0.0f) ? (EffectiveVal * MaxAngleDeg) : (-EffectiveVal * MinAngleDeg);
     SetTargetAngle(TargetDeg);
 }

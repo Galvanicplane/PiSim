@@ -39,6 +39,7 @@ public:
     virtual void SetActuatorAxis(const FVector& InAxis) override { ThrustDirectionVector = InAxis; LocalThrustDirection = InAxis; }
     virtual void InitializeModuleIdentity(class APiSimVehicle* InVehicle) override;
     virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override {}
+    void HandleControlTopic(const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<class FJsonObject>& PayloadObj);
 
     // @state: WIP - Modül içi araç kimliği ve kanal testi değişkenleri
     UPROPERTY()
@@ -111,6 +112,11 @@ protected:
 
     UPROPERTY()
     class USceneComponent* TargetSceneComponent = nullptr;
+
+    double LastArduPilotPwmTime = -100.0;
+    double LastControlTopicTime = -100.0;
+    float TopicWatchdogTimeoutSec = 0.6f;
+    bool bTopicBridgeBound = false;
 
     void ApplyThrustPhysics(float DeltaTime);
 };

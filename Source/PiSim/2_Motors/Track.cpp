@@ -8,7 +8,7 @@
 #include "CollisionQueryParams.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Modül içi araç kimliğini doldurur ve Zenoh Bridge ACK topic'ini doğrudan dinler
+// @state: WIP - Modül içi araç kimliğini doldurur ve Zenoh Bridge ACK + kontrol topic'ini doğrudan dinler
 void UPiSimTrackComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -28,7 +28,30 @@ void UPiSimTrackComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
                     HandleAckMessage(TopicName, AckCode);
                 }
             });
+
+            Bridge->OnControlTopicReceived.RemoveAll(this);
+            Bridge->OnControlTopicReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<FJsonObject>& PayloadObj)
+            {
+                HandleControlTopic(InVehicleCode, TopicName, SourceType, PayloadObj);
+            });
+            bTopicBridgeBound = true;
         }
+    }
+}
+
+// @state: WIP - Palet modülünün kendi içinden ArduPilot PWM (öncelikli) veya ROS kontrol topiğini dinlemesi
+void UPiSimTrackComponent::HandleControlTopic(const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<FJsonObject>& PayloadObj)
+{
+    const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    const int32 MyCh = (ServoChannel > 0) ? ServoChannel : ArduPilotChannel;
+    int32 PwmVal = 1500;
+    if (UPiSimTopicBridge::ParseControlTopicForChannel(
+        Now, ParentVehicleName, VehicleIndex, TargetBoneName, MyCh,
+        InVehicleCode, TopicName, SourceType, PayloadObj,
+        LastArduPilotPwmTime, LastControlTopicTime, PwmVal))
+    {
+        bManualOverride = false;
+        SetActuatorPWM(PwmVal);
     }
 }
 
@@ -39,15 +62,27 @@ UPiSimTrackComponent::UPiSimTrackComponent()
     PrimaryComponentTick.TickGroup = TG_PrePhysics;
 }
 
-// @state: WIP - Temas plakası zemine değiyorsa aracı palet doğrultusunda ileri iter
+// @state: WIP - Temas plakası zemine değiyorsa aracı palet doğrultusunda ileri iter ve topic watchdog'unu yönetir
 void UPiSimTrackComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+    APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
+    if (Vehicle && !bTopicBridgeBound)
+    {
+        InitializeModuleIdentity(Vehicle);
+    }
+
+    const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    if (!bManualOverride && LastControlTopicTime > 0.0 && (Now - LastControlTopicTime) > TopicWatchdogTimeoutSec)
+    {
+        SetActuatorPWM(1500);
+        LastControlTopicTime = -100.0;
+    }
+
     float EffectiveTarget = bReverseDirection ? -TargetSpeedMps : TargetSpeedMps;
     CurrentSpeedMps = FMath::FInterpTo(CurrentSpeedMps, EffectiveTarget, DeltaTime, 8.0f);
 
-    APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
     UWorld* World = GetWorld();
     if (!Vehicle || !World) return;
 
@@ -140,6 +175,7 @@ void UPiSimTrackComponent::SetInspectablePropertyFloat(FName PropertyId, float N
 {
     if (PropertyId == TEXT("ChannelTestSlider"))
     {
+        bManualOverride = (FMath::Abs(NewValue) > 0.001f);
         SetActuatorNormalized(NewValue);
     }
     else if (PropertyId == TEXT("ArduPilotChannel"))

@@ -1272,13 +1272,9 @@ void UPiSimModularGarageWidget::FlyCamera(float Forward, float Right, float Up, 
         PC->SetViewTarget(Spectator);
     }
 
-    // Eğer Orbit veya FPV modundayken WASD basıldıysa odaklı aracı sür; kamerayı serbest uçuşa atma
+    // Orbit veya FPV modundayken kamera konumunu kilitle; aracın kendisi yalnızca Topic üzerinden sürülür
     if (Spectator->bIsOrbitingVehicle || Spectator->IsFpvCameraMode())
     {
-        if (IsValid(Spectator->FocusedVehicle) && (FMath::Abs(Forward) > 0.01f || FMath::Abs(Right) > 0.01f))
-        {
-            Spectator->FocusedVehicle->SetTwistVelocity(Forward * 2.0f, Right * 1.2f, 0.25f);
-        }
         return;
     }
 

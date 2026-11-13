@@ -124,7 +124,7 @@ void UPiSimLinearActuatorComponent::ResolvePartnerBones(APiSimVehicle* InVehicle
     }
 }
 
-// @state: WIP - Modül içi araç kimliğini doldurur, LA_/R_ kemik çiftini çözer ve Zenoh Bridge ACK topic'ini dinler
+// @state: WIP - Modül içi araç kimliğini doldurur, LA_/R_ kemik çiftini çözer ve Zenoh Bridge ACK + kontrol topic'ini dinler
 void UPiSimLinearActuatorComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -146,7 +146,30 @@ void UPiSimLinearActuatorComponent::InitializeModuleIdentity(APiSimVehicle* InVe
                     HandleAckMessage(TopicName, AckCode);
                 }
             });
+
+            Bridge->OnControlTopicReceived.RemoveAll(this);
+            Bridge->OnControlTopicReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<FJsonObject>& PayloadObj)
+            {
+                HandleControlTopic(InVehicleCode, TopicName, SourceType, PayloadObj);
+            });
+            bTopicBridgeBound = true;
         }
+    }
+}
+
+// @state: WIP - Aktüatör modülünün kendi içinden ArduPilot PWM (öncelikli) veya ROS kontrol topiğini dinlemesi
+void UPiSimLinearActuatorComponent::HandleControlTopic(const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<FJsonObject>& PayloadObj)
+{
+    const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    const int32 MyCh = (ServoChannel > 0) ? ServoChannel : ArduPilotChannel;
+    int32 PwmVal = 1500;
+    if (UPiSimTopicBridge::ParseControlTopicForChannel(
+        Now, ParentVehicleName, VehicleIndex, TargetBoneName, MyCh,
+        InVehicleCode, TopicName, SourceType, PayloadObj,
+        LastArduPilotPwmTime, LastControlTopicTime, PwmVal))
+    {
+        bManualOverride = false;
+        SetActuatorPWM(PwmVal);
     }
 }
 
@@ -164,6 +187,18 @@ void UPiSimLinearActuatorComponent::TickComponent(float DeltaTime, ELevelTick Ti
 
     APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
     if (!Vehicle) return;
+
+    if (!bTopicBridgeBound)
+    {
+        InitializeModuleIdentity(Vehicle);
+    }
+
+    const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    if (!bManualOverride && LastControlTopicTime > 0.0 && (Now - LastControlTopicTime) > TopicWatchdogTimeoutSec)
+    {
+        SetActuatorPWM(1500);
+        LastControlTopicTime = -100.0;
+    }
 
     if ((BoneAName.IsNone() || BoneBName.IsNone()) && !TargetBoneName.IsNone())
     {
@@ -295,6 +330,7 @@ void UPiSimLinearActuatorComponent::SetInspectablePropertyFloat(FName PropertyId
     if (PropertyId == TEXT("ChannelTestSlider"))
     {
         ChannelTestSlider = FMath::Clamp(NewValue, -1.0f, 1.0f);
+        bManualOverride = (FMath::Abs(ChannelTestSlider) > 0.001f);
         NormalizedCommand = ChannelTestSlider;
     }
     else if (PropertyId == TEXT("ArduPilotChannel"))

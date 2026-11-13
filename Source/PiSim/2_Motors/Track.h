@@ -39,6 +39,7 @@ public:
     virtual void SetActuatorAxis(const FVector& InAxis) override { TrackForwardAxis = InAxis; }
     virtual void InitializeModuleIdentity(class APiSimVehicle* InVehicle) override;
     virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override {}
+    void HandleControlTopic(const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<class FJsonObject>& PayloadObj);
 
     // @state: WIP - Modül içi araç kimliği ve kanal testi değişkenleri
     UPROPERTY()
@@ -90,5 +91,14 @@ public:
     float TrackWidthCm = 30.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Track")
-    int32 ArduPilotChannel = 3;
+    int32 ArduPilotChannel = 1;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Track")
+    bool bManualOverride = false;
+
+protected:
+    double LastArduPilotPwmTime = -100.0;
+    double LastControlTopicTime = -100.0;
+    float TopicWatchdogTimeoutSec = 0.6f;
+    bool bTopicBridgeBound = false;
 };

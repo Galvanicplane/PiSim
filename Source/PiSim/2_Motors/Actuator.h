@@ -28,7 +28,7 @@ public:
     // IPiSimActuatorInterface
     virtual void SetActuatorNormalized(float Value) override { NormalizedCommand = FMath::Clamp(Value, -1.0f, 1.0f); ChannelTestSlider = NormalizedCommand; SetTargetStroke(((NormalizedCommand + 1.0f) * 0.5f) * MaxStrokeCm); }
     virtual void SetActuatorDirect(float PhysicalValue) override { SetTargetStroke(PhysicalValue); }
-    virtual void SetActuatorPWM(int32 InPWM) override { float Norm = FMath::Clamp((InPWM - 1000) / 1000.0f, 0.0f, 1.0f); SetTargetStroke(Norm * MaxStrokeCm); }
+    virtual void SetActuatorPWM(int32 InPWM) override { NormalizedCommand = FMath::Clamp((InPWM - 1500) / 500.0f, -1.0f, 1.0f); SetTargetStroke(((NormalizedCommand + 1.0f) * 0.5f) * MaxStrokeCm); }
     virtual float GetActuatorNormalized() const override { return (MaxStrokeCm > 0.0f) ? (CurrentStrokeCm / MaxStrokeCm) : 0.0f; }
     virtual FName GetTargetBoneName() const override { return TargetBoneName; }
     virtual void SetTargetBoneName(FName InBoneName) override { TargetBoneName = InBoneName; }
@@ -39,6 +39,7 @@ public:
     virtual void SetActuatorAxis(const FVector& InAxis) override { ExtensionAxis = InAxis; }
     virtual void InitializeModuleIdentity(class APiSimVehicle* InVehicle) override;
     virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override {}
+    void HandleControlTopic(const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<class FJsonObject>& PayloadObj);
 
     /** LA_<isim>_a / _b ve R_<isim>_a / _b ikili kemiklerini modül içinde otomatik tespit eder */
     UFUNCTION(BlueprintCallable, Category = "PiSim|Actuator")
@@ -116,4 +117,13 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Actuator")
     FVector ExtensionAxis = FVector(0.0f, 0.0f, 1.0f); // Varsayılan Z ekseni
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Actuator")
+    bool bManualOverride = false;
+
+protected:
+    double LastArduPilotPwmTime = -100.0;
+    double LastControlTopicTime = -100.0;
+    float TopicWatchdogTimeoutSec = 0.6f;
+    bool bTopicBridgeBound = false;
 };

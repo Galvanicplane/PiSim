@@ -7,7 +7,7 @@
 #include "ProceduralMeshComponent.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Modül içi araç kimliğini doldurur ve Zenoh Bridge ACK topic'ini doğrudan dinler
+// @state: WIP - Modül içi araç kimliğini doldurur ve Zenoh Bridge ACK + kontrol topic'ini doğrudan dinler
 void UPiSimPropellerComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -27,7 +27,30 @@ void UPiSimPropellerComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle
                     HandleAckMessage(TopicName, AckCode);
                 }
             });
+
+            Bridge->OnControlTopicReceived.RemoveAll(this);
+            Bridge->OnControlTopicReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<FJsonObject>& PayloadObj)
+            {
+                HandleControlTopic(InVehicleCode, TopicName, SourceType, PayloadObj);
+            });
+            bTopicBridgeBound = true;
         }
+    }
+}
+
+// @state: WIP - Pervane modülünün kendi içinden ArduPilot PWM (öncelikli) veya ROS kontrol topiğini dinlemesi
+void UPiSimPropellerComponent::HandleControlTopic(const FString& InVehicleCode, const FString& TopicName, const FString& SourceType, const TSharedPtr<FJsonObject>& PayloadObj)
+{
+    const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    const int32 MyCh = (ServoChannel > 0) ? ServoChannel : ArduPilotChannel;
+    int32 PwmVal = 1000;
+    if (UPiSimTopicBridge::ParseControlTopicForChannel(
+        Now, ParentVehicleName, VehicleIndex, TargetBoneName, MyCh,
+        InVehicleCode, TopicName, SourceType, PayloadObj,
+        LastArduPilotPwmTime, LastControlTopicTime, PwmVal))
+    {
+        bManualOverride = false;
+        SetFromPWM(PwmVal);
     }
 }
 
@@ -38,10 +61,25 @@ UPiSimPropellerComponent::UPiSimPropellerComponent()
     PrimaryComponentTick.TickGroup = TG_PrePhysics;
 }
 
-// @state: WIP - Her frame itki kuvvetini hesaplar ve fizik gövdesine uygular
+// @state: WIP - Her frame pervane topic aboneliğini, watchdog sıfırlamasını ve itki kuvvetini günceller
 void UPiSimPropellerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+    if (!bTopicBridgeBound && GetOwner())
+    {
+        if (APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner()))
+        {
+            InitializeModuleIdentity(Vehicle);
+        }
+    }
+
+    const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+    if (!bManualOverride && LastControlTopicTime > 0.0 && (Now - LastControlTopicTime) > TopicWatchdogTimeoutSec)
+    {
+        SetFromPWM(1000);
+        LastControlTopicTime = -100.0;
+    }
 
     if (!CachedSkeletalMesh && GetOwner())
     {

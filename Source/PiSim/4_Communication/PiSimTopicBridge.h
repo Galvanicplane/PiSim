@@ -10,6 +10,7 @@
 #include "Components/ActorComponent.h"
 #include "Sockets.h"
 #include "SocketSubsystem.h"
+#include "Dom/JsonObject.h"
 #include "IPiSimActuatorInterface.h"
 #include "PiSimTopicBridge.generated.h"
 
@@ -17,6 +18,9 @@ class APiSimVehicle;
 
 /** @state: WIP - Modüllerin Unreal Zenoh Bridge üzerinden gelen ACK mesajlarını doğrudan dinlemesi için multicast delege */
 DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnPiSimBridgeAckReceived, const FString& /*VehicleCode*/, const FString& /*TopicName*/, int32 /*AckCode*/);
+
+/** @state: WIP - Her motor modülünün kendi içinden kontrol topiclerini (ArduPilot PWM öncelikli, yoksa ROS kontrol topiği) dinlemesi için delege */
+DECLARE_MULTICAST_DELEGATE_FourParams(FOnPiSimControlTopicReceived, const FString& /*VehicleCode*/, const FString& /*TopicName*/, const FString& /*SourceType*/, const TSharedPtr<FJsonObject>& /*PayloadObj*/);
 
 UENUM(BlueprintType)
 enum class EPiSimTopicControlMode : uint8
@@ -62,6 +66,27 @@ public:
     /** Her modülün kendi içinde Bridge ACK yayınını doğrudan dinleyebilmesi için event akışı */
     FOnPiSimBridgeAckReceived OnAckReceived;
 
+    /** Her motor modülünün kendi içinden kontrol topic'lerini (ArduPilot PWM / ROS) dinlemesi için event akışı */
+    FOnPiSimControlTopicReceived OnControlTopicReceived;
+
+    /** Gelen ham kontrol topic JSON paketini ayrıştırır ve araç içi modüllere broadcast eder */
+    void ProcessIncomingPacketJson(const FString& JsonStr);
+
+    /** @state: WIP - Her motor modülünün kendi içinden ArduPilot PWM öncelikli (yoksa standart ROS) topic kontrolünü çözmesi için yardımcı */
+    static bool ParseControlTopicForChannel(
+        double NowSeconds,
+        const FString& ModuleVehicleCode,
+        int32 ModuleVehicleId,
+        FName TargetBoneName,
+        int32 MyChannel,
+        const FString& InVehicleCode,
+        const FString& TopicName,
+        const FString& SourceType,
+        const TSharedPtr<FJsonObject>& PayloadObj,
+        double& InOutLastArduPilotPwmTime,
+        double& InOutLastControlTopicTime,
+        int32& OutPwmVal);
+
     /** Belirtilen topic altına veri yayınlar (ROS 2 / Zenoh uyumlu) */
     UFUNCTION(BlueprintCallable, Category = "PiSim|ROS2")
     void PublishTopic(const FString& TopicSuffix, const FString& JsonPayload);
@@ -88,13 +113,13 @@ public:
     float SensorPublishRateHz = 20.0f; // 20 Hz ROS 2 sensör yayını
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|ROS2")
-    int32 BridgePort = 7410; // Dinleme Portu (7410 + VehicleId)
+    int32 BridgePort = 7402; // Tekil RX Dinleme Portu (Zenoh -> Unreal: 7402)
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|ROS2")
     FString TargetHost = TEXT("127.0.0.1");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|ROS2")
-    int32 TargetPort = 7411; // Harici ROS 2 / Zenoh Bridge alıcı portu
+    int32 TargetPort = 7500; // Tekil TX Gönderme Portu (Unreal -> Zenoh: 7500)
 
 protected:
     void InitSockets();

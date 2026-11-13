@@ -22,12 +22,11 @@ void UPiSimTopicBridge::BeginPlay()
     Super::BeginPlay();
 
     CachedVehicle = Cast<APiSimVehicle>(GetOwner());
+    BridgePort = 7402;
+    TargetPort = 7500;
     if (CachedVehicle)
     {
         int32 VId = FMath::Max(1, CachedVehicle->VehicleId);
-        BridgePort = 7410 + VId;
-        TargetPort = 7510 + VId;
-
         FString CleanCode = CachedVehicle->VehicleCode.IsEmpty() ? FString::Printf(TEXT("rover_%02d"), VId) : CachedVehicle->VehicleCode;
         TopicPrefix = FString::Printf(TEXT("/%s"), *CleanCode);
     }
@@ -49,6 +48,7 @@ void UPiSimTopicBridge::InitSockets()
         .AsNonBlocking()
         .AsReusable()
         .BoundToPort(BridgePort)
+        .WithBroadcast()
         .WithReceiveBufferSize(1024 * 1024);
 
     SendSocket = FUdpSocketBuilder(TEXT("PiSimTopicBridgeTx"))
@@ -90,6 +90,7 @@ void UPiSimTopicBridge::TickComponent(float DeltaTime, ELevelTick TickType, FAct
     }
 }
 
+// @state: WIP - Tekil UDP 7402 soketinden gelen paketleri aktif filodaki TopicBridge bileşenlerine yönlendirir
 void UPiSimTopicBridge::PollIncomingPackets()
 {
     if (!ListenSocket) return;
@@ -111,42 +112,280 @@ void UPiSimTopicBridge::PollIncomingPackets()
             Buffer[BytesRead] = 0;
             FString JsonStr = UTF8_TO_TCHAR((const char*)Buffer.GetData());
 
-            TSharedPtr<FJsonObject> JsonObj;
-            TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonStr);
-            if (FJsonSerializer::Deserialize(Reader, JsonObj) && JsonObj.IsValid())
+            bool bDispatchedToFleet = false;
             {
-                FString Topic = JsonObj->HasField(TEXT("topic")) ? JsonObj->GetStringField(TEXT("topic")) : TEXT("");
-                FString Cmd = JsonObj->HasField(TEXT("cmd")) ? JsonObj->GetStringField(TEXT("cmd")) : TEXT("");
-
-                if (Topic.Contains(TEXT("ping")) || Cmd.Equals(TEXT("ping"), ESearchCase::IgnoreCase))
+                FScopeLock Lock(&APiSimVehicle::FleetLock);
+                for (APiSimVehicle* Veh : APiSimVehicle::ActiveFleet)
                 {
-                    HandlePingTest(JsonStr);
-                }
-                else if (Topic.Contains(TEXT("ack")) || Cmd.Equals(TEXT("ack"), ESearchCase::IgnoreCase))
-                {
-                    DispatchAckJson(JsonStr);
-                }
-                else if (Topic.Contains(TEXT("channels")) || Cmd.Equals(TEXT("channels"), ESearchCase::IgnoreCase))
-                {
-                    DispatchChannelsJson(JsonStr);
-                }
-                else if (Topic.Contains(TEXT("actuators")) || Cmd.Equals(TEXT("actuators"), ESearchCase::IgnoreCase))
-                {
-                    DispatchActuatorsJson(JsonStr);
-                }
-                else if (Topic.Contains(TEXT("cmd_vel")) || Cmd.Equals(TEXT("cmd_vel"), ESearchCase::IgnoreCase))
-                {
-                    float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
-                    bool bPwmActive = (ControlMode == EPiSimTopicControlMode::PWMChannels) ||
-                                     (ControlMode == EPiSimTopicControlMode::Auto && (Now - LastPwmReceivedTime) < PwmTimeoutSec);
-                    if (!bPwmActive && CachedVehicle)
+                    if (Veh && IsValid(Veh) && Veh->TopicBridge)
                     {
-                        CachedVehicle->ProcessCommandJson(JsonStr);
+                        Veh->TopicBridge->ProcessIncomingPacketJson(JsonStr);
+                        bDispatchedToFleet = true;
                     }
                 }
             }
+            if (!bDispatchedToFleet)
+            {
+                ProcessIncomingPacketJson(JsonStr);
+            }
         }
     }
+}
+
+// @state: WIP - Gelen JSON kontrol topicini hedef araç eşleşmesiyle süzer ve hiçbir motora dışarıdan müdahale etmeden modüllere yayınlar
+void UPiSimTopicBridge::ProcessIncomingPacketJson(const FString& JsonStr)
+{
+    TSharedPtr<FJsonObject> JsonObj;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonStr);
+    if (!FJsonSerializer::Deserialize(Reader, JsonObj) || !JsonObj.IsValid())
+    {
+        return;
+    }
+
+    FString Topic = JsonObj->HasField(TEXT("topic")) ? JsonObj->GetStringField(TEXT("topic")) : TEXT("");
+    FString Cmd = JsonObj->HasField(TEXT("cmd")) ? JsonObj->GetStringField(TEXT("cmd")) : TEXT("");
+    FString Source = JsonObj->HasField(TEXT("source")) ? JsonObj->GetStringField(TEXT("source")) : TEXT("");
+    FString Target = JsonObj->HasField(TEXT("target")) ? JsonObj->GetStringField(TEXT("target")) : TEXT("");
+    if (Target.IsEmpty() && JsonObj->HasField(TEXT("vehicle")))
+    {
+        Target = JsonObj->GetStringField(TEXT("vehicle"));
+    }
+
+    if (!Topic.IsEmpty())
+    {
+        TArray<FString> Parts;
+        Topic.ParseIntoArray(Parts, TEXT("/"), true);
+        if (Parts.Num() >= 2)
+        {
+            FString TopicTarget = (Parts[0].Equals(TEXT("pisim"), ESearchCase::IgnoreCase) && Parts.Num() >= 3) ? Parts[1] : Parts[0];
+            if (Target.IsEmpty())
+            {
+                Target = TopicTarget;
+            }
+        }
+    }
+    if (Target.IsEmpty())
+    {
+        Target = TEXT("all");
+    }
+
+    if (CachedVehicle)
+    {
+        FString LegacyCode = FString::Printf(TEXT("rover_%02d"), CachedVehicle->VehicleId);
+        bool bTargetMatch = Target.Equals(TEXT("all"), ESearchCase::IgnoreCase) ||
+                            Target.Equals(CachedVehicle->VehicleCode, ESearchCase::IgnoreCase) ||
+                            Target.Equals(CachedVehicle->VehicleName, ESearchCase::IgnoreCase) ||
+                            Target.Equals(LegacyCode, ESearchCase::IgnoreCase) ||
+                            CachedVehicle->VehicleCode.StartsWith(Target, ESearchCase::IgnoreCase) ||
+                            Target.Equals(FString::FromInt(CachedVehicle->VehicleId));
+        if (!bTargetMatch)
+        {
+            return;
+        }
+    }
+
+    if (Topic.Contains(TEXT("ping")) || Cmd.Equals(TEXT("ping"), ESearchCase::IgnoreCase))
+    {
+        HandlePingTest(JsonStr);
+        return;
+    }
+    if (Topic.Contains(TEXT("ack")) || Cmd.Equals(TEXT("ack"), ESearchCase::IgnoreCase))
+    {
+        DispatchAckJson(JsonStr);
+        return;
+    }
+
+    // ROSBridge sarmalayıcısı ("msg": {...}) varsa iç alanları modüllerin kolay okuması için üst nesneye kopyala
+    TSharedPtr<FJsonObject> DispatchObj = JsonObj;
+    const TSharedPtr<FJsonObject>* MsgObjPtr = nullptr;
+    if (JsonObj->TryGetObjectField(TEXT("msg"), MsgObjPtr) && MsgObjPtr && MsgObjPtr->IsValid())
+    {
+        for (const auto& Pair : (*MsgObjPtr)->Values)
+        {
+            if (!JsonObj->HasField(Pair.Key))
+            {
+                JsonObj->SetField(Pair.Key, Pair.Value);
+            }
+        }
+    }
+
+    const FString VehicleCode = CachedVehicle ? CachedVehicle->VehicleCode : Target;
+    const bool bIsArduPilot = Source.Contains(TEXT("ardupilot"), ESearchCase::IgnoreCase) ||
+                              Topic.Contains(TEXT("ardupilot"), ESearchCase::IgnoreCase) ||
+                              Topic.EndsWith(TEXT("/pwm"), ESearchCase::IgnoreCase);
+
+    float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+    if (bIsArduPilot || Topic.Contains(TEXT("channels")) || Cmd.Equals(TEXT("channels"), ESearchCase::IgnoreCase) || JsonObj->HasField(TEXT("pwm")) || JsonObj->HasField(TEXT("channels")))
+    {
+        if (bIsArduPilot)
+        {
+            LastPwmReceivedTime = Now;
+        }
+        TopicAckStatusMap.Add(TopicPrefix + TEXT("/channels"), 2);
+    }
+    else if (Topic.Contains(TEXT("actuators")) || Cmd.Equals(TEXT("actuators"), ESearchCase::IgnoreCase))
+    {
+        TopicAckStatusMap.Add(TopicPrefix + TEXT("/actuators"), 2);
+    }
+
+    // Dışarıdan motor/kemik taraması YOK: Tüm modüller kendi içinden bu topiğin yayınını dinler
+    OnControlTopicReceived.Broadcast(VehicleCode, Topic.IsEmpty() ? (TopicPrefix + TEXT("/") + (Cmd.IsEmpty() ? TEXT("channels") : Cmd)) : Topic, Source, DispatchObj);
+}
+
+// @state: WIP - Modül içi kontrol topic çözümleyicisi: ArduPilot PWM aktifse öncelikli alır, yoksa ROS /channels veya /cmd_vel veya /actuators okur
+bool UPiSimTopicBridge::ParseControlTopicForChannel(
+    double NowSeconds,
+    const FString& ModuleVehicleCode,
+    int32 ModuleVehicleId,
+    FName TargetBoneName,
+    int32 MyChannel,
+    const FString& InVehicleCode,
+    const FString& TopicName,
+    const FString& SourceType,
+    const TSharedPtr<FJsonObject>& PayloadObj,
+    double& InOutLastArduPilotPwmTime,
+    double& InOutLastControlTopicTime,
+    int32& OutPwmVal)
+{
+    if (!PayloadObj.IsValid() || MyChannel <= 0)
+    {
+        return false;
+    }
+
+    if (!InVehicleCode.IsEmpty() && !InVehicleCode.Equals(TEXT("all"), ESearchCase::IgnoreCase))
+    {
+        FString LegacyCode = FString::Printf(TEXT("rover_%02d"), ModuleVehicleId);
+        bool bMatch = ModuleVehicleCode.IsEmpty() ||
+                      InVehicleCode.Equals(ModuleVehicleCode, ESearchCase::IgnoreCase) ||
+                      InVehicleCode.Equals(LegacyCode, ESearchCase::IgnoreCase) ||
+                      ModuleVehicleCode.StartsWith(InVehicleCode, ESearchCase::IgnoreCase) ||
+                      InVehicleCode.Equals(FString::FromInt(ModuleVehicleId));
+        if (!bMatch)
+        {
+            return false;
+        }
+    }
+
+    const bool bIsArduPilot = SourceType.Contains(TEXT("ardupilot"), ESearchCase::IgnoreCase) ||
+                              TopicName.Contains(TEXT("ardupilot"), ESearchCase::IgnoreCase) ||
+                              TopicName.EndsWith(TEXT("/pwm"), ESearchCase::IgnoreCase);
+
+    // ArduPilot kontrol topiği aktifse (son 0.5 sn içinde geldiyse) standart ROS topikleri yok sayılır
+    if (!bIsArduPilot && InOutLastArduPilotPwmTime > 0.0 && (NowSeconds - InOutLastArduPilotPwmTime) < 0.5)
+    {
+        return false;
+    }
+
+    bool bMatched = false;
+
+    // 1. ArduPilot Ham PWM Dizisi (1000..1500..2000 us) - Kanal indeksi MyChannel (1 tabanlı)
+    const TArray<TSharedPtr<FJsonValue>>* PwmArray = nullptr;
+    if (PayloadObj->TryGetArrayField(TEXT("pwm"), PwmArray) && PwmArray && PwmArray->IsValidIndex(MyChannel - 1))
+    {
+        float RawPwm = (float)(*PwmArray)[MyChannel - 1]->AsNumber();
+        OutPwmVal = FMath::Clamp(FMath::RoundToInt(RawPwm), 800, 2200);
+        bMatched = true;
+    }
+
+    // 2. Kanallar Haritası (/ardupilot/pwm veya /channels -> {"1": 1500, "2": 1800} veya normalize [-1..+1])
+    if (!bMatched)
+    {
+        const TSharedPtr<FJsonObject>* ChansObj = nullptr;
+        if (PayloadObj->TryGetObjectField(TEXT("channels"), ChansObj) && ChansObj && ChansObj->IsValid())
+        {
+            const FString KeyPlain = FString::FromInt(MyChannel);
+            const FString KeyLower = TEXT("ch") + KeyPlain;
+            const FString KeyUpper = TEXT("CH") + KeyPlain;
+            FString MatchedKey;
+            if ((*ChansObj)->HasField(KeyPlain)) MatchedKey = KeyPlain;
+            else if ((*ChansObj)->HasField(KeyLower)) MatchedKey = KeyLower;
+            else if ((*ChansObj)->HasField(KeyUpper)) MatchedKey = KeyUpper;
+
+            if (!MatchedKey.IsEmpty())
+            {
+                float RawVal = (float)(*ChansObj)->GetNumberField(MatchedKey);
+                if (RawVal > 500.0f)
+                {
+                    OutPwmVal = FMath::Clamp(FMath::RoundToInt(RawVal), 800, 2200);
+                }
+                else
+                {
+                    float NormVal = FMath::Clamp(RawVal, -1.0f, 1.0f);
+                    OutPwmVal = FMath::RoundToInt(1500.0f + NormVal * 500.0f);
+                }
+                bMatched = true;
+            }
+        }
+    }
+
+    // 3. Doğrudan Aktüatör Topiği (/actuators -> {"motors": {"<BoneName>": val}}) - Sadece kendi kemiğini okur
+    if (!bMatched && !bIsArduPilot && !TargetBoneName.IsNone())
+    {
+        const TSharedPtr<FJsonObject>* MotorsObj = nullptr;
+        if (PayloadObj->TryGetObjectField(TEXT("motors"), MotorsObj) && MotorsObj && MotorsObj->IsValid())
+        {
+            FString BoneStr = TargetBoneName.ToString();
+            if ((*MotorsObj)->HasField(BoneStr))
+            {
+                float RawVal = (float)(*MotorsObj)->GetNumberField(BoneStr);
+                if (RawVal > 500.0f)
+                {
+                    OutPwmVal = FMath::Clamp(FMath::RoundToInt(RawVal), 800, 2200);
+                }
+                else
+                {
+                    OutPwmVal = FMath::RoundToInt(1500.0f + FMath::Clamp(RawVal, -1.0f, 1.0f) * 500.0f);
+                }
+                bMatched = true;
+            }
+        }
+    }
+
+    // 4. Standart ROS Kontrol Topiği (/cmd_vel -> linear.x / angular.z) - Kanal 1: İleri/Geri, Kanal 2: Sağ/Sol
+    if (!bMatched && !bIsArduPilot)
+    {
+        const TSharedPtr<FJsonObject>* LinearObj = nullptr;
+        const TSharedPtr<FJsonObject>* AngularObj = nullptr;
+        bool bHasTwist = PayloadObj->TryGetObjectField(TEXT("linear"), LinearObj) ||
+                         PayloadObj->TryGetObjectField(TEXT("angular"), AngularObj) ||
+                         PayloadObj->HasField(TEXT("linear_x")) ||
+                         PayloadObj->HasField(TEXT("angular_z"));
+        if (bHasTwist)
+        {
+            if (MyChannel == 1)
+            {
+                float LinearX = PayloadObj->HasField(TEXT("linear_x")) ? (float)PayloadObj->GetNumberField(TEXT("linear_x")) : 0.0f;
+                if (LinearObj && LinearObj->IsValid() && (*LinearObj)->HasField(TEXT("x")))
+                {
+                    LinearX = (float)(*LinearObj)->GetNumberField(TEXT("x"));
+                }
+                float Norm = FMath::Clamp(LinearX / 3.0f, -1.0f, 1.0f);
+                OutPwmVal = FMath::RoundToInt(1500.0f + Norm * 500.0f);
+                bMatched = true;
+            }
+            else if (MyChannel == 2)
+            {
+                float AngularZ = PayloadObj->HasField(TEXT("angular_z")) ? (float)PayloadObj->GetNumberField(TEXT("angular_z")) : 0.0f;
+                if (AngularObj && AngularObj->IsValid() && (*AngularObj)->HasField(TEXT("z")))
+                {
+                    AngularZ = (float)(*AngularObj)->GetNumberField(TEXT("z"));
+                }
+                float Norm = FMath::Clamp(AngularZ / 1.5f, -1.0f, 1.0f);
+                OutPwmVal = FMath::RoundToInt(1500.0f + Norm * 500.0f);
+                bMatched = true;
+            }
+        }
+    }
+
+    if (bMatched)
+    {
+        InOutLastControlTopicTime = NowSeconds;
+        if (bIsArduPilot)
+        {
+            InOutLastArduPilotPwmTime = NowSeconds;
+        }
+    }
+    return bMatched;
 }
 
 void UPiSimTopicBridge::HandlePingTest(const FString& InJsonStr)
@@ -157,155 +396,16 @@ void UPiSimTopicBridge::HandlePingTest(const FString& InJsonStr)
     PublishTopic(TEXT("pong"), PongMsg);
 }
 
+// @state: WIP - Dış aktüatör taraması kaldırıldı; gelen aktüatör JSON'ını yalnızca OnControlTopicReceived ile modüllere yayınlar
 void UPiSimTopicBridge::DispatchActuatorsJson(const FString& InJsonStr)
 {
-    if (!CachedVehicle) return;
-
-    float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
-    if (ControlMode == EPiSimTopicControlMode::PWMChannels)
-    {
-        return; // PWM modunda kilitli
-    }
-    if (ControlMode == EPiSimTopicControlMode::Auto && (Now - LastPwmReceivedTime) < PwmTimeoutSec)
-    {
-        return; // ArduPilot PWM akışı aktif, öncelik PWM'de!
-    }
-
-    TSharedPtr<FJsonObject> JsonObj;
-    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(InJsonStr);
-    if (!FJsonSerializer::Deserialize(Reader, JsonObj) || !JsonObj.IsValid()) return;
-
-    const TSharedPtr<FJsonObject>* MotorsObj = nullptr;
-    if (JsonObj->TryGetObjectField(TEXT("motors"), MotorsObj) && MotorsObj && MotorsObj->IsValid())
-    {
-        // Gazebo / Doğrudan Aktüatör Modunu aktifleştir ve watchdog süresini kur
-        CachedVehicle->bDirectActuatorControl = true;
-        CachedVehicle->CommandWatchdogTimer = 0.8f;
-
-        TArray<UActorComponent*> Comps;
-        CachedVehicle->GetComponents(Comps);
-
-        for (const auto& Pair : (*MotorsObj)->Values)
-        {
-            FName BoneName = FName(*Pair.Key);
-            float Value = (float)Pair.Value->AsNumber();
-
-            // 1. Doğrudan ActorComponent seviyesindeki IPiSimActuatorInterface üzerinden sür (SIFIR CAST!)
-            for (UActorComponent* Comp : Comps)
-            {
-                if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(Comp))
-                {
-                    if (Actuator->GetTargetBoneName() == BoneName)
-                    {
-                        Actuator->SetActuatorNormalized(Value);
-                    }
-                }
-            }
-
-            // 2. Mafsal ve Chaos dinamik değer haritasını güncelle
-            CachedVehicle->SetMotorTestValue(BoneName, Value);
-        }
-
-        // 3. Aracı fiziksel olarak doğrudan tetikle
-        CachedVehicle->ProcessCommandJson(InJsonStr);
-    }
+    ProcessIncomingPacketJson(InJsonStr);
 }
 
+// @state: WIP - Dış kemik/modül müdahalesi kaldırıldı; gelen kanal/PWM JSON'ını yalnızca OnControlTopicReceived ile modüllere yayınlar
 void UPiSimTopicBridge::DispatchChannelsJson(const FString& InJsonStr)
 {
-    if (!CachedVehicle) return;
-
-    TSharedPtr<FJsonObject> JsonObj;
-    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(InJsonStr);
-    if (!FJsonSerializer::Deserialize(Reader, JsonObj) || !JsonObj.IsValid())
-    {
-        TopicAckStatusMap.Add(TopicPrefix + TEXT("/channels"), 1); // 1 = Veri yapısı bozuk
-        return;
-    }
-
-    const TSharedPtr<FJsonObject>* ChansObj = nullptr;
-    if (!JsonObj->TryGetObjectField(TEXT("channels"), ChansObj) || !ChansObj || !ChansObj->IsValid())
-    {
-        const TSharedPtr<FJsonObject>* MsgObj = nullptr;
-        if (JsonObj->TryGetObjectField(TEXT("msg"), MsgObj) && MsgObj && MsgObj->IsValid())
-        {
-            (*MsgObj)->TryGetObjectField(TEXT("channels"), ChansObj);
-        }
-    }
-
-    if (ChansObj && ChansObj->IsValid())
-    {
-        LastPwmReceivedTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
-        CachedVehicle->bDirectActuatorControl = true;
-        CachedVehicle->CommandWatchdogTimer = 0.8f;
-        TopicAckStatusMap.Add(TopicPrefix + TEXT("/channels"), 2); // 2 = Sağlıklı
-
-        TArray<UActorComponent*> Comps;
-        CachedVehicle->GetComponents(Comps);
-
-        for (const auto& Pair : (*ChansObj)->Values)
-        {
-            FString KeyClean = Pair.Key;
-            KeyClean.RemoveFromStart(TEXT("ch"), ESearchCase::IgnoreCase);
-            int32 ChNum = FCString::Atoi(*KeyClean);
-            if (ChNum <= 0) continue;
-
-            float RawVal = (float)Pair.Value->AsNumber();
-            float NormVal = 0.0f;
-            int32 PwmVal = 1500;
-
-            // Hem normalize (-1.0 .. +1.0) hem de ArduPilot PWM (1000 .. 2000) değerlerini otomatik destekle
-            if (FMath::Abs(RawVal) <= 2.5f)
-            {
-                NormVal = FMath::Clamp(RawVal, -1.0f, 1.0f);
-                PwmVal = FMath::RoundToInt(1500.0f + NormVal * 500.0f);
-            }
-            else
-            {
-                PwmVal = FMath::Clamp((int32)RawVal, 800, 2200);
-                NormVal = FMath::Clamp((PwmVal - 1500.0f) / 500.0f, -1.0f, 1.0f);
-            }
-
-            bool bHandledByModule = false;
-            // 1. Her motor modülü kendi ArduPilotChannel değişkenini kontrol eder ve kendi komutunu uygular
-            //    Channel 1 -> Sürüş Tekerlekleri (İleri/Geri)
-            //    Channel 2 -> Direksiyon Servoları (Sağ/Sol)
-            for (UActorComponent* Comp : Comps)
-            {
-                if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(Comp))
-                {
-                    if (Actuator->GetArduPilotChannel() == ChNum)
-                    {
-                        Actuator->SetActuatorPWM(PwmVal);
-                        FName BoneName = Actuator->GetTargetBoneName();
-                        if (!BoneName.IsNone())
-                        {
-                            CachedVehicle->SetMotorTestValue(BoneName, NormVal);
-                        }
-                        bHandledByModule = true;
-                    }
-                }
-            }
-
-            // 2. Kemik sahne bileşenleri için yedek eşleştirme (Channel 1 = Tekerlekler, Channel 2 = Steer Servolar)
-            for (const auto& BonePair : CachedVehicle->BoneSceneComponents)
-            {
-                FString LowerName = BonePair.Key.ToString().ToLower();
-                if (ChNum == 1 && (LowerName.Contains(TEXT("wheel")) || LowerName.Contains(TEXT("teker"))))
-                {
-                    CachedVehicle->SetMotorTestValue(BonePair.Key, NormVal);
-                }
-                else if (ChNum == 2 && (LowerName.Contains(TEXT("steer")) || LowerName.Contains(TEXT("servo"))))
-                {
-                    CachedVehicle->SetMotorTestValue(BonePair.Key, NormVal);
-                }
-            }
-        }
-    }
-    else
-    {
-        TopicAckStatusMap.Add(TopicPrefix + TEXT("/channels"), 1); // 1 = İstenen yapıda değil
-    }
+    ProcessIncomingPacketJson(InJsonStr);
 }
 
 // @state: WIP - Gelen ACK mesajını topic haritasına yazar ve Bridge dinleyici delegesiyle doğrudan dinleyen modüllere sunar
@@ -389,13 +489,19 @@ void UPiSimTopicBridge::PublishTopic(const FString& TopicSuffix, const FString& 
     bool bValid = false;
     TargetAddr->SetIp(*TargetHost, bValid);
     TargetAddr->SetPort(TargetPort);
-    SendSocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *TargetAddr);
+    if (bValid)
+    {
+        SendSocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *TargetAddr);
+    }
 
-    // Aynı makinedeki yerel dinleyiciler için Loopback (127.0.0.1:7500)
-    TSharedRef<FInternetAddr> LocalAddr = SocketSubsystem->CreateInternetAddr();
-    LocalAddr->SetIp(TEXT("127.0.0.1"), bValid);
-    LocalAddr->SetPort(7500);
-    SendSocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *LocalAddr);
+    // Hedef başka bir IP ise ayrıca yerel 127.0.0.1:7500 Zenoh dinleyicisine de tekil yayın yap
+    if (!TargetHost.Equals(TEXT("127.0.0.1")) && !TargetHost.Equals(TEXT("localhost"), ESearchCase::IgnoreCase))
+    {
+        TSharedRef<FInternetAddr> LocalAddr = SocketSubsystem->CreateInternetAddr();
+        LocalAddr->SetIp(TEXT("127.0.0.1"), bValid);
+        LocalAddr->SetPort(7500);
+        SendSocket->SendTo((const uint8*)Utf8.Get(), Utf8.Length(), BytesSent, *LocalAddr);
+    }
 }
 
 void UPiSimTopicBridge::PublishSensors()
