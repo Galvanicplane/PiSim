@@ -3,9 +3,23 @@
 #include "Servo.h"
 #include "Vehicle.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "ProceduralMeshComponent.h"
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "GameFramework/Actor.h"
+
+// @state: WIP - Modül içi araç kimliğini doldurur
+void UPiSimServoComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
+{
+    ParentVehicle = InVehicle;
+    if (InVehicle)
+    {
+        ParentVehicleName = InVehicle->VehicleCode;
+        VehicleIndex = InVehicle->VehicleId;
+        ServoChannel = ArduPilotChannel;
+        BoneId = InVehicle->FindVisualSectionForBone(TargetBoneName);
+    }
+}
 
 // @state: WIP - Servo eyleyici yapıcısı
 UPiSimServoComponent::UPiSimServoComponent()
@@ -127,9 +141,57 @@ void UPiSimServoComponent::SetPitchRollMixing(float PitchNorm, float RollNorm)
     }
 }
 
-// @state: WIP - Otopark UI için servo parametrelerini döner
+// @state: WIP - Otopark UI için servo parametrelerini döner (-1..+1 Test Slider & FQuat & Tork)
 void UPiSimServoComponent::GetInspectableProperties(TArray<FPiSimPropertyDescriptor>& OutProperties)
 {
+    FPiSimPropertyDescriptor TestDesc;
+    TestDesc.PropertyId = TEXT("ChannelTestSlider");
+    TestDesc.DisplayName = TEXT("Canlı Kanal Testi (-1.0 .. +1.0)");
+    TestDesc.PropertyType = EPiSimPropertyType::Slider;
+    TestDesc.MinValue = -1.0f;
+    TestDesc.MaxValue = 1.0f;
+    TestDesc.CurrentFloatValue = ChannelTestSlider;
+    TestDesc.bContinuousTickUpdate = true;
+    OutProperties.Add(TestDesc);
+
+    FPiSimPropertyDescriptor ChDesc;
+    ChDesc.PropertyId = TEXT("ArduPilotChannel");
+    ChDesc.DisplayName = TEXT("Servo Kanalı (1-16)");
+    ChDesc.PropertyType = EPiSimPropertyType::Slider;
+    ChDesc.MinValue = 1.0f;
+    ChDesc.MaxValue = 16.0f;
+    ChDesc.CurrentFloatValue = (float)ServoChannel;
+    ChDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(ChDesc);
+
+    FPiSimPropertyDescriptor FlipDesc;
+    FlipDesc.PropertyId = TEXT("bFlipDirection");
+    FlipDesc.DisplayName = TEXT("Yönü Ters Çevir (Flip)");
+    FlipDesc.PropertyType = EPiSimPropertyType::Toggle;
+    FlipDesc.CurrentFloatValue = bFlipDirection ? 1.0f : 0.0f;
+    FlipDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(FlipDesc);
+
+    FPiSimPropertyDescriptor TorqueDesc;
+    TorqueDesc.PropertyId = TEXT("MaxTorqueNewtons");
+    TorqueDesc.DisplayName = TEXT("Azami Servo Torku (N·m)");
+    TorqueDesc.PropertyType = EPiSimPropertyType::Slider;
+    TorqueDesc.MinValue = 1.0f;
+    TorqueDesc.MaxValue = 500.0f;
+    TorqueDesc.CurrentFloatValue = MaxTorqueNewtons;
+    TorqueDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(TorqueDesc);
+
+    FPiSimPropertyDescriptor ResDesc;
+    ResDesc.PropertyId = TEXT("JointResistanceForce");
+    ResDesc.DisplayName = TEXT("Eklem Direnç Kuvveti (N)");
+    ResDesc.PropertyType = EPiSimPropertyType::Slider;
+    ResDesc.MinValue = 0.0f;
+    ResDesc.MaxValue = 50.0f;
+    ResDesc.CurrentFloatValue = JointResistanceForce;
+    ResDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(ResDesc);
+
     FPiSimPropertyDescriptor SweepDesc;
     SweepDesc.PropertyId = TEXT("ContinuousSweepTest");
     SweepDesc.DisplayName = TEXT("Sürekli Salınım Testi (0=Kapalı, 1=Açık)");
@@ -150,16 +212,6 @@ void UPiSimServoComponent::GetInspectableProperties(TArray<FPiSimPropertyDescrip
     AngleDesc.bContinuousTickUpdate = true;
     OutProperties.Add(AngleDesc);
 
-    FPiSimPropertyDescriptor SpeedDesc;
-    SpeedDesc.PropertyId = TEXT("SpeedDegPerSec");
-    SpeedDesc.DisplayName = TEXT("Servo Hızı (°/s)");
-    SpeedDesc.PropertyType = EPiSimPropertyType::Slider;
-    SpeedDesc.MinValue = 30.0f;
-    SpeedDesc.MaxValue = 720.0f;
-    SpeedDesc.CurrentFloatValue = SpeedDegPerSec;
-    SpeedDesc.bContinuousTickUpdate = false;
-    OutProperties.Add(SpeedDesc);
-
     FPiSimPropertyDescriptor FuncDesc;
     FuncDesc.PropertyId = TEXT("ArduPilotFunction");
     FuncDesc.DisplayName = TEXT("Otopilot Fonksiyonu");
@@ -168,22 +220,30 @@ void UPiSimServoComponent::GetInspectableProperties(TArray<FPiSimPropertyDescrip
     FuncDesc.DropdownOptions = { TEXT("Aileron"), TEXT("Elevator"), TEXT("Rudder"), TEXT("Elevon_Left"), TEXT("Elevon_Right"), TEXT("Flap"), TEXT("Steer") };
     FuncDesc.bContinuousTickUpdate = false;
     OutProperties.Add(FuncDesc);
-
-    FPiSimPropertyDescriptor ChDesc;
-    ChDesc.PropertyId = TEXT("ArduPilotChannel");
-    ChDesc.DisplayName = TEXT("ArduPilot Kanalı");
-    ChDesc.PropertyType = EPiSimPropertyType::Slider;
-    ChDesc.MinValue = 1.0f;
-    ChDesc.MaxValue = 16.0f;
-    ChDesc.CurrentFloatValue = (float)ArduPilotChannel;
-    ChDesc.bContinuousTickUpdate = false;
-    OutProperties.Add(ChDesc);
 }
 
 // @state: WIP - UI sliderından gelen değeri servoya uygular
 void UPiSimServoComponent::SetInspectablePropertyFloat(FName PropertyId, float NewValue)
 {
-    if (PropertyId == TEXT("ContinuousSweepTest"))
+    if (PropertyId == TEXT("ChannelTestSlider"))
+    {
+        ChannelTestSlider = FMath::Clamp(NewValue, -1.0f, 1.0f);
+        bContinuousSweepTest = false;
+        SetActuatorNormalized(ChannelTestSlider);
+    }
+    else if (PropertyId == TEXT("bFlipDirection"))
+    {
+        bFlipDirection = (NewValue > 0.5f);
+    }
+    else if (PropertyId == TEXT("MaxTorqueNewtons"))
+    {
+        MaxTorqueNewtons = FMath::Max(0.5f, NewValue);
+    }
+    else if (PropertyId == TEXT("JointResistanceForce"))
+    {
+        JointResistanceForce = FMath::Max(0.0f, NewValue);
+    }
+    else if (PropertyId == TEXT("ContinuousSweepTest"))
     {
         bContinuousSweepTest = (NewValue > 0.5f);
         if (!bContinuousSweepTest)
@@ -193,7 +253,7 @@ void UPiSimServoComponent::SetInspectablePropertyFloat(FName PropertyId, float N
     }
     else if (PropertyId == TEXT("TargetAngleDeg"))
     {
-        bContinuousSweepTest = false; // Slider elle tutulunca otomatik testi durdur
+        bContinuousSweepTest = false;
         bManualOverride = true;
         SetTargetAngle(NewValue);
     }
@@ -204,12 +264,19 @@ void UPiSimServoComponent::SetInspectablePropertyFloat(FName PropertyId, float N
     else if (PropertyId == TEXT("ArduPilotChannel"))
     {
         ArduPilotChannel = FMath::Clamp(FMath::RoundToInt(NewValue), 1, 16);
+        ServoChannel = ArduPilotChannel;
     }
 
-    // DEBUG BİLGİSİ: UI'dan gelen motor verisini ekrana ve konsola bas
-    UE_LOG(LogTemp, Warning, TEXT("⚡ [PISIM MOTOR DEBUG] Kemik: '%s' | Servo Parametresi: '%s' = %.2f | Bağlı Bileşen: %s"),
-        *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue,
-        TargetSceneComponent ? *TargetSceneComponent->GetName() : TEXT("Bağlanmadı (Aranıyor...)"));
+    // Min/MaxRotationQuat sınırlarını derece açılarıyla senkron tut
+    FVector Axis = LocalRotationAxis.GetSafeNormal();
+    if (!Axis.IsNearlyZero())
+    {
+        MinRotationQuat = FQuat(Axis, FMath::DegreesToRadians(MinAngleDeg));
+        MaxRotationQuat = FQuat(Axis, FMath::DegreesToRadians(MaxAngleDeg));
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("⚡ [PISIM MOTOR DEBUG] Araç: '%s' | Kemik: '%s' | Servo '%s' = %.2f"),
+        *ParentVehicleName, *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue);
 
     APiSimVehicle* ParentVehicle = Cast<APiSimVehicle>(GetOwner());
     if (ParentVehicle && ParentVehicle->bShowDebugVisualsAndMessages && GEngine)
@@ -239,81 +306,90 @@ void UPiSimServoComponent::TriggerInspectableAction(FName ActionId)
     }
 }
 
-// @state: WIP - Kemik oryantasyonunu servo açısına göre günceller
+// @state: WIP - Fizik aktifken SetRelativeRotation KESİNLİKLE kullanılmaz! FQuat Slerp + Fiziksel Tork / Açısal Sürücü uygular
 void UPiSimServoComponent::ApplyServoPhysics(float DeltaTime)
 {
-    // Açı limitli enterpolasyon
     float MaxStep = SpeedDegPerSec * DeltaTime;
-    float AngleDiff = TargetAngleDeg - CurrentAngleDeg;
+    float EffectiveTargetDeg = bFlipDirection ? -TargetAngleDeg : TargetAngleDeg;
+    float AngleDiff = EffectiveTargetDeg - CurrentAngleDeg;
     if (FMath::Abs(AngleDiff) <= MaxStep)
     {
-        CurrentAngleDeg = TargetAngleDeg;
+        CurrentAngleDeg = EffectiveTargetDeg;
     }
     else
     {
         CurrentAngleDeg += FMath::Sign(AngleDiff) * MaxStep;
     }
 
-    // 🛑 KESİNLİKLE VE SADECE KEMİK SAHNE BİLEŞENİ (TargetSceneComponent) DÖNDÜRÜLÜR!
-    // Görsel meshlere ASLA el sürülmez! Çünkü meshler bu kemiğe bağlı çocuklardır ve onunla beraber döner!
-    if (TargetSceneComponent)
+    // FQuat Slerp hedef hesabı (-1..+1 aralığından [0..1] alfa)
+    float Span = FMath::Max(1.0f, MaxAngleDeg - MinAngleDeg);
+    float Alpha = FMath::Clamp((CurrentAngleDeg - MinAngleDeg) / Span, 0.0f, 1.0f);
+    FQuat TargetLocalQuat = FQuat::Slerp(MinRotationQuat, MaxRotationQuat, Alpha).GetNormalized();
+
+    APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
+    bool bPhysicsActive = Vehicle && Vehicle->IsVehiclePhysicsActive();
+
+    if (bPhysicsActive && Vehicle)
     {
-        if (!bHasRestRotation)
+        // 1) Açısal fiziksel eklem sürücüsü (Constraint Angular Motor Drive)
+        UPhysicsConstraintComponent* Constraint = Vehicle->FindConstraintForBone(TargetBoneName);
+        if (!Constraint)
         {
-            RestRotation = TargetSceneComponent->GetRelativeRotation();
-            bHasRestRotation = true;
+            int32 TargetSection = Vehicle->FindVisualSectionForBone(TargetBoneName);
+            Constraint = Vehicle->FindConstraintForSection(TargetSection);
+        }
+        if (Constraint)
+        {
+            Constraint->SetAngularDriveMode(EAngularDriveMode::SLERP);
+            Constraint->SetOrientationDriveSLERP(true);
+            Constraint->SetAngularOrientationTarget(TargetLocalQuat.Rotator());
+            float EffectiveForceLimit = FMath::Max(0.0f, (MaxTorqueNewtons - JointResistanceForce) * 10000.0f);
+            Constraint->SetAngularDriveParams(500.0f, 50.0f, EffectiveForceLimit);
         }
 
-        FRotator NewRot = RestRotation;
-        NewRot.Yaw = FRotator::NormalizeAxis(RestRotation.Yaw + CurrentAngleDeg);
-        TargetSceneComponent->SetRelativeRotation(NewRot);
-
-        if (APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner()))
+        // 2) UCX fizik gövdesine doğrudan tork uygulaması (statik/kinetik eklem direncini yenerek)
+        if (UPrimitiveComponent* Prim = Vehicle->GetPrimitiveComponentForBone(TargetBoneName))
         {
-            if (Vehicle->IsVehiclePhysicsActive())
+            if (Prim->IsSimulatingPhysics())
             {
-                UPhysicsConstraintComponent* Constraint = Vehicle->FindConstraintForBone(TargetBoneName);
-                if (!Constraint)
+                FQuat CurrentWorldQuat = Prim->GetComponentQuat();
+                FQuat DesiredWorldQuat = TargetSceneComponent ? (TargetSceneComponent->GetComponentQuat() * TargetLocalQuat) : TargetLocalQuat;
+                FQuat ErrorQuat = DesiredWorldQuat * CurrentWorldQuat.Inverse();
+                ErrorQuat.EnforceShortestArcWith(FQuat::Identity);
+                FVector ErrAxis;
+                float ErrAngleRad = 0.0f;
+                ErrorQuat.ToAxisAndAngle(ErrAxis, ErrAngleRad);
+
+                float NetTorque = FMath::Clamp(ErrAngleRad * MaxTorqueNewtons * 10.0f, -MaxTorqueNewtons, MaxTorqueNewtons);
+                if (FMath::Abs(NetTorque) > JointResistanceForce)
                 {
-                    int32 TargetSection = Vehicle->FindVisualSectionForBone(TargetBoneName);
-                    Constraint = Vehicle->FindConstraintForSection(TargetSection);
-                }
-                if (Constraint)
-                {
-                    FVector RelLoc = Constraint->GetRelativeLocation();
-                    int32 TargetSection = Vehicle->FindVisualSectionForBone(TargetBoneName);
-                    if (TargetSection > 0 && Vehicle->StoredVisualSections.IsValidIndex(TargetSection) && Vehicle->StoredVisualSections.IsValidIndex(0))
-                    {
-                        RelLoc = Vehicle->StoredVisualSections[TargetSection].PivotPoint - Vehicle->StoredVisualSections[0].PivotPoint;
-                    }
-                    FTransform SteerPose(NewRot, RelLoc);
-                    Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
+                    float DrivenTorque = (NetTorque - FMath::Sign(NetTorque) * JointResistanceForce) * 10000.0f;
+                    Prim->AddTorqueInRadians(ErrAxis * DrivenTorque, NAME_None, false);
                 }
             }
         }
         return;
     }
 
-    // 2) SkeletalMesh Varsa
-    if (!CachedSkeletalMesh || TargetBoneName.IsNone())
+    // Statik Garaj Modu (Fizik KAPALI iken görsel önizleme)
+    if (TargetSceneComponent && !bPhysicsActive)
     {
-        return;
-    }
-
-    int32 BoneIndex = CachedSkeletalMesh->GetBoneIndex(TargetBoneName);
-    if (BoneIndex != INDEX_NONE)
-    {
-        FQuat DeltaQuat(LocalRotationAxis.GetSafeNormal(), FMath::DegreesToRadians(CurrentAngleDeg));
-        if (CachedSkeletalMesh->IsSimulatingPhysics(TargetBoneName))
+        if (!bHasRestRotation)
         {
-            // Bone physical angular rotation
+            RestRotation = TargetSceneComponent->GetRelativeRotation();
+            bHasRestRotation = true;
         }
+        FQuat RestQ = RestRotation.Quaternion();
+        TargetSceneComponent->SetRelativeRotation((RestQ * TargetLocalQuat).Rotator());
     }
 }
 
 void UPiSimServoComponent::SetActuatorNormalized(float Value)
 {
-    bManualOverride = (FMath::Abs(Value) > 0.001f);
-    float TargetDeg = (Value >= 0.0f) ? (Value * MaxAngleDeg) : (-Value * MinAngleDeg);
+    float EffectiveVal = FMath::Clamp(Value, -1.0f, 1.0f);
+    ChannelTestSlider = EffectiveVal;
+    if (bFlipDirection) EffectiveVal = -EffectiveVal;
+    bManualOverride = (FMath::Abs(EffectiveVal) > 0.001f);
+    float TargetDeg = (EffectiveVal >= 0.0f) ? (EffectiveVal * MaxAngleDeg) : (-EffectiveVal * MinAngleDeg);
     SetTargetAngle(TargetDeg);
 }

@@ -5,6 +5,18 @@
 #include "PiSimTopicBridge.h"
 #include "GameFramework/Actor.h"
 
+// @state: WIP - Modül içi araç kimliğini doldurur
+void UPiSimGPSSensor::InitializeModuleIdentity(APiSimVehicle* InVehicle)
+{
+    ParentVehicle = InVehicle;
+    CachedVehicle = InVehicle;
+    if (InVehicle)
+    {
+        ParentVehicleName = InVehicle->VehicleCode;
+        VehicleIndex = InVehicle->VehicleId;
+    }
+}
+
 // @state: WIP - GPS sensörü bileşeni yapıcısı
 UPiSimGPSSensor::UPiSimGPSSensor()
 {

@@ -2,6 +2,12 @@
 
 #include "MotorDebug.h"
 #include "Vehicle.h"
+#include "Wheel.h"
+#include "Servo.h"
+#include "Propeller.h"
+#include "Actuator.h"
+#include "Track.h"
+#include "LiftBody.h"
 #include "ProceduralMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -222,6 +228,53 @@ void UPiSimMotorDebugComponent::DrawBoneDiagnostics()
         }
 
         BoneIdx++;
+    }
+
+    // 7) @state: WIP - MODÜLE ÖZEL 3B YÖN OKLARI (Pervane İtki/Eksen, Tekerlek Dönme, LA_a/LA_b, R_a/R_b, Aero UpVector)
+    TArray<UActorComponent*> ModComps;
+    Vehicle->GetComponents(ModComps);
+    for (UActorComponent* Comp : ModComps)
+    {
+        if (UPiSimPropellerComponent* Prop = Cast<UPiSimPropellerComponent>(Comp))
+        {
+            if (USceneComponent* BC = Vehicle->GetSceneComponentForBone(Prop->TargetBoneName))
+            {
+                FTransform BT = BC->GetComponentTransform();
+                FVector Loc = BT.GetLocation();
+                FVector ThrustWorld = BT.TransformVectorNoScale(Prop->ThrustDirectionVector.GetSafeNormal()).GetSafeNormal();
+                DrawDebugDirectionalArrow(World, Loc, Loc + ThrustWorld * 60.0f, 12.0f, FColor::Cyan, false, -1.0f, 0, 3.0f);
+            }
+        }
+        else if (UPiSimWheelComponent* Wheel = Cast<UPiSimWheelComponent>(Comp))
+        {
+            if (USceneComponent* BC = Vehicle->GetSceneComponentForBone(Wheel->TargetBoneName))
+            {
+                FTransform BT = BC->GetComponentTransform();
+                FVector Loc = BT.GetLocation();
+                FVector SpinWorld = BT.TransformVectorNoScale(Wheel->LocalSpinAxis.GetSafeNormal()).GetSafeNormal();
+                DrawDebugDirectionalArrow(World, Loc, Loc + SpinWorld * 40.0f, 10.0f, FColor::Green, false, -1.0f, 0, 2.5f);
+            }
+        }
+        else if (UPiSimLinearActuatorComponent* LA = Cast<UPiSimLinearActuatorComponent>(Comp))
+        {
+            USceneComponent* CA = Vehicle->GetSceneComponentForBone(LA->BoneAName.IsNone() ? LA->TargetBoneName : LA->BoneAName);
+            USceneComponent* CB = Vehicle->GetSceneComponentForBone(LA->BoneBName);
+            if (CA && CB)
+            {
+                FColor Col = LA->bIsRopeVariant ? FColor::Yellow : FColor::Orange;
+                DrawDebugLine(World, CA->GetComponentLocation(), CB->GetComponentLocation(), Col, false, -1.0f, 0, 3.0f);
+            }
+        }
+        else if (UPiSimLiftBodyComponent* Lift = Cast<UPiSimLiftBodyComponent>(Comp))
+        {
+            if (USceneComponent* BC = Vehicle->GetSceneComponentForBone(Lift->TargetBoneName))
+            {
+                FTransform BT = BC->GetComponentTransform();
+                FVector Loc = BT.GetLocation();
+                FVector UpW = BT.TransformVectorNoScale(Lift->UpVector.GetSafeNormal()).GetSafeNormal();
+                DrawDebugDirectionalArrow(World, Loc, Loc + UpW * 50.0f, 12.0f, FColor::Purple, false, -1.0f, 0, 2.5f);
+            }
+        }
     }
 }
 

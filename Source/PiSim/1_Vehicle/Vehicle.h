@@ -126,6 +126,69 @@ struct FPiSimBoneHierarchyNode
     int32 IndentLevel = 0;
 };
 
+/** @state: WIP - Bir kemiğe 0, 1 veya N modül atanabilmesi için modül listesi sarmalayıcısı */
+USTRUCT(BlueprintType)
+struct PISIM_API FPiSimBoneModuleList
+{
+    GENERATED_BODY()
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Modules")
+    TArray<UActorComponent*> Modules;
+};
+
+/** @state: WIP - Kemik bazlı serbestlik eksenleri (DOF) ve statik/kinetik sürtünme/direnç yapılandırması */
+USTRUCT(BlueprintType)
+struct PISIM_API FPiSimBoneJointConfig
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
+    FName BoneName = NAME_None;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
+    bool bFreeRotX = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
+    bool bFreeRotY = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
+    bool bFreeRotZ = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
+    bool bFreePosX = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
+    bool bFreePosY = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
+    bool bFreePosZ = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
+    FVector StaticResistanceForce = FVector(0.5f, 0.5f, 0.5f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Joint")
+    FVector KineticFrictionCoefficient = FVector(0.1f, 0.1f, 0.1f);
+};
+
+/** @state: WIP - İki kemik arası doğrusal eyleyici (LA_) veya halat (R_) bağlantı çifti */
+USTRUCT(BlueprintType)
+struct PISIM_API FPiSimLinkedBonePair
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Bones")
+    FString PairBaseName;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Bones")
+    FName BoneAName = NAME_None;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Bones")
+    FName BoneBName = NAME_None;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Bones")
+    bool bIsRope = false;
+};
+
 UCLASS(ClassGroup=(PiSim), BlueprintType, Blueprintable)
 class PISIM_API APiSimVehicle : public APawn
 {
@@ -190,9 +253,35 @@ public:
     UFUNCTION(BlueprintCallable, Category = "PiSim|Camera")
     void AddZoomDelta(float Direction);
 
-    // Kemiğe atanmış modülü alma
+    // Kemiğe atanmış birincil modülü alma
     UFUNCTION(BlueprintCallable, Category = "PiSim|Vehicle")
     UActorComponent* GetModuleAtBone(FName BoneName) const;
+
+    // @state: WIP - Bir kemiğe atanmış tüm modülleri (0, 1 veya N adet) döndürür
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Vehicle")
+    TArray<UActorComponent*> GetModulesAtBone(FName BoneName) const;
+
+    // @state: WIP - Kemiğin açısal/doğrusal serbestlik eksenlerini ve statik/kinetik direnç katsayılarını ayarlar
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Physics")
+    void SetBoneJointConfig(FName BoneName, const FPiSimBoneJointConfig& Config);
+
+    // @state: WIP - Kemiğin eklem eksen ve sürtünme yapılandırmasını döndürür
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Physics")
+    FPiSimBoneJointConfig GetBoneJointConfig(FName BoneName) const;
+
+    // @state: WIP - Blender tarzı X/Y/Z + Fare + Enter etkileşimli sensör konumlandırmasını başlatır
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Sensors")
+    void StartInteractiveSensorPlacement(FName SensorBoneOrName);
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Sensors")
+    void ConfirmInteractiveSensorPlacement();
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Sensors")
+    void CancelInteractiveSensorPlacement();
+
+    // @state: WIP - Tüm araç modüllerine (sensörler dahil) gelen ACK mesajını iletir
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Communication")
+    void BroadcastAckToAllModules(const FString& TopicName, int32 AckCode);
 
     // İskeletteki tüm kemik isimlerini listeler (UI Otopark için)
     UFUNCTION(BlueprintCallable, Category = "PiSim|Vehicle")
@@ -282,6 +371,26 @@ public:
     // Sensör yerel montaj transform haritası
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
     TMap<FString, FTransform> SensorSocketTransforms;
+
+    // @state: WIP - Blender tarzı etkileşimli sensör yerleştirme (X/Y/Z + Fare + Enter) durumu
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
+    bool bSensorPlacementMode = false;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
+    FName ActivePlacementSensorBone = NAME_None;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Sensors")
+    int32 ActivePlacementAxis = 0; // 0=None, 1=X, 2=Y, 3=Z
+
+    FVector PlacementInitialOffset = FVector::ZeroVector;
+
+    // @state: WIP - İki kemikli Lineer Eyleyici (LA_) ve Halat (R_) çiftleri
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Bones")
+    TArray<FPiSimLinkedBonePair> LinkedBonePairs;
+
+    // @state: WIP - Kemik bazlı eksen ve statik/kinetik sürtünme ayarları
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")
+    TMap<FName, FPiSimBoneJointConfig> BoneJointConfigs;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Camera")
     USpringArmComponent* CameraSpringArm;
@@ -455,6 +564,9 @@ protected:
 protected:
     UPROPERTY()
     TMap<FName, UActorComponent*> BoneSlotRegistry;
+
+    UPROPERTY()
+    TMap<FName, FPiSimBoneModuleList> MultiBoneSlotRegistry;
 
     UPROPERTY()
     TArray<FName> VehicleBoneNames;

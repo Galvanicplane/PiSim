@@ -118,42 +118,6 @@
         #btn-toggle-right-top { top: 46px; right: 10px; }
         #btn-toggle-right-bottom { bottom: 18px; right: 10px; }
 
-        /* Alt Köprü Aç/Kapa Butonu (Orta Alt) */
-        #btn-toggle-bottom-bridge {
-            bottom: 18px;
-            left: 50%;
-            transform: translateX(-50%);
-        }
-        #btn-toggle-bottom-bridge:hover {
-            transform: translateX(-50%) scale(1.04);
-        }
-
-        /* ==================== ALT SİMÜLASYON KÖPRÜSÜ (DRAWER BOTTOM) ==================== */
-        .drawer-bottom-bridge {
-            position: fixed;
-            left: 50%;
-            bottom: 12px;
-            transform: translateX(-50%) translateY(120%);
-            width: calc(100vw - 320px);
-            max-width: 1180px;
-            z-index: 75;
-            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-            pointer-events: auto;
-        }
-
-        .drawer-bottom-bridge.open {
-            transform: translateX(-50%) translateY(0);
-        }
-
-        /* 3 SÜTUNLU ALT BÖLME: %50 Loglar, %25 Jitter/Metrikler, %25 Cihazlar & Beacon */
-        .bridge-3col-split {
-            display: grid;
-            grid-template-columns: 2fr 1fr 1fr;
-            gap: 8px;
-            height: 125px;
-            margin-top: 4px;
-        }
-
         /* Donanım ve Beacon Radarı Bölmesi (%25) */
         .beacon-radar-box {
             background: #06090c;
@@ -344,22 +308,24 @@
 </head>
 <body>
 
-    <!-- 0. HAFİF VS CODE TARZI ÜST MENÜ ÇUBUĞU (SABİT) -->
+    <!-- 1. ÖĞE: ÜST MENÜ ÇUBUĞU (AYARLAR, CANLI RENK TEMA DEĞİŞTİRİCİ, KONTROL KODLARI SEVİYE 1-4) -->
     <header class="vscode-menu-bar" style="z-index: 100;">
         <div class="vscode-menu-group">
             <span style="font-weight: 900; color: var(--accent-color); margin-right: 8px; letter-spacing: 1px;">
                 // PISIM UNREAL CORE
             </span>
             <span class="vscode-menu-item" onclick="toggleLeftDrawer()">[◀ FİLO]</span>
-            <span class="vscode-menu-item" onclick="toggleBottomBridge()">[▼ KÖPRÜ & RADAR]</span>
             <span class="vscode-menu-item" onclick="toggleRightDrawer()">[DONANIM ▶]</span>
-            <span class="vscode-menu-item" onclick="triggerBeaconProbe()">[📡 CİHAZ KEŞFİ YAP]</span>
+            <span class="vscode-menu-item" style="color: var(--accent-color); font-weight: 800;" onclick="openUnrealHierarchyModal()">[🧠 KONTROL KODLARI: SEVİYE 1-4]</span>
+            <span class="vscode-menu-item" onclick="openUnrealSettingsModal()">⚙️ Ayarlar</span>
         </div>
 
-        <div class="vscode-menu-group" style="font-size: 10px; gap: 8px;">
+        <div class="vscode-menu-group" style="font-size: 10px; gap: 8px; align-items: center;">
             <span id="active-vehicle-tag" style="color: #ffffff; font-weight: 800;">ODAK: [ARAÇ SEÇİLMEDİ]</span>
             <span style="color: var(--text-dark);">|</span>
-            <span id="active-port-tag" style="color: var(--text-dark);">UDP --</span>
+            <span id="unreal-map-mode-pill" style="font-size: 9px; font-weight: 800; padding: 1px 6px; border: 1px solid var(--accent-color); color: var(--accent-color); background: var(--accent-dim); cursor: pointer;" onclick="cycleUnrealMapMode()" title="Koordinat ~0,0 iken otomatik Noktalı Grid, gerçek GPS'te Uydu/Tema Vektör">
+                📐 NOKTALI ARKA PLAN (0,0)
+            </span>
             <span id="active-status-badge" style="background: rgba(255,255,255,0.05); color: var(--text-muted); padding: 1px 6px; border: 1px solid var(--mono-border); font-weight: 800;">
                 BEKLEMEDE
             </span>
@@ -372,13 +338,20 @@
             <button id="top-btn-axis" class="cod-btn" style="padding: 3px 8px; font-size: 9.5px; font-weight: 800; border-color: #00e5ff; color: #00e5ff;" onclick="cycleWheelAxis()" title="Tekerlek Dönme Eksenini Değiştir (Y)">
                 🔄 EKSEN: <span id="lbl-active-axis">Y (0,1,0) [Swing2]</span> [Y]
             </button>
+            <!-- CANLI UI RENK DEĞİŞTİRİCİ -->
+            <div style="display:flex; align-items:center; gap:3px; background:rgba(255,255,255,0.04); border:1px solid var(--mono-border); padding:2px 5px; border-radius:3px;">
+                <input type="color" id="unreal-theme-color-picker" value="#00dfb6" title="UI Renk Temasını Canlı Değiştir" oninput="setUnrealLiveAccentColor(this.value)" style="width:18px; height:16px; border:none; background:transparent; cursor:pointer; padding:0;" />
+                <button class="cod-btn" onclick="setUnrealLiveAccentColor('#00dfb6')" style="padding:1px 4px; font-size:8px; color:#00dfb6; border-color:#00dfb6;">●</button>
+                <button class="cod-btn" onclick="setUnrealLiveAccentColor('#7aa2f7')" style="padding:1px 4px; font-size:8px; color:#7aa2f7; border-color:#7aa2f7;">●</button>
+                <button class="cod-btn" onclick="setUnrealLiveAccentColor('#fe8019')" style="padding:1px 4px; font-size:8px; color:#fe8019; border-color:#fe8019;">●</button>
+            </div>
             <button id="btn-theme-switcher" class="cod-btn cod-btn-accent" style="padding: 3px 10px; font-size: 10px;" onclick="cycleTheme()">
                 TEMA: 1/5 PETRONAS F1
             </button>
         </div>
     </header>
 
-    <!-- 3D VİEWPORT ŞEFFAF ALANI (Kullanıcı 0 noktasındaki aracı rahatça fareyle kontrol eder) -->
+    <!-- 4. ÖĞE: 3D VİEWPORT ŞEFFAF ALANI (VEYA NOKTALI GRID MİNİ RADAR KAPLAMASI) -->
     <div class="unreal-viewport-canvas" id="viewport-touch-surface" onclick="onViewportClick(event)"></div>
 
     <!-- ==================== HARİTA KONUŞLANDIRMA / IŞINLAMA AFİŞİ ==================== -->
@@ -412,11 +385,6 @@
     </button>
     <button id="btn-toggle-right-bottom" class="drawer-toggle-btn" onclick="toggleRightDrawer()" title="Sağ Donanım ve Rota Panelini Aç/Kapat">
         CİHAZ & IP ROTA <span>▶</span>
-    </button>
-
-    <!-- Alt Köprü Butonu (Orta Alt) -->
-    <button id="btn-toggle-bottom-bridge" class="drawer-toggle-btn" onclick="toggleBottomBridge()" title="Alt Simülasyon Köprüsü ve Donanım Radarını Aç/Kapat">
-        <span>▲</span> SİMÜLASYON KÖPRÜSÜ & AĞ RADARI (3 SÜTUN) <span>▲</span>
     </button>
 
     <!-- =========================================================================
@@ -613,7 +581,35 @@
             </div>
         </div>
 
-        <!-- 3. HIZ, BATARYA VE GÖREV METRİKLERİ -->
+        <!-- 3. HETEROGEN DİNAMİK SAĞ PANEL KARTLARI (HAVA / KARA / GÖREV / TOPIC & ACK) -->
+        <div id="card-unreal-aerial" style="display: none; background: rgba(0, 180, 255, 0.06); border: 1px solid rgba(0, 229, 255, 0.35); padding: 6px; margin-top: 4px; font-family: var(--font-mono);">
+            <div style="font-size: 9px; font-weight: 800; color: #00e5ff; margin-bottom: 3px;">✈️ HAVA ARACI (İRTİFA / LİFT / PERİFERİK)</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px; font-size: 9px;">
+                <span>İRTİFA: <b id="unreal-aerial-alt">-- m</b></span>
+                <span>YÜKSELİŞ: <b id="unreal-aerial-vs">-- m/s</b></span>
+            </div>
+        </div>
+
+        <div id="card-unreal-ground" style="display: block; background: rgba(0, 223, 182, 0.05); border: 1px solid rgba(0, 223, 182, 0.3); padding: 6px; margin-top: 4px; font-family: var(--font-mono);">
+            <div style="font-size: 9px; font-weight: 800; color: var(--accent-color); margin-bottom: 3px;">🚙 KARA ARACI • CH1 (GAZ) / CH2 (STEER)</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px; font-size: 9px;">
+                <span>CH1 GAZ: <b id="unreal-ch1-val">0.00</b></span>
+                <span>CH2 STEER: <b id="unreal-ch2-val">0.00</b></span>
+            </div>
+        </div>
+
+        <div id="card-unreal-ack" style="background: rgba(0, 0, 0, 0.45); border: 1px solid var(--mono-border); padding: 6px; margin-top: 4px; font-family: var(--font-mono);">
+            <div style="display:flex; justify-content:space-between; font-size:8.5px; color:#00e5ff; font-weight:800;">
+                <span>📡 BINARY CDR / TOPIC ACK (0-4)</span>
+                <span id="unreal-ack-cam-badge" style="color:#5599ff;">MAVİ EKRAN (ACK=4)</span>
+            </div>
+        </div>
+
+        <div id="card-unreal-mission" style="display: none; background: rgba(0, 229, 255, 0.05); border: 1px solid var(--mono-border); padding: 6px; margin-top: 4px; font-family: var(--font-mono);">
+            <div style="font-size: 9px; font-weight: 800; color: #00e5ff;">🚇 AKTİF GÖREV: <span id="detail-mission-val" style="color:#fff;">BEKLİYOR</span></div>
+        </div>
+
+        <!-- 3b. HIZ, BATARYA VE SENSÖR METRİKLERİ -->
         <div class="telemetry-module-grid">
             <div class="module-stat-card">
                 <div class="label">HIZ VE İRTİFA:</div>
@@ -623,13 +619,9 @@
                 <div class="label">BATARYA / GÜÇ:</div>
                 <div class="val" id="detail-battery-val" style="color: var(--accent-color);">-- V (--%)</div>
             </div>
-            <div class="module-stat-card">
-                <div class="label">GÖREV AŞAMASI:</div>
-                <div class="val" id="detail-mission-val">--</div>
-            </div>
-            <div class="module-stat-card">
-                <div class="label">LİDAR / GNSS:</div>
-                <div class="val" id="detail-sensors-val">-- Uydu</div>
+            <div class="module-stat-card" style="grid-column: span 2;">
+                <div class="label">LİDAR / GNSS / PORT:</div>
+                <div class="val" id="detail-sensors-val">--</div>
             </div>
         </div>
 
@@ -657,162 +649,9 @@
         </div>
     </aside>
 
-    <!-- =========================================================================
-         A PANELİ: ALT SİMÜLASYON KÖPRÜSÜ & 3 SÜTUNLU RADAR (AŞAĞIDAN ÇIKAN ÇEKMECE)
-         ========================================================================= -->
-    <div id="drawer-bottom-bridge-panel" class="drawer-bottom-bridge">
-        <div class="conn-bridge-card" style="height: 250px;">
-            <div class="conn-bridge-blob"></div>
-
-            <div class="conn-bridge-bg" style="padding: 8px 12px; gap: 4px;">
-                
-                <!-- 1. ÜST BİLGİ VE KONTROL SATIRI -->
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 1px;">
-                            // SİMÜLASYON KÖPRÜSÜ & ÇİFT YÖNLÜ VERİ AKIŞI
-                        </span>
-                        <span id="bridge-status-tag" style="background: var(--accent-dim); color: var(--accent-color); font-size: 9px; padding: 2px 6px; border: 1px solid var(--accent-color); font-weight: 800;">
-                            BAĞLI [UE5 CHAOS]
-                        </span>
-                    </div>
-
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="font-size: 9px; color: var(--text-muted);">HEDEF: 127.0.0.1:9002 (60 Hz • 0ms)</span>
-                        <button class="cod-btn" style="padding: 2px 8px; font-size: 9px;" onclick="toggleBottomBridge()">
-                            KAPAT ▼
-                        </button>
-                    </div>
-                </div>
-
-                <!-- 2. BİRLEŞİK 3 DÜĞÜM DİYAGRAMI (Varsayılan: Gri / Sönük, Bağlanınca Aktif) -->
-                <div class="data-flow-container" style="padding: 4px 8px;">
-                    <div class="data-node-endpoint" id="ue-node-endpoint-left" style="width: 120px; padding: 4px;">
-                        <div class="node-title" style="font-size: 10px;">RASPBERRY PI 5</div>
-                        <div class="node-sub" id="ue-node-left-sub" style="font-size: 8px;">PORT: 7400 RX</div>
-                    </div>
-
-                    <div class="data-flow-center-branches" style="gap: 4px;">
-                        <div class="branch-tier" id="tier-sitl">
-                            <div class="two-way-pipe-group" id="channel-sitl" onclick="inspectChannel('sitl')">
-                                <div class="pipe-lane">
-                                    <span class="pipe-dir-tag" style="color:var(--accent-color);">TX→</span>
-                                    <div class="data-pipe tx"><div class="data-pipe-packet"></div></div>
-                                </div>
-                                <div class="pipe-lane">
-                                    <span class="pipe-dir-tag" style="color:#00e5ff;">RX←</span>
-                                    <div class="data-pipe rx"><div class="data-pipe-packet"></div></div>
-                                </div>
-                            </div>
-                            <div class="data-node" id="ue-node-center" style="min-width: 110px; padding: 3px 6px;">
-                                <div class="node-title" style="font-size: 9px;">UDP 7400 TELEMETRİ</div>
-                                <div class="node-sub" style="font-size: 8px;">JSON / SITL</div>
-                            </div>
-                            <div class="two-way-pipe-group" id="channel-ue5" onclick="inspectChannel('ue5')">
-                                <div class="pipe-lane">
-                                    <span class="pipe-dir-tag" style="color:var(--accent-color);">TX→</span>
-                                    <div class="data-pipe tx"><div class="data-pipe-packet"></div></div>
-                                </div>
-                                <div class="pipe-lane">
-                                    <span class="pipe-dir-tag" style="color:#00e5ff;">RX←</span>
-                                    <div class="data-pipe rx"><div class="data-pipe-packet"></div></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="data-node-endpoint" id="ue-node-endpoint-right" style="width: 120px; padding: 4px;">
-                        <div class="node-title" style="font-size: 10px;">UNREAL 5</div>
-                        <div class="node-sub" style="font-size: 8px;">CHAOS FİZİK</div>
-                    </div>
-                </div>
-
-                <!-- MANUEL HEDEF IP & PORT AYARI VE KENDİ IP BİLGİSİ (ALT PANEL) -->
-                <div class="manual-connection-bar" style="display: flex; justify-content: space-between; align-items: center; background: rgba(0, 0, 0, 0.45); border: 1px solid var(--mono-border); padding: 4px 10px; margin: 3px 0; font-family: var(--font-mono); font-size: 10px; clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="color: var(--text-muted); font-weight: 700;">📡 BU PC (UNREAL) IP:</span>
-                        <span id="ue-label-local-ip" style="color: #00e5ff; font-weight: 800; background: rgba(0, 229, 255, 0.1); padding: 1px 6px; border: 1px solid rgba(0, 229, 255, 0.3);">192.168.1.3 / 127.0.0.1</span>
-                    </div>
-                    
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        <span style="color: var(--text-muted); font-weight: 700;">HEDEF (PI 5) IP:</span>
-                        <input type="text" id="ue-input-manual-target-ip" placeholder="192.168.1.X" style="width: 110px; background: #06090c; border: 1px solid var(--mono-border); color: #ffffff; padding: 2px 6px; font-size: 10px; font-family: var(--font-mono);">
-                        <span style="color: var(--text-muted); font-weight: 700;">PORT:</span>
-                        <input type="number" id="ue-input-manual-target-port" value="7400" style="width: 55px; background: #06090c; border: 1px solid var(--mono-border); color: var(--accent-color); padding: 2px 6px; font-size: 10px; font-family: var(--font-mono);">
-                        <button class="cod-btn cod-btn-accent" style="padding: 2px 8px; font-size: 9.5px;" onclick="applyUeManualTargetConnection()">
-                            UYGULA / YAYINI BAŞLAT
-                        </button>
-                    </div>
-                </div>
-
-                <!-- 3. KULLANICININ İSTEDİĞİ 3 SÜTUNLU ALT BÖLME:
-                     Sütun 1: %50 Canlı Paket Akışı Logu
-                     Sütun 2: %25 Ağ Metrikleri (TX/RX, Jitter, Loss)
-                     Sütun 3: %25 Diğer Cihazlar & Canlı Beacon Radarı -->
-                <div class="bridge-3col-split">
-                    
-                    <!-- SÜTUN 1 (%50): CANLI PAKET AKIŞI TERMİNALİ -->
-                    <div class="channel-stream-log" id="channel-packet-log">
-                        <div style="color: var(--accent-color); font-weight: 800; margin-bottom: 2px; border-bottom: 1px solid var(--mono-border); padding-bottom: 2px; display: flex; justify-content: space-between;">
-                            <span>// CANLI PAKET AKIŞI: <span id="inspected-channel-name">PiSim ⇄ SITL</span></span>
-                            <span style="font-size: 8px; color: var(--text-dark);">AUTO-SCROLL</span>
-                        </div>
-                        <div id="packet-stream-lines">
-                            <div style="color: var(--text-dark); font-size: 8.5px; padding: 12px; text-align: center;">[Canlı MAVLink / JSON paket akışı bekleniyor...]</div>
-                        </div>
-                    </div>
-
-                    <!-- SÜTUN 2 (%25): AĞ SAĞLIĞI & JİTTER METRİKLERİ -->
-                    <div class="network-telemetry-box" style="display: flex; flex-direction: column; gap: 3px; padding: 4px 6px;">
-                        <div style="color: var(--text-muted); font-size: 8.5px; font-weight: 800; border-bottom: 1px solid var(--mono-border); padding-bottom: 2px;">
-                            // AĞ METRİKLERİ
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px;">
-                            <div class="net-stat-item" style="padding: 2px 4px;">
-                                <span class="tag">GİDEN (TX):</span>
-                                <span class="val" id="net-tx-val" style="color: var(--accent-color); font-size: 10px;">-- KB/s</span>
-                            </div>
-                            <div class="net-stat-item" style="padding: 2px 4px;">
-                                <span class="tag">GELEN (RX):</span>
-                                <span class="val" id="net-rx-val" style="color: #00e5ff; font-size: 10px;">-- KB/s</span>
-                            </div>
-                            <div class="net-stat-item" style="padding: 2px 4px;">
-                                <span class="tag">JITTER:</span>
-                                <span class="val" id="net-jitter-val" style="color: #00dfb6; font-size: 10px;">-- ms</span>
-                            </div>
-                            <div class="net-stat-item" style="padding: 2px 4px;">
-                                <span class="tag">PAKET KAYBI:</span>
-                                <span class="val" id="net-loss-val" style="color: #00dfb6; font-size: 10px;">-- %</span>
-                            </div>
-                        </div>
-                        <div class="net-stat-item" style="padding: 2px 4px; display: flex; justify-content: space-between; align-items: center;">
-                            <span class="tag">PROTOKOL:</span>
-                            <span class="val" style="font-size: 9px;">MAVLink v2 + JSON</span>
-                        </div>
-                    </div>
-
-                    <!-- SÜTUN 3 (%25): DİĞER CİHAZLAR VE CANLI BEACON RADARI -->
-                    <div class="beacon-radar-box">
-                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--mono-border); padding-bottom: 2px;">
-                            <span style="color: #ffffff; font-size: 8.5px; font-weight: 800;">// DİĞER CİHAZLAR (BEACON)</span>
-                            <span id="beacon-radar-status" style="font-size: 8px; color: var(--text-muted);">[BEKLEMEDE]</span>
-                        </div>
-                        <div id="beacon-device-list" style="display: flex; flex-direction: column; gap: 4px; overflow-y: auto; flex: 1;">
-                            <div style="padding: 12px 6px; color: var(--text-dark); font-size: 8.5px; text-align: center;">
-                                Ağda kayıtlı cihaz aranıyor...<br>
-                                <span style="color:var(--accent-color); font-size:8px;">[📡 CİHAZ KEŞFİ YAP]</span> ile tarayın.
-                            </div>
-                        </div>
-                    </div>
-
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- ==================== JAVASCRIPT ETKİLEŞİM & BEACON MOTORU ==================== -->
     <script>
-        // Çekmece Durumları
+        // Çekmece Durumları (Alt bağlantı & log köprüsü kullanıcı isteği üzerine kaldırıldı)
         let isLeftDrawerOpen = false;
         let isRightDrawerOpen = false;
         let isBottomBridgeOpen = false;
@@ -854,19 +693,7 @@
         }
 
         function toggleBottomBridge() {
-            isBottomBridgeOpen = !isBottomBridgeOpen;
-            const bridge = document.getElementById('drawer-bottom-bridge-panel');
-            const btn = document.getElementById('btn-toggle-bottom-bridge');
-
-            if (isBottomBridgeOpen) {
-                bridge.classList.add('open');
-                btn.classList.add('active');
-                btn.innerHTML = `<span>▼</span> KÖPRÜYÜ GİZLE <span>▼</span>`;
-            } else {
-                bridge.classList.remove('open');
-                btn.classList.remove('active');
-                btn.innerHTML = `<span>▲</span> SİMÜLASYON KÖPRÜSÜ & AĞ RADARI (3 SÜTUN) <span>▲</span>`;
-            }
+            // Alt köprü / paket log paneli kaldırıldı
         }
 
         // ==================== SOL TAKTİK ARAÇ EKLEME ÇEKMECESİ ====================
@@ -1103,8 +930,38 @@
             if (battEl) battEl.innerText = `12.6V (${v.battery})`;
             if (missionEl) missionEl.innerText = `X:${v.posX || 0}m Y:${v.posY || 0}m`;
             if (sensorsEl) sensorsEl.innerText = `Yaw:${v.yaw || 0}° | Port:${v.dedicatedPort || 7403}`;
-            if (coordsEl) coordsEl.innerText = `${v.lat || '39.9334'}°N, ${v.lon || '32.8597'}°E`;
+            if (coordsEl) coordsEl.innerText = `${v.lat !== undefined ? v.lat : '0.0000'}°N, ${v.lon !== undefined ? v.lon : '0.0000'}°E`;
             if (camOverlayEl) camOverlayEl.innerText = `FOV: 90° • KOMUT: UDP ${v.dedicatedPort || 7403}`;
+
+            // Heterojen Dinamik Kartlar (Hava vs Kara + Koşullu Görev + (0,0) Harita Kuralı)
+            const vNameLower = `${v.name || ''} ${v.vehicle_type || ''} ${(Array.isArray(v.topics) ? v.topics.join(' ') : '')}`.toLowerCase();
+            const isAerial = vNameLower.includes('quad') || vNameLower.includes('delta') || vNameLower.includes('uav') || vNameLower.includes('aerial') || vNameLower.includes('drone') || vNameLower.includes('prop') || vNameLower.includes('lift');
+            const aerialCard = document.getElementById('card-unreal-aerial');
+            const groundCard = document.getElementById('card-unreal-ground');
+            const missionCard = document.getElementById('card-unreal-mission');
+            if (aerialCard) aerialCard.style.display = isAerial ? 'block' : 'none';
+            if (groundCard) groundCard.style.display = isAerial ? 'none' : 'block';
+            if (isAerial) {
+                const aAlt = document.getElementById('unreal-aerial-alt');
+                const aVs = document.getElementById('unreal-aerial-vs');
+                if (aAlt) aAlt.innerText = `${v.posZ || v.altitude || 0} m`;
+                if (aVs) aVs.innerText = `${v.climb_rate || 0} m/s`;
+            } else {
+                const c1 = document.getElementById('unreal-ch1-val');
+                const c2 = document.getElementById('unreal-ch2-val');
+                if (c1) c1.innerText = Number(v.ch1 || 0).toFixed(2);
+                if (c2) c2.innerText = Number(v.ch2 || 0).toFixed(2);
+            }
+            if (missionCard) {
+                missionCard.style.display = Boolean(v.mission_active) ? 'block' : 'none';
+            }
+            const ackBadge = document.getElementById('unreal-ack-cam-badge');
+            if (ackBadge) {
+                const isSub = currentVehicleId ? !!vehicleVideoSubState[currentVehicleId] : false;
+                ackBadge.innerText = isSub ? '🟢 CANLI H.264 (ACK=3)' : '🔵 MAVİ EKRAN (ACK=4)';
+                ackBadge.style.color = isSub ? '#00dfb6' : '#5599ff';
+            }
+            updateUnrealMapModeForCoords(v.lat, v.lon);
 
             // Canlı Fizik ve UCX Zırh Rozet & Butonlarını Güncelle
             const physBadge = document.getElementById('physics-status-badge');
@@ -1839,29 +1696,160 @@
             }
         }
 
-        // ==================== TEMA SİSTEMİ ====================
+        // ==================== TEMA, CANLI RENK & (0,0) HARİTA SİSTEMİ ====================
         const themes = [
-            { id: "petronas", name: "1/5 PETRONAS F1" },
-            { id: "tokyonight", name: "2/5 TOKYO NIGHT" },
-            { id: "gruvbox", name: "3/5 GRUVBOX AMBER" },
-            { id: "dracula", name: "4/5 DRACULA NEON" },
-            { id: "light-tactical", name: "5/5 LIGHT OPS (AÇIK)" }
+            { id: "petronas", name: "1/5 PETRONAS F1", accent: "#00dfb6" },
+            { id: "tokyonight", name: "2/5 TOKYO NIGHT", accent: "#7aa2f7" },
+            { id: "gruvbox", name: "3/5 GRUVBOX AMBER", accent: "#fe8019" },
+            { id: "dracula", name: "4/5 DRACULA NEON", accent: "#ff79c6" },
+            { id: "light-tactical", name: "5/5 LIGHT OPS (AÇIK)", accent: "#009688" }
         ];
         let currentThemeIndex = 0;
+        let unrealMapMode = 'dotted_grid'; // 'dotted_grid' | 'satellite' | 'theme_vector'
+        let unrealManualMapOverride = false;
+
+        function hexToRgba(hex, alpha) {
+            const clean = (hex || '#00dfb6').replace('#', '');
+            const bigint = parseInt(clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean, 16);
+            return `rgba(${(bigint >> 16) & 255}, ${(bigint >> 8) & 255}, ${bigint & 255}, ${alpha})`;
+        }
+
+        function setUnrealLiveAccentColor(hexColor, save = true) {
+            if (!hexColor) return;
+            const root = document.documentElement;
+            root.style.setProperty('--accent-color', hexColor);
+            root.style.setProperty('--accent-glow', hexToRgba(hexColor, 0.45));
+            root.style.setProperty('--accent-dim', hexToRgba(hexColor, 0.16));
+            root.style.setProperty('--border-green', hexColor);
+            root.style.setProperty('--border-cyan', hexColor);
+            const picker = document.getElementById('unreal-theme-color-picker');
+            if (picker && picker.value.toLowerCase() !== hexColor.toLowerCase()) picker.value = hexColor;
+            if (save) localStorage.setItem('pisim-custom-accent', hexColor);
+        }
 
         function cycleTheme() {
             currentThemeIndex = (currentThemeIndex + 1) % themes.length;
-            document.documentElement.setAttribute('data-theme', themes[currentThemeIndex].id);
-            document.getElementById('btn-theme-switcher').innerText = `TEMA: ${themes[currentThemeIndex].name}`;
+            const t = themes[currentThemeIndex];
+            document.documentElement.setAttribute('data-theme', t.id);
+            document.getElementById('btn-theme-switcher').innerText = `TEMA: ${t.name}`;
+            setUnrealLiveAccentColor(t.accent, false);
+        }
+
+        function applyUnrealMapVisual(mode) {
+            unrealMapMode = mode;
+            const pill = document.getElementById('unreal-map-mode-pill');
+            if (pill) {
+                if (mode === 'dotted_grid') pill.innerText = '📐 NOKTALI ARKA PLAN (0,0)';
+                else if (mode === 'theme_vector') pill.innerText = '🗺️ TEMA RENKLİ VEKTÖR';
+                else pill.innerText = '🛰️ UYDU / DÜNYA GPS';
+            }
+        }
+
+        function cycleUnrealMapMode() {
+            unrealManualMapOverride = true;
+            const modes = ['dotted_grid', 'satellite', 'theme_vector'];
+            const next = modes[(modes.indexOf(unrealMapMode) + 1) % modes.length];
+            applyUnrealMapVisual(next);
+        }
+
+        function updateUnrealMapModeForCoords(lat, lon) {
+            if (unrealManualMapOverride) return;
+            const isOriginZero = (Math.abs(Number(lat || 0)) < 0.05 && Math.abs(Number(lon || 0)) < 0.05);
+            applyUnrealMapVisual(isOriginZero ? 'dotted_grid' : 'satellite');
+        }
+
+        const UNREAL_FALLBACK_HIERARCHY = [
+            { title: "Seviye 1: Atomik Hareket", file: "controllers/level1_atomic/atomic_motion.py", code: "class AtomicMotionController:\n    def send_channel_command(self, ch1_throttle, ch2_steering, ...):\n        # Kanal 1 ileri/geri, Kanal 2 direksiyon servolari (/channels)" },
+            { title: "Seviye 2: Navigasyon", file: "controllers/level2_navigation/waypoint_and_follow.py", code: "class WaypointAndFollowController:\n    def follow_target(self, target_xy, self_pose): ...\n    def goto_waypoint(self, wp): ..." },
+            { title: "Seviye 3: Algı & Lidar", file: "controllers/level3_perception/vision_lidar_processor.py", code: "class LidarObstacleProcessor:\n    def process_scan(self, distances): ... # Engel tespiti ve H.264 tetikleyici" },
+            { title: "Seviye 4: Görev & Sürü", file: "controllers/level4_mission_swarm/swarm_mission_planner.py", code: "class SwarmMissionPlanner:\n    def step_swarm(self, fleet_states): ... # Çoklu araç görev koordinasyonu" }
+        ];
+        let unrealHierarchyCache = UNREAL_FALLBACK_HIERARCHY;
+
+        async function openUnrealHierarchyModal() {
+            const modal = document.getElementById('modal-unreal-hierarchy');
+            if (modal) modal.style.display = 'flex';
+            try {
+                const res = await fetch('http://127.0.0.1:8080/api/controllers/hierarchy');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data.levels) && data.levels.length > 0) {
+                        unrealHierarchyCache = data.levels;
+                    }
+                }
+            } catch (e) {}
+            const tabsBox = document.getElementById('unreal-hierarchy-tabs');
+            if (tabsBox) {
+                tabsBox.innerHTML = unrealHierarchyCache.map((lvl, idx) =>
+                    `<button class="cod-btn" onclick="selectUnrealHierarchyLevel(${idx})" style="padding:4px 8px; font-size:9.5px;">${lvl.title}</button>`
+                ).join('');
+            }
+            selectUnrealHierarchyLevel(0);
+        }
+
+        function selectUnrealHierarchyLevel(idx) {
+            const lvl = unrealHierarchyCache[idx];
+            if (!lvl) return;
+            const fileEl = document.getElementById('unreal-hierarchy-file');
+            const codeEl = document.getElementById('unreal-hierarchy-code');
+            if (fileEl) fileEl.innerText = lvl.file || '';
+            if (codeEl) codeEl.textContent = lvl.code || '';
+        }
+
+        function closeUnrealHierarchyModal() {
+            const modal = document.getElementById('modal-unreal-hierarchy');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function openUnrealSettingsModal() {
+            const modal = document.getElementById('modal-unreal-settings');
+            if (modal) modal.style.display = 'flex';
+        }
+
+        function closeUnrealSettingsModal() {
+            const modal = document.getElementById('modal-unreal-settings');
+            if (modal) modal.style.display = 'none';
         }
 
         // Sayfa Başlatma
         window.addEventListener('DOMContentLoaded', () => {
             addLog("🛡️ PiSim Studio Taktik Kontrol Merkezi Başlatıldı.");
+            const savedAccent = localStorage.getItem('pisim-custom-accent');
+            if (savedAccent) setUnrealLiveAccentColor(savedAccent, false);
             syncFleetWithBackend();
             populateSavedProfilesList();
             setInterval(syncFleetWithBackend, 1000);
         });
     </script>
+
+    <!-- ==================== KONTROL KODLARI (SEVİYE 1-4) MODALI ==================== -->
+    <div id="modal-unreal-hierarchy" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) closeUnrealHierarchyModal();">
+        <div style="background:#090d12; border:1px solid var(--accent-color); max-width:900px; width:90%; max-height:80vh; display:flex; flex-direction:column; padding:12px; font-family:var(--font-mono);">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--mono-border); padding-bottom:6px; margin-bottom:8px;">
+                <span style="font-weight:900; color:var(--accent-color); font-size:12px;">🧠 KONTROL KODLARI HİYERARŞİSİ (SEVİYE 1–4)</span>
+                <button class="cod-btn" onclick="closeUnrealHierarchyModal()" style="padding:2px 8px; font-size:10px;">✕ KAPAT</button>
+            </div>
+            <div id="unreal-hierarchy-tabs" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;"></div>
+            <div id="unreal-hierarchy-file" style="font-size:10px; color:#00e5ff; margin-bottom:4px;"></div>
+            <pre id="unreal-hierarchy-code" style="flex:1; overflow:auto; background:#05070a; border:1px solid var(--mono-border); padding:8px; font-size:10px; color:#e6edf3; margin:0;"></pre>
+        </div>
+    </div>
+
+    <!-- ==================== AYARLAR MODALI ==================== -->
+    <div id="modal-unreal-settings" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.82); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) closeUnrealSettingsModal();">
+        <div style="background:#090d12; border:1px solid var(--accent-color); width:400px; max-width:90vw; padding:14px; font-family:var(--font-mono); color:#ffffff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--mono-border); padding-bottom:6px; margin-bottom:10px;">
+                <span style="font-weight:900; color:var(--accent-color); font-size:12px;">⚙️ SİMÜLASYON & HARİTA AYARLARI</span>
+                <button class="cod-btn" onclick="closeUnrealSettingsModal()" style="padding:2px 8px; font-size:10px;">✕ KAPAT</button>
+            </div>
+            <div style="font-size:10px; color:var(--text-muted); margin-bottom:6px;">HARİTA MODU HIZLI SEÇİMİ:</div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="cod-btn" onclick="unrealManualMapOverride=true; applyUnrealMapVisual('satellite')" style="font-size:9.5px; padding:4px 8px;">🛰️ UYDU</button>
+                <button class="cod-btn" onclick="unrealManualMapOverride=true; applyUnrealMapVisual('theme_vector')" style="font-size:9.5px; padding:4px 8px;">🗺️ TEMA VEKTÖR</button>
+                <button class="cod-btn" onclick="unrealManualMapOverride=true; applyUnrealMapVisual('dotted_grid')" style="font-size:9.5px; padding:4px 8px;">📐 NOKTALI</button>
+                <button class="cod-btn" onclick="unrealManualMapOverride=false;" style="font-size:9.5px; padding:4px 8px; border-color:var(--accent-color); color:var(--accent-color);">🔄 OTOMATİK (0,0 KURALI)</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

@@ -34,9 +34,27 @@ public:
     virtual void SetTargetBoneName(FName InBoneName) override { TargetBoneName = InBoneName; }
     virtual FString GetActuatorType() const override { return TEXT("Propeller"); }
     virtual int32 GetArduPilotChannel() const override { return ArduPilotChannel; }
-    virtual void SetArduPilotChannel(int32 InChannel) override { ArduPilotChannel = InChannel; }
-    virtual FVector GetActuatorAxis() const override { return LocalThrustDirection; }
-    virtual void SetActuatorAxis(const FVector& InAxis) override { LocalThrustDirection = InAxis; }
+    virtual void SetArduPilotChannel(int32 InChannel) override { ArduPilotChannel = InChannel; ServoChannel = InChannel; }
+    virtual FVector GetActuatorAxis() const override { return ThrustDirectionVector.GetSafeNormal(); }
+    virtual void SetActuatorAxis(const FVector& InAxis) override { ThrustDirectionVector = InAxis; LocalThrustDirection = InAxis; }
+    virtual void InitializeModuleIdentity(class APiSimVehicle* InVehicle) override;
+    virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override {}
+
+    // @state: WIP - Modül içi araç kimliği ve kanal testi değişkenleri
+    UPROPERTY()
+    class APiSimVehicle* ParentVehicle = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    FString ParentVehicleName;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    int32 VehicleIndex = 0;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    int32 ServoChannel = 3;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    float ChannelTestSlider = 0.0f; // 0.0 .. +1.0 (veya -1..+1 çift yönlü)
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Propeller")
     void SetThrottle(float InThrottleNormalized); // 0.0 .. 1.0
@@ -55,6 +73,17 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Propeller")
     float MaxRPM = 8000.0f;
+
+    /** Görsel pervane dönüş ekseni ve devri */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Propeller")
+    FVector VisualSpinAxis = FVector(1.0f, 0.0f, 0.0f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Propeller")
+    float VisualSpinSpeedRPM = 6000.0f;
+
+    /** İtki yön vektörü (uzunluktan bağımsız normalize edilerek kuvvetle çarpılır) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Propeller")
+    FVector ThrustDirectionVector = FVector(1.0f, 0.0f, 0.0f);
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Propeller")
     float CurrentRPM = 0.0f;

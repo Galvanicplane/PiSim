@@ -6,6 +6,18 @@
 #include "ProceduralMeshComponent.h"
 #include "GameFramework/Actor.h"
 
+// @state: WIP - Modül içi araç kimliğini doldurur
+void UPiSimPropellerComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
+{
+    ParentVehicle = InVehicle;
+    if (InVehicle)
+    {
+        ParentVehicleName = InVehicle->VehicleCode;
+        VehicleIndex = InVehicle->VehicleId;
+        ServoChannel = ArduPilotChannel;
+    }
+}
+
 // @state: WIP - Pervane bileşeni yapıcısı
 UPiSimPropellerComponent::UPiSimPropellerComponent()
 {
@@ -104,11 +116,17 @@ void UPiSimPropellerComponent::SetInspectablePropertyFloat(FName PropertyId, flo
 
     if (PropertyId == TEXT("Throttle"))
     {
+        ChannelTestSlider = NewValue;
         SetThrottle(NewValue);
     }
     else if (PropertyId == TEXT("MaxThrustNewtons"))
     {
         MaxThrustNewtons = FMath::Max(1.0f, NewValue);
+    }
+    else if (PropertyId == TEXT("VisualSpinSpeedRPM"))
+    {
+        VisualSpinSpeedRPM = FMath::Clamp(NewValue, 0.0f, 30000.0f);
+        MaxRPM = VisualSpinSpeedRPM;
     }
     else if (PropertyId == TEXT("bReverseThrust"))
     {
@@ -117,6 +135,7 @@ void UPiSimPropellerComponent::SetInspectablePropertyFloat(FName PropertyId, flo
     else if (PropertyId == TEXT("ArduPilotChannel"))
     {
         ArduPilotChannel = FMath::Clamp(FMath::RoundToInt(NewValue), 1, 16);
+        ServoChannel = ArduPilotChannel;
     }
 
     // DEBUG BİLGİSİ: UI'dan gelen motor verisini konsola ve ekrana bas
@@ -147,7 +166,7 @@ void UPiSimPropellerComponent::TriggerInspectableAction(FName ActionId)
     }
 }
 
-// @state: WIP - İtki kuvvetini ve görsel pervane dönüşünü uygular
+// @state: WIP - İtki kuvvetini (normalize yön * Newton) hedef kemiğe ve görsel pervane dönüşünü uygular
 void UPiSimPropellerComponent::ApplyThrustPhysics(float DeltaTime)
 {
     if (Throttle <= 0.001f)
@@ -155,32 +174,32 @@ void UPiSimPropellerComponent::ApplyThrustPhysics(float DeltaTime)
         return;
     }
 
-    // 1) Dinamik FBX Sahne Parçası Varsa (VisComp) Görsel Dönüşü Uygula
+    FVector NormThrustDir = ThrustDirectionVector.IsNearlyZero() ? LocalThrustDirection.GetSafeNormal() : ThrustDirectionVector.GetSafeNormal();
+    if (bReverseThrust) NormThrustDir = -NormThrustDir;
+
+    FVector SpinAx = VisualSpinAxis.IsNearlyZero() ? NormThrustDir : VisualSpinAxis.GetSafeNormal();
+    float ActiveVisualRPM = Throttle * VisualSpinSpeedRPM;
+
+    // 1) Dinamik FBX Kemik Bileşeni Varsa Görsel Pervane Dönüşü + Fiziksel Kuvvet
     if (TargetSceneComponent)
     {
-        // 1 RPM = 6 deg/sec
-        float AngularSpeedDeg = CurrentRPM * 6.0f;
-        float DeltaRotationDeg = AngularSpeedDeg * DeltaTime;
-        FVector Axis = LocalThrustDirection.GetSafeNormal();
-        if (bReverseThrust) Axis = -Axis;
-
-        FQuat SpinQuat(Axis, FMath::DegreesToRadians(DeltaRotationDeg));
+        float AngularSpeedDeg = ActiveVisualRPM * 6.0f;
+        FQuat SpinQuat(SpinAx, FMath::DegreesToRadians(AngularSpeedDeg * DeltaTime));
         TargetSceneComponent->AddLocalRotation(SpinQuat);
 
-        if (APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner()))
+        APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
+        if (Vehicle && Vehicle->IsVehiclePhysicsActive())
         {
-            if (Vehicle->IsVehiclePhysicsActive())
+            UPrimitiveComponent* TargetBody = Vehicle->GetPrimitiveComponentForBone(TargetBoneName);
+            if (!TargetBody || !TargetBody->IsSimulatingPhysics())
             {
-                UPrimitiveComponent* RootBody = Cast<UPrimitiveComponent>(Vehicle->GetRootComponent());
-                if (!RootBody && Vehicle->VisualMeshComponents.IsValidIndex(0))
-                {
-                    RootBody = Vehicle->VisualMeshComponents[0];
-                }
-                if (RootBody && RootBody->IsSimulatingPhysics())
-                {
-                    FVector WorldThrust = RootBody->GetComponentTransform().TransformVectorNoScale(Axis).GetSafeNormal();
-                    RootBody->AddForce(WorldThrust * CurrentThrustNewtons * 100.0f);
-                }
+                TargetBody = Cast<UPrimitiveComponent>(Vehicle->GetRootComponent());
+            }
+            if (TargetBody && TargetBody->IsSimulatingPhysics())
+            {
+                FTransform RefT = TargetSceneComponent->GetComponentTransform();
+                FVector WorldThrust = RefT.TransformVectorNoScale(NormThrustDir).GetSafeNormal();
+                TargetBody->AddForceAtLocation(WorldThrust * CurrentThrustNewtons * 100.0f, RefT.GetLocation());
             }
         }
     }

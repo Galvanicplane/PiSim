@@ -1,8 +1,21 @@
 // LiftBody.cpp
 
 #include "LiftBody.h"
+#include "Vehicle.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "GameFramework/Actor.h"
+
+// @state: WIP - Modül içi araç kimliğini doldurur
+void UPiSimLiftBodyComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
+{
+    ParentVehicle = InVehicle;
+    if (InVehicle)
+    {
+        ParentVehicleName = InVehicle->VehicleCode;
+        VehicleIndex = InVehicle->VehicleId;
+    }
+}
 
 // @state: WIP - Kaldırma gövdesi bileşeni yapıcısı
 UPiSimLiftBodyComponent::UPiSimLiftBodyComponent()
@@ -85,20 +98,43 @@ void UPiSimLiftBodyComponent::TriggerInspectableAction(FName ActionId)
 {
 }
 
-// @state: WIP - Hücum açısı (AoA), elevon sapması ve akış hızına göre Khan & Nahon Lift/Drag modelini hesaplar
+// @state: WIP - Hücum açısı (AoA), kullanıcı UpVector/ForwardVector ayarı ve manuel parametrelerle Lift/Drag kuvvetlerini uygular
 void UPiSimLiftBodyComponent::ApplyAerodynamicForces(float DeltaTime)
 {
-    if (!CachedSkeletalMesh)
+    APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
+    FTransform BoneTransform = FTransform::Identity;
+    FVector BoneVelocity = FVector::ZeroVector;
+    UPrimitiveComponent* TargetPrim = nullptr;
+
+    if (Vehicle && Vehicle->IsVehiclePhysicsActive())
+    {
+        USceneComponent* BoneComp = Vehicle->GetSceneComponentForBone(TargetBoneName);
+        if (!BoneComp) BoneComp = Vehicle->GetRootComponent();
+        if (BoneComp) BoneTransform = BoneComp->GetComponentTransform();
+
+        TargetPrim = Vehicle->GetPrimitiveComponentForBone(TargetBoneName);
+        if (!TargetPrim || !TargetPrim->IsSimulatingPhysics())
+        {
+            TargetPrim = Cast<UPrimitiveComponent>(Vehicle->GetRootComponent());
+        }
+        if (TargetPrim && TargetPrim->IsSimulatingPhysics())
+        {
+            BoneVelocity = TargetPrim->GetPhysicsLinearVelocity();
+        }
+    }
+    else if (CachedSkeletalMesh)
+    {
+        BoneTransform = TargetBoneName.IsNone() ? CachedSkeletalMesh->GetComponentTransform() : CachedSkeletalMesh->GetSocketTransform(TargetBoneName);
+        BoneVelocity = CachedSkeletalMesh->GetPhysicsLinearVelocity(TargetBoneName);
+    }
+    else
     {
         return;
     }
 
-    FTransform BoneTransform = TargetBoneName.IsNone() ? CachedSkeletalMesh->GetComponentTransform() : CachedSkeletalMesh->GetSocketTransform(TargetBoneName);
-    FVector BoneVelocity = CachedSkeletalMesh->GetPhysicsLinearVelocity(TargetBoneName); // cm/s
     float SpeedMs = BoneVelocity.Size() / 100.0f;
     CurrentAirspeedKmh = SpeedMs * 3.6f;
 
-    // Minimum akış hızı (1.5 m/s altı aero ihmal edilir)
     if (SpeedMs < 1.5f)
     {
         CurrentLiftNewtons = 0.0f;
@@ -107,31 +143,25 @@ void UPiSimLiftBodyComponent::ApplyAerodynamicForces(float DeltaTime)
         return;
     }
 
-    FVector ForwardDir = BoneTransform.GetUnitAxis(EAxis::X); // Burun yönü
-    FVector UpDir = BoneTransform.GetUnitAxis(EAxis::Z);      // Üst yön
-    FVector AirflowDir = -BoneVelocity.GetSafeNormal();       // Göreceli rüzgar
+    FVector ForwardDir = BoneTransform.TransformVectorNoScale(ForwardVector).GetSafeNormal();
+    FVector UpDir = BoneTransform.TransformVectorNoScale(UpVector).GetSafeNormal();
+    FVector RightDir = (UpDir ^ ForwardDir).GetSafeNormal();
+    FVector AirflowDir = -BoneVelocity.GetSafeNormal();
 
-    // Dinamik Basınç: q = 0.5 * rho * v^2
     float DynamicPressure = 0.5f * FluidDensity * (SpeedMs * SpeedMs);
 
-    // Hücum Açısı (Angle of Attack, radyan)
     float DotForward = FMath::Clamp(ForwardDir | AirflowDir, -1.0f, 1.0f);
     float AoARad = FMath::Acos(DotForward);
-    // Yön işareti: Rüzgar alttan geliyorsa pozitif AoA
     if ((AirflowDir | UpDir) < 0.0f)
     {
         AoARad = -AoARad;
     }
     CurrentAoADeg = FMath::RadiansToDegrees(AoARad);
 
-    // Kontrol yüzeyi sapmasının etkinliği (delta CL)
     float DeflectionRad = FMath::DegreesToRadians(ControlSurfaceDeflectionDeg);
     float DeltaCL_Control = ElevonEffectiveness * DeflectionRad;
-
-    // Taşıma Katsayısı (CL)
     float CL = CL0 + (LiftSlope * AoARad) + DeltaCL_Control;
 
-    // Perdövites (Stall) sınırlaması
     float StallRad = FMath::DegreesToRadians(StallAngleDeg);
     if (FMath::Abs(AoARad) > StallRad)
     {
@@ -140,23 +170,25 @@ void UPiSimLiftBodyComponent::ApplyAerodynamicForces(float DeltaTime)
     }
     CL = FMath::Clamp(CL, -1.8f, 1.8f);
 
-    // İndüklenmiş Sürükleme Katsayısı (CD = CD0 + CL^2 / (pi * AR * e))
     float AspectRatio = (WingspanMeters * WingspanMeters) / FMath::Max(0.01f, WingAreaSquareMeters);
-    float OswaldEff = 0.85f;
-    float InducedDrag = (CL * CL) / (PI * AspectRatio * OswaldEff);
-    float CD = DragCoefficientZero + InducedDrag;
-    CD = FMath::Clamp(CD, 0.01f, 1.5f);
+    float InducedDrag = (CL * CL) / (PI * AspectRatio * 0.85f);
+    float CD = FMath::Clamp(DragCoefficientZero + InducedDrag, 0.01f, 1.5f);
 
-    // Kuvvet Büyüklükleri (Newton)
     CurrentLiftNewtons = CL * DynamicPressure * WingAreaSquareMeters;
     CurrentDragNewtons = CD * DynamicPressure * WingAreaSquareMeters;
 
-    // Kaldırma Kuvveti Rüzgara Dik, Sürükleme Rüzgar Boyuncadır
-    FVector LiftDir = (AirflowDir ^ BoneTransform.GetUnitAxis(EAxis::Y)).GetSafeNormal();
+    FVector LiftDir = (AirflowDir ^ RightDir).GetSafeNormal();
+    if ((LiftDir | UpDir) < 0.0f) LiftDir = -LiftDir;
     FVector DragDir = AirflowDir;
 
-    // UE kuvvet ölçeği: Newton * 100
     FVector TotalAeroForce = (LiftDir * CurrentLiftNewtons + DragDir * CurrentDragNewtons) * 100.0f;
 
-    CachedSkeletalMesh->AddForceAtLocation(TotalAeroForce, BoneTransform.GetLocation(), TargetBoneName);
+    if (TargetPrim && TargetPrim->IsSimulatingPhysics())
+    {
+        TargetPrim->AddForceAtLocation(TotalAeroForce, BoneTransform.GetLocation());
+    }
+    else if (CachedSkeletalMesh)
+    {
+        CachedSkeletalMesh->AddForceAtLocation(TotalAeroForce, BoneTransform.GetLocation(), TargetBoneName);
+    }
 }

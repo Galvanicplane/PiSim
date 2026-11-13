@@ -45,5 +45,9 @@ public:
     /** Eyleyicinin yerel fiziksel eksenini döndürür */
     virtual FVector GetActuatorAxis() const = 0;
     virtual void SetActuatorAxis(const FVector& InAxis) = 0;
+
+    // @state: WIP - Modül bazlı kimlik ve ACK mesajı yönetimi (Araç adı, Araç ID, Kanal Testi)
+    virtual void InitializeModuleIdentity(class APiSimVehicle* InVehicle) {}
+    virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) {}
 };
 

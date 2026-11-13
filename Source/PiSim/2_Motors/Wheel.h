@@ -41,18 +41,39 @@ public:
     virtual void SetTargetBoneName(FName InBoneName) override { TargetBoneName = InBoneName; }
     virtual FString GetActuatorType() const override { return TEXT("Wheel"); }
     virtual int32 GetArduPilotChannel() const override { return ArduPilotChannel; }
-    virtual void SetArduPilotChannel(int32 InChannel) override { ArduPilotChannel = InChannel; }
+    virtual void SetArduPilotChannel(int32 InChannel) override { ArduPilotChannel = InChannel; ServoChannel = InChannel; }
     virtual FVector GetActuatorAxis() const override { return LocalSpinAxis; }
     virtual void SetActuatorAxis(const FVector& InAxis) override { LocalSpinAxis = InAxis; }
+    virtual void InitializeModuleIdentity(class APiSimVehicle* InVehicle) override;
+    virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override {}
+
+    // @state: WIP - Modül içi araç kimliği ve kanal testi değişkenleri
+    UPROPERTY()
+    class APiSimVehicle* ParentVehicle = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    FString ParentVehicleName;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    int32 VehicleIndex = 0;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    int32 ServoChannel = 1;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    float ChannelTestSlider = 0.0f; // -1.0 .. +1.0
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Wheel")
-    void SetTargetRPM(float InRPM) { TargetRPM = InRPM; }
+    void SetTargetRPM(float InRPM) { TargetRPM = FMath::Clamp(InRPM, -MaxRPM, MaxRPM); }
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Wheel")
     void SetSteerAngle(float InAngleDeg) { TargetSteerAngleDeg = FMath::Clamp(InAngleDeg, -MaxSteerAngleDeg, MaxSteerAngleDeg); }
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Wheel")
     void SetWheelMode(EPiSimWheelMode InMode) { WheelMode = InMode; }
+
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Wheel")
+    void ApplyFrictionToCollisionMesh();
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Wheel")
     void SetFromPWM(int32 InPWM, bool bIsSteering = false);
@@ -62,6 +83,15 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
     EPiSimWheelMode WheelMode = EPiSimWheelMode::DriveWheel;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
+    bool bReverseDirection = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
+    float DriveTorque = 120.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
+    float MaxRPM = 1200.0f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Wheel")
     float TargetRPM = 0.0f;
@@ -100,6 +130,11 @@ protected:
 
     UPROPERTY()
     class USceneComponent* TargetSceneComponent = nullptr;
+
+    UPROPERTY()
+    class UPhysicalMaterial* DynamicWheelPhysMat = nullptr;
+
+    float LastAppliedFriction = -1.0f;
 
     void ApplyWheelPhysics(float DeltaTime);
 };

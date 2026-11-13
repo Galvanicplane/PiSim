@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "IPiSimInspectableModule.h"
+#include "IPiSimActuatorInterface.h"
 #include "CameraSensor.generated.h"
 
 class USceneCaptureComponent2D;
@@ -13,7 +14,7 @@ class UTextureRenderTarget2D;
 class APiSimVehicle;
 
 UCLASS(ClassGroup=(PiSim), meta=(BlueprintSpawnableComponent))
-class PISIM_API UPiSimCameraSensor : public UActorComponent, public IPiSimInspectableModule
+class PISIM_API UPiSimCameraSensor : public UActorComponent, public IPiSimInspectableModule, public IPiSimActuatorInterface
 {
     GENERATED_BODY()
 
@@ -28,6 +29,33 @@ public:
     virtual void SetInspectablePropertyFloat(FName PropertyId, float NewValue) override;
     virtual void SetInspectablePropertyString(FName PropertyId, const FString& NewValue) override;
     virtual void TriggerInspectableAction(FName ActionId) override;
+
+    // IPiSimActuatorInterface (Modül kimlik & ACK sözleşmesi)
+    virtual void SetActuatorNormalized(float Value) override {}
+    virtual void SetActuatorDirect(float PhysicalValue) override {}
+    virtual void SetActuatorPWM(int32 InPWM) override {}
+    virtual float GetActuatorNormalized() const override { return bLiveH264StreamActive ? 1.0f : 0.0f; }
+    virtual FName GetTargetBoneName() const override { return TargetBoneName; }
+    virtual void SetTargetBoneName(FName InBoneName) override { TargetBoneName = InBoneName; }
+    virtual FString GetActuatorType() const override { return TEXT("CameraSensor"); }
+    virtual int32 GetArduPilotChannel() const override { return ServoChannel; }
+    virtual void SetArduPilotChannel(int32 InChannel) override { ServoChannel = InChannel; }
+    virtual FVector GetActuatorAxis() const override { return CameraLocalOffset; }
+    virtual void SetActuatorAxis(const FVector& InAxis) override { CameraLocalOffset = InAxis; }
+    virtual void InitializeModuleIdentity(APiSimVehicle* InVehicle) override;
+    virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override { if (TopicName.Contains(TEXT("camera"))) HandleAckTrigger(AckCode); }
+
+    UPROPERTY()
+    APiSimVehicle* ParentVehicle = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    FString ParentVehicleName;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    int32 VehicleIndex = 0;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    int32 ServoChannel = 0;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Camera")
     FName TargetBoneName = NAME_None;

@@ -1,9 +1,21 @@
 // LidarSensor.cpp
 
 #include "LidarSensor.h"
+#include "Vehicle.h"
 #include "Engine/World.h"
 #include "CollisionQueryParams.h"
 #include "GameFramework/Actor.h"
+
+// @state: WIP - Modül içi araç kimliğini doldurur
+void UPiSimLidarSensor::InitializeModuleIdentity(APiSimVehicle* InVehicle)
+{
+    ParentVehicle = InVehicle;
+    if (InVehicle)
+    {
+        ParentVehicleName = InVehicle->VehicleCode;
+        VehicleIndex = InVehicle->VehicleId;
+    }
+}
 
 // @state: WIP - LiDAR sensörü yapıcısı
 UPiSimLidarSensor::UPiSimLidarSensor()

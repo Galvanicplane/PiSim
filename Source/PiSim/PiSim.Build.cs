@@ -22,6 +22,7 @@ public class PiSim : ModuleRules
 			"Json",
 			"JsonUtilities",
 			"ProceduralMeshComponent",
+			"PhysicsCore",
 			"UMG",
 			"Slate",
 			"SlateCore",

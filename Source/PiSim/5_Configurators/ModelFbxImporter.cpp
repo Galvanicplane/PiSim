@@ -1252,18 +1252,15 @@ bool UPiSimModelFbxImporter::ImportFbxFileToVehicle(
     TargetVehicle->ClearVehicleModel();
 
     // =========================================================================
-    // ⚠️ KESİNLİKLE DEĞİŞTİRİLEMEZ KURAL: EĞER MODELDE UCX YOK İSE HATA MESAJI VER!
+    // ⚠️ KESİNLİKLE DEĞİŞTİRİLEMEZ KURAL: EĞER MODELDE UCX_ YOK İSE SADECE UYARI GÖSTER!
     // VİSUAL MESH KESİNLİKLE COLLİSİON OLARAK ATANAMAZ VE FİZİK SİMÜLE EDEMEZ!
     // =========================================================================
     if (UCXSections.Num() == 0)
     {
-        UE_LOG(LogTemp, Error, TEXT("=================================================================================="));
-        UE_LOG(LogTemp, Error, TEXT("❌ [ModelFbxImporter HATA] '%s' modelinde HİÇBİR UCX ÇARPIŞMA ZIRHI BULUNAMADI!"), *FilePath);
-        UE_LOG(LogTemp, Error, TEXT("⚠️ GÜVENLİK GEREĞİ: Visual Mesh ASLA collision olarak kullanılamaz ve fizik simüle edemez!"));
-        UE_LOG(LogTemp, Error, TEXT("=================================================================================="));
+        UE_LOG(LogTemp, Warning, TEXT("⚠️ [ModelFbxImporter UYARI] '%s' modelinde HİÇBİR UCX_ ÇARPIŞMA ZIRHI BULUNAMADI! Görsel meshler NoCollision bırakıldı."), *FilePath);
         if (GEngine)
         {
-            GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Red, TEXT("❌ [HATA] FBX içinde UCX Çarpışma Zırhı YOK! Görsel mesh ASLA collision alamaz!"));
+            GEngine->AddOnScreenDebugMessage(827, 10.0f, FColor::Yellow, TEXT("⚠️ [UYARI] FBX içinde UCX_ Çarpışma Zırhı YOK! Görsel mesh ASLA collision alamaz!"));
         }
     }
 
@@ -1332,8 +1329,24 @@ bool UPiSimModelFbxImporter::ImportFbxFileToVehicle(
     TargetVehicle->SectionConstraintMap.Empty();
 
     // =========================================================================
-    // AŞAMA 1: KEMİK HİYERARŞİSİNİ KUR (Blender Kemik Ağacı Birebir)
+    // AŞAMA 1: KEMİK HİYERARŞİSİNİ KUR (Blender Kemik Ağacı + CAD Pivot Kemikleri)
+    // CAD/Mesh dosyalarında hiç kemik olmasa dahi her nesnenin pivot noktasına kemik oluşturulur!
     // =========================================================================
+    TargetVehicle->LinkedBonePairs.Empty();
+    if (BoneHierarchy.Num() == 0 && VisualSections.Num() > 0)
+    {
+        FName RootSecBone = FName(*VisualSections[0].MeshName);
+        for (int32 i = 0; i < VisualSections.Num(); ++i)
+        {
+            FPiSimBoneHierarchyNode SynNode;
+            SynNode.BoneName = FName(*VisualSections[i].MeshName);
+            SynNode.ParentBoneName = (i == 0) ? NAME_None : RootSecBone;
+            SynNode.IndentLevel = (i == 0) ? 0 : 1;
+            BoneHierarchy.Add(SynNode);
+        }
+        UE_LOG(LogTemp, Warning, TEXT("🦴 [CAD PİVOT KEMİK ÜRETİMİ] İskelet kemiği bulunamadı; %d nesnenin pivot noktasına otomatik sentetik kemik oluşturuldu!"), VisualSections.Num());
+    }
+
     TMap<FName, USceneComponent*> CreatedBoneComponents;
 
     // Tüm kemikleri (BoneHierarchy + PureBones + Visual Parçalar) topla
@@ -1349,6 +1362,40 @@ bool UPiSimModelFbxImporter::ImportFbxFileToVehicle(
     for (const auto& Sec : VisualSections)
     {
         AllBonesToCreate.AddUnique(FName(*Sec.MeshName));
+    }
+
+    // LA_<bonename>_a / _b ve R_<bonename>_a / _b çiftlerini tespit et
+    TMap<FString, FPiSimLinkedBonePair> DetectedPairs;
+    for (const FName& BName : AllBonesToCreate)
+    {
+        FString BStr = BName.ToString();
+        bool bIsLA = BStr.StartsWith(TEXT("LA_"), ESearchCase::IgnoreCase);
+        bool bIsRope = BStr.StartsWith(TEXT("R_"), ESearchCase::IgnoreCase);
+        if ((bIsLA || bIsRope) && (BStr.EndsWith(TEXT("_a"), ESearchCase::IgnoreCase) || BStr.EndsWith(TEXT("_b"), ESearchCase::IgnoreCase)))
+        {
+            FString BaseKey = BStr.LeftChop(2);
+            FPiSimLinkedBonePair& Pair = DetectedPairs.FindOrAdd(BaseKey);
+            Pair.PairBaseName = BaseKey;
+            Pair.bIsRope = bIsRope;
+            if (BStr.EndsWith(TEXT("_a"), ESearchCase::IgnoreCase))
+            {
+                Pair.BoneAName = BName;
+            }
+            else
+            {
+                Pair.BoneBName = BName;
+            }
+        }
+    }
+    for (const auto& PairIt : DetectedPairs)
+    {
+        if (!PairIt.Value.BoneAName.IsNone() && !PairIt.Value.BoneBName.IsNone())
+        {
+            TargetVehicle->LinkedBonePairs.Add(PairIt.Value);
+            UE_LOG(LogTemp, Warning, TEXT("🔗 [%s ÇİFTİ BULUNDU] '%s' <-> '%s'"),
+                PairIt.Value.bIsRope ? TEXT("HALAT (R_)") : TEXT("LİNEER PİSTON (LA_)"),
+                *PairIt.Value.BoneAName.ToString(), *PairIt.Value.BoneBName.ToString());
+        }
     }
 
     // 1.1) Her kemik için USceneComponent oluştur ve konumunu ayarla
@@ -1583,78 +1630,12 @@ bool UPiSimModelFbxImporter::ImportFbxFileToVehicle(
         VisComp->SetHiddenInGame(false);
 
         // =========================================================================
-        // 🔒 İLGİLİ UCX CONVEX HULL'UNU BUL VE PARÇAYA ZIRH OLARAK GİYDİR
-        // (Spagetti Kod - PiSimModelImporter.cpp lines 2848-2915 Birebir Entegrasyon)
+        // 🔒 KESİN KURAL: GÖRSEL MESH ASLA COLLISION ALMAZ!
+        // Fizik çarpışması SADECE Aşama 2'de oluşturulan UCX_ ön ekli parçalara aittir.
         // =========================================================================
         VisComp->ClearCollisionConvexMeshes();
-        bool bHasCollision = false;
-
-        // 1) Bu görsel parçayla doğrudan eşleşen UCX'leri ekle
-        for (int32 j = 0; j < UCXSections.Num(); ++j)
-        {
-            FString UcxLower = UCXSections[j].MeshName.ToLower();
-            FString VisLower = VisualSections[i].MeshName.ToLower();
-            bool bMatch = UcxLower.Contains(VisLower);
-            if (!bMatch && VisLower.Contains(TEXT("chassis")) && UcxLower.Contains(TEXT("chassis")))
-            {
-                bMatch = true;
-            }
-            if (bMatch)
-            {
-                VisComp->AddCollisionConvexMesh(UCXSections[j].Vertices);
-                bHasCollision = true;
-            }
-        }
-
-        // 2) Eğer bu ana gövde (i == 0) ise ve ayrı alt görsel parçalara atanmamış kanat/gövde UCX'leri varsa:
-        // Bunları ana şasiye göre ofsetleyerek ana fizik gövdesine ekle!
-        if (i == 0 && UCXSections.Num() > 0)
-        {
-            for (int32 j = 0; j < UCXSections.Num(); ++j)
-            {
-                bool bBelongsToOtherVisual = false;
-                for (int32 other = 1; other < VisualSections.Num(); ++other)
-                {
-                    FString OtherLower = VisualSections[other].MeshName.ToLower();
-                    if (UCXSections[j].MeshName.ToLower().Contains(OtherLower))
-                    {
-                        bBelongsToOtherVisual = true;
-                        break;
-                    }
-                }
-
-                if (!bBelongsToOtherVisual)
-                {
-                    FVector Offset = UCXSections[j].PivotPoint - VisualSections[0].PivotPoint;
-                    TArray<FVector> OffsetVerts = UCXSections[j].Vertices;
-                    for (FVector& V : OffsetVerts)
-                    {
-                        V += Offset;
-                    }
-                    VisComp->AddCollisionConvexMesh(OffsetVerts);
-                    bHasCollision = true;
-                    UE_LOG(LogTemp, Warning, TEXT("🛡️ [UCX ZIRHI ŞASİYE MONTE EDİLDİ] '%s' şasiye eklendi (Ofset: %s, Verts: %d)"),
-                        *UCXSections[j].MeshName, *Offset.ToString(), OffsetVerts.Num());
-                }
-            }
-        }
-
-        // Çarpışma durumu: SADECE UCX varsa collision aktif, UCX yoksa NO COLLISION!
-        if (bHasCollision)
-        {
-            VisComp->bUseComplexAsSimpleCollision = false;
-            VisComp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-            VisComp->SetCollisionObjectType(ECC_WorldDynamic);
-            VisComp->SetCollisionResponseToAllChannels(ECR_Block);
-            VisComp->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block); // Zemini bloklar
-            VisComp->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Block);
-            VisComp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
-        }
-        else
-        {
-            VisComp->bUseComplexAsSimpleCollision = false;
-            VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        }
+        VisComp->bUseComplexAsSimpleCollision = false;
+        VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         VisComp->SetSimulatePhysics(false);
         VisComp->RecreatePhysicsState();
         VisComp->UpdateBounds();
@@ -1668,24 +1649,15 @@ bool UPiSimModelFbxImporter::ImportFbxFileToVehicle(
     // Çocuğu kök yapmak cyclic attachment döngüsü oluşturup PIE'de oyunu donduruyordu.
 
     // -----------------------------------------------------------------------------------------
-    // EĞER HİÇ UCX YOKSA: GÖRSEL PARÇALARIN KENDİSİNE COLLISION VER (Güvenlik Sigortası - Spagetti kod satır 3158)
+    // UCX YOKSA KESİNLİKLE GÖRSEL PARÇALARA COLLISION VERİLMEZ — SADECE UYARI GÖSTERİLİR!
     // -----------------------------------------------------------------------------------------
     if (UCXSections.Num() == 0)
     {
-        for (int32 v = 0; v < TargetVehicle->VisualMeshComponents.Num(); ++v)
+        UE_LOG(LogTemp, Warning, TEXT("⚠️ [ModelFbxImporter UYARI] '%s' modelinde UCX_ çarpışma zırhı bulunamadı! Görsel meshlere ASLA otomatik collision atanmaz."), *FilePath);
+        if (GEngine)
         {
-            if (TargetVehicle->VisualMeshComponents[v] && VisualSections.IsValidIndex(v))
-            {
-                TargetVehicle->VisualMeshComponents[v]->ClearCollisionConvexMeshes();
-                TargetVehicle->VisualMeshComponents[v]->AddCollisionConvexMesh(VisualSections[v].Vertices);
-                TargetVehicle->VisualMeshComponents[v]->bUseComplexAsSimpleCollision = false;
-                TargetVehicle->VisualMeshComponents[v]->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-                TargetVehicle->VisualMeshComponents[v]->SetCollisionObjectType(ECC_WorldDynamic);
-                TargetVehicle->VisualMeshComponents[v]->SetCollisionResponseToAllChannels(ECR_Block);
-                TargetVehicle->VisualMeshComponents[v]->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
-                TargetVehicle->VisualMeshComponents[v]->RecreatePhysicsState();
-                TargetVehicle->VisualMeshComponents[v]->UpdateBounds();
-            }
+            GEngine->AddOnScreenDebugMessage(828, 10.0f, FColor::Yellow,
+                TEXT("⚠️ [UYARI] Modelde UCX_ çarpışma mesh'i yok! Sadece UCX_ meshler collision alır; görsel meshler NoCollision bırakıldı."));
         }
     }
 

@@ -34,9 +34,27 @@ public:
     virtual void SetTargetBoneName(FName InBoneName) override { TargetBoneName = InBoneName; }
     virtual FString GetActuatorType() const override { return TEXT("Servo"); }
     virtual int32 GetArduPilotChannel() const override { return ArduPilotChannel; }
-    virtual void SetArduPilotChannel(int32 InChannel) override { ArduPilotChannel = InChannel; }
+    virtual void SetArduPilotChannel(int32 InChannel) override { ArduPilotChannel = InChannel; ServoChannel = InChannel; }
     virtual FVector GetActuatorAxis() const override { return LocalRotationAxis; }
     virtual void SetActuatorAxis(const FVector& InAxis) override { LocalRotationAxis = InAxis; }
+    virtual void InitializeModuleIdentity(class APiSimVehicle* InVehicle) override;
+    virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override {}
+
+    // @state: WIP - Modül içi araç kimliği ve kanal kontrol değişkenleri
+    UPROPERTY()
+    class APiSimVehicle* ParentVehicle = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    FString ParentVehicleName;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    int32 VehicleIndex = 0;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    int32 ServoChannel = 2;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Identity")
+    float ChannelTestSlider = 0.0f; // -1.0 .. +1.0
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Servo")
     void SetTargetAngle(float InAngleDeg);
@@ -49,6 +67,25 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
     FName TargetBoneName = NAME_None;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
+    int32 BoneId = 0;
+
+    /** @state: WIP - Minimum ve Maksimum dönme sınırları (FQuat) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
+    FQuat MinRotationQuat = FQuat(FRotator(0.0f, -45.0f, 0.0f));
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
+    FQuat MaxRotationQuat = FQuat(FRotator(0.0f, 45.0f, 0.0f));
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
+    bool bFlipDirection = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
+    float MaxTorqueNewtons = 25.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
+    float JointResistanceForce = 0.5f;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Servo")
     float MinAngleDeg = -45.0f;

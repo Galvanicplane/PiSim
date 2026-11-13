@@ -4,6 +4,18 @@
 #include "Vehicle.h"
 #include "GameFramework/Actor.h"
 
+// @state: WIP - Modül içi araç kimliğini doldurur
+void UPiSimBarometerSensor::InitializeModuleIdentity(APiSimVehicle* InVehicle)
+{
+    ParentVehicle = InVehicle;
+    CachedVehicle = InVehicle;
+    if (InVehicle)
+    {
+        ParentVehicleName = InVehicle->VehicleCode;
+        VehicleIndex = InVehicle->VehicleId;
+    }
+}
+
 // @state: WIP - Barometre bileşeni yapıcısı
 UPiSimBarometerSensor::UPiSimBarometerSensor()
 {

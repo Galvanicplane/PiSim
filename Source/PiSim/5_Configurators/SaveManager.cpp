@@ -6,6 +6,8 @@
 #include "Wheel.h"
 #include "Servo.h"
 #include "Propeller.h"
+#include "Actuator.h"
+#include "Track.h"
 #include "LiftBody.h"
 #include "MotorConfigurator.h"
 #include "Misc/FileHelper.h"
@@ -20,7 +22,7 @@ UPiSimSaveManager::UPiSimSaveManager()
 {
 }
 
-// @state: WIP - Aracı verilen profil ismiyle JSON dosyasına kaydeder
+// @state: WIP - Aracı verilen profil ismiyle JSON dosyasına kaydeder (Çoklu modül, JointConfig ve tüm yeni parametreler dahil)
 bool UPiSimSaveManager::SaveProfile(APiSimVehicle* TargetVehicle, const FString& ProfileName, FString& OutMessage)
 {
     if (!TargetVehicle || ProfileName.IsEmpty())
@@ -46,10 +48,12 @@ bool UPiSimSaveManager::SaveProfile(APiSimVehicle* TargetVehicle, const FString&
         {
             ModObj->SetStringField(TEXT("Type"), TEXT("Wheel"));
             ModObj->SetStringField(TEXT("BoneName"), Wheel->TargetBoneName.ToString());
-            ModObj->SetStringField(TEXT("WheelMode"), (Wheel->WheelMode == EPiSimWheelMode::FreeWheel) ? TEXT("FreeWheel") : TEXT("DriveWheel"));
+            ModObj->SetBoolField(TEXT("ReverseDirection"), Wheel->bReverseDirection);
+            ModObj->SetNumberField(TEXT("DriveTorque"), Wheel->DriveTorque);
+            ModObj->SetNumberField(TEXT("MaxRPM"), Wheel->MaxRPM);
             ModObj->SetNumberField(TEXT("RadiusCm"), Wheel->RadiusCm);
             ModObj->SetNumberField(TEXT("Friction"), Wheel->FrictionCoefficient);
-            ModObj->SetNumberField(TEXT("Channel"), Wheel->ArduPilotChannel);
+            ModObj->SetNumberField(TEXT("Channel"), Wheel->ServoChannel);
             ModulesArray.Add(MakeShareable(new FJsonValueObject(ModObj)));
         }
         else if (UPiSimServoComponent* Servo = Cast<UPiSimServoComponent>(Comp))
@@ -58,7 +62,10 @@ bool UPiSimSaveManager::SaveProfile(APiSimVehicle* TargetVehicle, const FString&
             ModObj->SetStringField(TEXT("BoneName"), Servo->TargetBoneName.ToString());
             ModObj->SetNumberField(TEXT("MinAngle"), Servo->MinAngleDeg);
             ModObj->SetNumberField(TEXT("MaxAngle"), Servo->MaxAngleDeg);
-            ModObj->SetNumberField(TEXT("Channel"), Servo->ArduPilotChannel);
+            ModObj->SetBoolField(TEXT("FlipDirection"), Servo->bFlipDirection);
+            ModObj->SetNumberField(TEXT("MaxTorqueNewtons"), Servo->MaxTorqueNewtons);
+            ModObj->SetNumberField(TEXT("JointResistanceForce"), Servo->JointResistanceForce);
+            ModObj->SetNumberField(TEXT("Channel"), Servo->ServoChannel);
             ModObj->SetStringField(TEXT("Function"), Servo->ArduPilotFunction);
             ModulesArray.Add(MakeShareable(new FJsonValueObject(ModObj)));
         }
@@ -67,7 +74,27 @@ bool UPiSimSaveManager::SaveProfile(APiSimVehicle* TargetVehicle, const FString&
             ModObj->SetStringField(TEXT("Type"), TEXT("Propeller"));
             ModObj->SetStringField(TEXT("BoneName"), Prop->TargetBoneName.ToString());
             ModObj->SetNumberField(TEXT("MaxThrust"), Prop->MaxThrustNewtons);
-            ModObj->SetNumberField(TEXT("Channel"), Prop->ArduPilotChannel);
+            ModObj->SetNumberField(TEXT("VisualSpinSpeedRPM"), Prop->VisualSpinSpeedRPM);
+            ModObj->SetNumberField(TEXT("Channel"), Prop->ServoChannel);
+            ModulesArray.Add(MakeShareable(new FJsonValueObject(ModObj)));
+        }
+        else if (UPiSimLinearActuatorComponent* LA = Cast<UPiSimLinearActuatorComponent>(Comp))
+        {
+            ModObj->SetStringField(TEXT("Type"), LA->bIsRopeVariant ? TEXT("Rope") : TEXT("Actuator"));
+            ModObj->SetStringField(TEXT("BoneName"), LA->TargetBoneName.ToString());
+            ModObj->SetStringField(TEXT("BoneA"), LA->BoneAName.ToString());
+            ModObj->SetStringField(TEXT("BoneB"), LA->BoneBName.ToString());
+            ModObj->SetBoolField(TEXT("IsRope"), LA->bIsRopeVariant);
+            ModObj->SetNumberField(TEXT("Channel"), LA->ServoChannel);
+            ModulesArray.Add(MakeShareable(new FJsonValueObject(ModObj)));
+        }
+        else if (UPiSimTrackComponent* Track = Cast<UPiSimTrackComponent>(Comp))
+        {
+            ModObj->SetStringField(TEXT("Type"), TEXT("Track"));
+            ModObj->SetStringField(TEXT("BoneName"), Track->TargetBoneName.ToString());
+            ModObj->SetNumberField(TEXT("Friction"), Track->FrictionCoefficient);
+            ModObj->SetBoolField(TEXT("ReverseDirection"), Track->bReverseDirection);
+            ModObj->SetNumberField(TEXT("Channel"), Track->ServoChannel);
             ModulesArray.Add(MakeShareable(new FJsonValueObject(ModObj)));
         }
         else if (UPiSimLiftBodyComponent* Lift = Cast<UPiSimLiftBodyComponent>(Comp))
@@ -75,11 +102,33 @@ bool UPiSimSaveManager::SaveProfile(APiSimVehicle* TargetVehicle, const FString&
             ModObj->SetStringField(TEXT("Type"), TEXT("LiftBody"));
             ModObj->SetStringField(TEXT("BoneName"), Lift->TargetBoneName.ToString());
             ModObj->SetNumberField(TEXT("WingArea"), Lift->WingAreaSquareMeters);
+            ModObj->SetNumberField(TEXT("UpX"), Lift->UpVector.X);
+            ModObj->SetNumberField(TEXT("UpY"), Lift->UpVector.Y);
+            ModObj->SetNumberField(TEXT("UpZ"), Lift->UpVector.Z);
             ModulesArray.Add(MakeShareable(new FJsonValueObject(ModObj)));
         }
     }
 
     RootObject->SetArrayField(TEXT("Modules"), ModulesArray);
+
+    // Kemik bazlı serbestlik ve statik/kinetik sürtünme ayarlarını kaydet
+    TArray<TSharedPtr<FJsonValue>> JointsArray;
+    for (const auto& JPair : TargetVehicle->BoneJointConfigs)
+    {
+        const FPiSimBoneJointConfig& Cfg = JPair.Value;
+        TSharedPtr<FJsonObject> JObj = MakeShareable(new FJsonObject());
+        JObj->SetStringField(TEXT("BoneName"), Cfg.BoneName.ToString());
+        JObj->SetBoolField(TEXT("FreeRotX"), Cfg.bFreeRotX);
+        JObj->SetBoolField(TEXT("FreeRotY"), Cfg.bFreeRotY);
+        JObj->SetBoolField(TEXT("FreeRotZ"), Cfg.bFreeRotZ);
+        JObj->SetBoolField(TEXT("FreePosX"), Cfg.bFreePosX);
+        JObj->SetBoolField(TEXT("FreePosY"), Cfg.bFreePosY);
+        JObj->SetBoolField(TEXT("FreePosZ"), Cfg.bFreePosZ);
+        JObj->SetNumberField(TEXT("StaticResX"), Cfg.StaticResistanceForce.X);
+        JObj->SetNumberField(TEXT("KineticFricX"), Cfg.KineticFrictionCoefficient.X);
+        JointsArray.Add(MakeShareable(new FJsonValueObject(JObj)));
+    }
+    RootObject->SetArrayField(TEXT("BoneJointConfigs"), JointsArray);
 
     FString OutputString;
     TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
@@ -147,31 +196,79 @@ bool UPiSimSaveManager::LoadProfile(APiSimVehicle* TargetVehicle, const FString&
             {
                 Wheel->RadiusCm = ModObj->GetNumberField(TEXT("RadiusCm"));
                 Wheel->FrictionCoefficient = ModObj->GetNumberField(TEXT("Friction"));
-                FString WMode;
-                if (ModObj->TryGetStringField(TEXT("WheelMode"), WMode))
-                {
-                    if (WMode == TEXT("FreeWheel")) Wheel->SetWheelMode(EPiSimWheelMode::FreeWheel);
-                    else Wheel->SetWheelMode(EPiSimWheelMode::DriveWheel);
-                }
-                int32 Ch = 3;
-                if (ModObj->TryGetNumberField(TEXT("Channel"), Ch)) Wheel->ArduPilotChannel = Ch;
+                ModObj->TryGetBoolField(TEXT("ReverseDirection"), Wheel->bReverseDirection);
+                double ValTmp = 0.0;
+                if (ModObj->TryGetNumberField(TEXT("DriveTorque"), ValTmp)) Wheel->DriveTorque = (float)ValTmp;
+                if (ModObj->TryGetNumberField(TEXT("MaxRPM"), ValTmp)) Wheel->MaxRPM = (float)ValTmp;
+                int32 Ch = 1;
+                if (ModObj->TryGetNumberField(TEXT("Channel"), Ch)) { Wheel->ArduPilotChannel = Ch; Wheel->ServoChannel = Ch; }
+                Wheel->ApplyFrictionToCollisionMesh();
             }
             else if (UPiSimServoComponent* Servo = Cast<UPiSimServoComponent>(NewComp))
             {
                 Servo->MinAngleDeg = ModObj->GetNumberField(TEXT("MinAngle"));
                 Servo->MaxAngleDeg = ModObj->GetNumberField(TEXT("MaxAngle"));
+                ModObj->TryGetBoolField(TEXT("FlipDirection"), Servo->bFlipDirection);
+                double ValTmp = 0.0;
+                if (ModObj->TryGetNumberField(TEXT("MaxTorqueNewtons"), ValTmp)) Servo->MaxTorqueNewtons = (float)ValTmp;
+                if (ModObj->TryGetNumberField(TEXT("JointResistanceForce"), ValTmp)) Servo->JointResistanceForce = (float)ValTmp;
                 Servo->ArduPilotChannel = ModObj->GetIntegerField(TEXT("Channel"));
+                Servo->ServoChannel = Servo->ArduPilotChannel;
                 Servo->ArduPilotFunction = ModObj->GetStringField(TEXT("Function"));
             }
             else if (UPiSimPropellerComponent* Prop = Cast<UPiSimPropellerComponent>(NewComp))
             {
                 Prop->MaxThrustNewtons = ModObj->GetNumberField(TEXT("MaxThrust"));
+                double ValTmp = 0.0;
+                if (ModObj->TryGetNumberField(TEXT("VisualSpinSpeedRPM"), ValTmp)) Prop->VisualSpinSpeedRPM = (float)ValTmp;
                 Prop->ArduPilotChannel = ModObj->GetIntegerField(TEXT("Channel"));
+                Prop->ServoChannel = Prop->ArduPilotChannel;
+            }
+            else if (UPiSimLinearActuatorComponent* LA = Cast<UPiSimLinearActuatorComponent>(NewComp))
+            {
+                FString BoneA, BoneB;
+                if (ModObj->TryGetStringField(TEXT("BoneA"), BoneA)) LA->BoneAName = FName(*BoneA);
+                if (ModObj->TryGetStringField(TEXT("BoneB"), BoneB)) LA->BoneBName = FName(*BoneB);
+                ModObj->TryGetBoolField(TEXT("IsRope"), LA->bIsRopeVariant);
+                int32 Ch = 5;
+                if (ModObj->TryGetNumberField(TEXT("Channel"), Ch)) { LA->ArduPilotChannel = Ch; LA->ServoChannel = Ch; }
+            }
+            else if (UPiSimTrackComponent* Track = Cast<UPiSimTrackComponent>(NewComp))
+            {
+                double ValTmp = 0.0;
+                if (ModObj->TryGetNumberField(TEXT("Friction"), ValTmp)) Track->FrictionCoefficient = (float)ValTmp;
+                ModObj->TryGetBoolField(TEXT("ReverseDirection"), Track->bReverseDirection);
+                int32 Ch = 1;
+                if (ModObj->TryGetNumberField(TEXT("Channel"), Ch)) { Track->ArduPilotChannel = Ch; Track->ServoChannel = Ch; }
             }
             else if (UPiSimLiftBodyComponent* Lift = Cast<UPiSimLiftBodyComponent>(NewComp))
             {
                 Lift->WingAreaSquareMeters = ModObj->GetNumberField(TEXT("WingArea"));
+                double UX, UY, UZ;
+                if (ModObj->TryGetNumberField(TEXT("UpX"), UX) && ModObj->TryGetNumberField(TEXT("UpY"), UY) && ModObj->TryGetNumberField(TEXT("UpZ"), UZ))
+                {
+                    Lift->UpVector = FVector((float)UX, (float)UY, (float)UZ);
+                }
             }
+        }
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* JointsArray;
+    if (RootObject->TryGetArrayField(TEXT("BoneJointConfigs"), JointsArray))
+    {
+        for (const TSharedPtr<FJsonValue>& JVal : *JointsArray)
+        {
+            TSharedPtr<FJsonObject> JObj = JVal->AsObject();
+            if (!JObj.IsValid()) continue;
+            FPiSimBoneJointConfig Cfg;
+            Cfg.BoneName = FName(*JObj->GetStringField(TEXT("BoneName")));
+            JObj->TryGetBoolField(TEXT("FreeRotX"), Cfg.bFreeRotX);
+            JObj->TryGetBoolField(TEXT("FreeRotY"), Cfg.bFreeRotY);
+            JObj->TryGetBoolField(TEXT("FreeRotZ"), Cfg.bFreeRotZ);
+            JObj->TryGetBoolField(TEXT("FreePosX"), Cfg.bFreePosX);
+            JObj->TryGetBoolField(TEXT("FreePosY"), Cfg.bFreePosY);
+            JObj->TryGetBoolField(TEXT("FreePosZ"), Cfg.bFreePosZ);
+            TargetVehicle->SetBoneJointConfig(Cfg.BoneName, Cfg);
         }
     }
 
@@ -193,7 +290,6 @@ void UPiSimSaveManager::GetSavedProfileNames(TArray<FString>& OutProfileNames)
         OutProfileNames.Add(FPaths::GetBaseFilename(FileName));
     }
 }
-
 
 // @state: Implemented - Standart robotik URDF XML dosyasını Saved/Vehicles/{ProfileName}.urdf olarak kaydeder
 bool UPiSimSaveManager::ExportURDF(APiSimVehicle* TargetVehicle, const FString& ProfileName, FString& OutMessage)
@@ -291,7 +387,7 @@ bool UPiSimSaveManager::ExportArduPilotParams(APiSimVehicle* TargetVehicle, cons
                 FString ActType = Actuator->GetActuatorType();
                 int32 FuncId = 0;
 
-                if (ActType == TEXT("Wheel"))
+                if (ActType == TEXT("Wheel") || ActType == TEXT("Track"))
                 {
                     FuncId = 70; // Throttle
                 }

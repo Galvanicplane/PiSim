@@ -8,7 +8,15 @@
 #include "Wheel.h"
 #include "Servo.h"
 #include "Propeller.h"
+#include "Actuator.h"
+#include "Track.h"
+#include "LiftBody.h"
 #include "MotorDebug.h"
+#include "IMUSensor.h"
+#include "GPSSensor.h"
+#include "BarometerSensor.h"
+#include "LidarSensor.h"
+#include "DrawDebugHelpers.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "ProceduralMeshComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -221,9 +229,58 @@ void APiSimVehicle::Tick(float DeltaTime)
                 }
             }
 
-            if (PC->WasInputKeyJustPressed(EKeys::Y))
+            if (PC->WasInputKeyJustPressed(EKeys::Y) && !bSensorPlacementMode)
             {
                 CycleWheelSpinAxis();
+            }
+
+            // @state: WIP - Blender tarzı X / Y / Z + Fare + Enter Etkileşimli Sensör Yerleştirme Modu
+            if (bSensorPlacementMode && !ActivePlacementSensorBone.IsNone())
+            {
+                if (PC->WasInputKeyJustPressed(EKeys::X)) ActivePlacementAxis = 1;
+                else if (PC->WasInputKeyJustPressed(EKeys::Y)) ActivePlacementAxis = 2;
+                else if (PC->WasInputKeyJustPressed(EKeys::Z)) ActivePlacementAxis = 3;
+                else if (PC->WasInputKeyJustPressed(EKeys::Enter) || PC->WasInputKeyJustPressed(EKeys::LeftMouseButton))
+                {
+                    ConfirmInteractiveSensorPlacement();
+                }
+                else if (PC->WasInputKeyJustPressed(EKeys::Escape) || PC->WasInputKeyJustPressed(EKeys::RightMouseButton))
+                {
+                    CancelInteractiveSensorPlacement();
+                }
+
+                if (bSensorPlacementMode)
+                {
+                    float MouseDX = 0.0f, MouseDY = 0.0f;
+                    PC->GetInputMouseDelta(MouseDX, MouseDY);
+                    FVector DeltaMove = FVector::ZeroVector;
+                    const float MoveScale = 1.5f;
+                    if (ActivePlacementAxis == 1) DeltaMove.X = (MouseDX + MouseDY) * MoveScale;
+                    else if (ActivePlacementAxis == 2) DeltaMove.Y = MouseDX * MoveScale;
+                    else if (ActivePlacementAxis == 3) DeltaMove.Z = MouseDY * MoveScale;
+                    else DeltaMove = FVector(MouseDY * MoveScale, MouseDX * MoveScale, 0.0f);
+
+                    FTransform* SocketT = SensorSocketTransforms.Find(ActivePlacementSensorBone.ToString());
+                    if (SocketT && !DeltaMove.IsNearlyZero())
+                    {
+                        SocketT->AddToTranslation(DeltaMove);
+                    }
+                    if (USceneComponent* SensorBoneComp = GetSceneComponentForBone(ActivePlacementSensorBone))
+                    {
+                        if (!DeltaMove.IsNearlyZero())
+                        {
+                            SensorBoneComp->AddLocalOffset(DeltaMove);
+                        }
+                        FVector Origin = SensorBoneComp->GetComponentLocation();
+                        FColor AxisColor = (ActivePlacementAxis == 1) ? FColor::Red : (ActivePlacementAxis == 2) ? FColor::Green : (ActivePlacementAxis == 3) ? FColor::Blue : FColor::Yellow;
+                        FVector AxisDir = (ActivePlacementAxis == 1) ? FVector(1,0,0) : (ActivePlacementAxis == 2) ? FVector(0,1,0) : FVector(0,0,1);
+                        if (ActivePlacementAxis != 0)
+                        {
+                            DrawDebugLine(World, Origin - AxisDir * 250.0f, Origin + AxisDir * 250.0f, AxisColor, false, -1.0f, 0, 2.5f);
+                        }
+                        DrawDebugSphere(World, Origin, 8.0f, 12, AxisColor, false, -1.0f, 0, 2.0f);
+                    }
+                }
             }
         }
     }
@@ -517,6 +574,10 @@ void APiSimVehicle::ClearVehicleModel()
     StoredUCXSections.Empty();
     MotorTestValues.Empty();
     SectionConstraintMap.Empty();
+    BoneSlotRegistry.Empty();
+    MultiBoneSlotRegistry.Empty();
+    LinkedBonePairs.Empty();
+    BoneJointConfigs.Empty();
     bIsPhysicsSimulating = false;
 }
 
@@ -595,39 +656,48 @@ USceneComponent* APiSimVehicle::GetSceneComponentForBone(FName BoneName) const
     return nullptr;
 }
 
-// Kemiğe bağlı veya çocuğundaki fiziksel ilkel bileşeni döner (Dinamik tekerlek fizik itkisi için)
+// @state: WIP - Kemiğe bağlı veya çocuğundaki UCX fiziksel çarpışma bileşenini döner (Asla Visual NoCollision mesh döndürmez)
 UPrimitiveComponent* APiSimVehicle::GetPrimitiveComponentForBone(FName BoneName) const
 {
     if (BoneName.IsNone()) return nullptr;
 
+    FString BoneStr = BoneName.ToString();
+    FString Clean = BoneStr;
+    Clean.RemoveFromStart(TEXT("M_"), ESearchCase::IgnoreCase);
+    Clean.RemoveFromStart(TEXT("B_"), ESearchCase::IgnoreCase);
+
+    // 1) Öncelik SADECE UCX çarpışma zırhı parçalarındadır
+    for (UProceduralMeshComponent* CollComp : CollisionMeshComponents)
+    {
+        if (CollComp)
+        {
+            FString CName = CollComp->GetName();
+            if (CName.Contains(BoneStr, ESearchCase::IgnoreCase) || (!Clean.IsEmpty() && CName.Contains(Clean, ESearchCase::IgnoreCase)))
+            {
+                return CollComp;
+            }
+        }
+    }
+
+    // 2) Kemik sahne bileşeni veya altındaki UCX/fizik bileşenini ara
     USceneComponent* SceneComp = GetSceneComponentForBone(BoneName);
     if (SceneComp)
     {
         if (UPrimitiveComponent* DirectPrim = Cast<UPrimitiveComponent>(SceneComp))
         {
-            return DirectPrim;
+            if (CollisionMeshComponents.Contains(DirectPrim) || DirectPrim->IsSimulatingPhysics())
+            {
+                return DirectPrim;
+            }
         }
         for (int32 c = 0; c < SceneComp->GetNumChildrenComponents(); ++c)
         {
             if (UPrimitiveComponent* ChildPrim = Cast<UPrimitiveComponent>(SceneComp->GetChildComponent(c)))
             {
-                return ChildPrim;
-            }
-        }
-    }
-
-    FString BoneStr = BoneName.ToString();
-    FString Clean = BoneStr;
-    Clean.RemoveFromStart(TEXT("M_"), ESearchCase::IgnoreCase);
-
-    for (UProceduralMeshComponent* VisComp : VisualMeshComponents)
-    {
-        if (VisComp)
-        {
-            FString VName = VisComp->GetName();
-            if (VName.Contains(BoneStr, ESearchCase::IgnoreCase) || VName.Contains(Clean, ESearchCase::IgnoreCase))
-            {
-                return VisComp;
+                if (CollisionMeshComponents.Contains(ChildPrim) || ChildPrim->IsSimulatingPhysics())
+                {
+                    return ChildPrim;
+                }
             }
         }
     }
@@ -635,19 +705,20 @@ UPrimitiveComponent* APiSimVehicle::GetPrimitiveComponentForBone(FName BoneName)
     return nullptr;
 }
 
-// @state: WIP - UI Slider'ından gelen motor test değerini uygular
+// @state: WIP - UI Slider'ından gelen motor test değerini uygular (Bir kemikteki 0..N modüle iletir)
 void APiSimVehicle::SetMotorTestValue(FName BoneName, float Value)
 {
     MotorTestValues.Add(BoneName, Value);
 
-    UActorComponent* Mod = GetModuleAtBone(BoneName);
+    TArray<UActorComponent*> Mods = GetModulesAtBone(BoneName);
+    UActorComponent* Mod = (Mods.Num() > 0) ? Mods[0] : nullptr;
     FString ModStatus = TEXT("🔘 Modül Atanmamış");
-    if (Mod)
+    for (UActorComponent* M : Mods)
     {
-        if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(Mod))
+        if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(M))
         {
             Actuator->SetActuatorNormalized(Value);
-            ModStatus = FString::Printf(TEXT("⚙️ %s: %+.2f"), *Actuator->GetActuatorType(), Value);
+            ModStatus = FString::Printf(TEXT("⚙️ %s (%d): %+.2f"), *Actuator->GetActuatorType(), Mods.Num(), Value);
         }
     }
 
@@ -670,26 +741,11 @@ void APiSimVehicle::SetMotorTestValue(FName BoneName, float Value)
     if (bIsSteer)
     {
         TargetAngleDeg = Value * 45.0f;
-        if (TargetComp)
+        // ⚠️ KESİN KURAL: Fizik aktifken SetRelativeRotation YASAKTIR (sadece statik garaj önizlemesinde izinli)
+        if (TargetComp && !bIsPhysicsSimulating)
         {
             TargetComp->SetRelativeRotation(FRotator(0.0f, TargetAngleDeg, 0.0f));
             bRotated = true;
-        }
-
-        // İlgili tekerlek mafsalı kısıtlamasını yönlendir
-        if (bIsPhysicsSimulating)
-        {
-            UPhysicsConstraintComponent* Constraint = FindConstraintForBone(BoneName);
-            if (!Constraint)
-            {
-                int32 TargetSection = FindVisualSectionForBone(BoneName);
-                Constraint = FindConstraintForSection(TargetSection);
-            }
-            if (Constraint)
-            {
-                FTransform SteerPose(FRotator(0.0f, TargetAngleDeg, 0.0f), Constraint->GetRelativeLocation());
-                Constraint->SetConstraintReferenceFrame(EConstraintFrame::Frame1, SteerPose);
-            }
         }
     }
     else if (bIsWheel)
@@ -1011,11 +1067,15 @@ void APiSimVehicle::SetVehiclePhysicsEnabled(bool bEnable)
             }
         }
 
-        // Güvenlik sigortası: UCX yoksa doğrudan görsel köşe noktalarını convex hull yap
+        // ⚠️ UCX_ yoksa ASLA görsel köşe noktalarını collision olarak kullanma (Kullanıcı Kuralı: Sadece uyarı göster!)
         if (!bHasCollision)
         {
-            VisComp->AddCollisionConvexMesh(StoredVisualSections[i].Vertices);
-            bHasCollision = true;
+            UE_LOG(LogTemp, Warning, TEXT("⚠️ [FİZİK UYARI] '%s' parçası için UCX_ çarpışma zırhı yok! Görsel mesh'e collision eklenmedi."),
+                *StoredVisualSections[i].MeshName);
+            VisComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+            VisComp->RecreatePhysicsState();
+            VisComp->SetSimulatePhysics(false);
+            continue;
         }
 
         if (bHasCollision)
@@ -1376,7 +1436,7 @@ bool APiSimVehicle::IsVehiclePhysicsActive() const
     return bIsPhysicsSimulating;
 }
 
-// @state: WIP - Belirtilen iskelet kemiğine mikro-modül (Wheel, Servo vb.) atar
+// @state: WIP - Belirtilen iskelet kemiğine mikro-modül (Wheel, Servo vb.) atar (0, 1 veya N modül destekler)
 bool APiSimVehicle::AssignModuleToBone(FName BoneName, UActorComponent* ModuleComponent)
 {
     if (!ModuleComponent || BoneName.IsNone())
@@ -1384,23 +1444,157 @@ bool APiSimVehicle::AssignModuleToBone(FName BoneName, UActorComponent* ModuleCo
         return false;
     }
 
-    if (BoneSlotRegistry.Contains(BoneName))
+    FPiSimBoneModuleList& SlotList = MultiBoneSlotRegistry.FindOrAdd(BoneName);
+    if (!SlotList.Modules.Contains(ModuleComponent))
     {
-        UActorComponent* OldComp = BoneSlotRegistry[BoneName];
-        if (OldComp && OldComp != ModuleComponent)
-        {
-            OldComp->DestroyComponent();
-        }
+        SlotList.Modules.Add(ModuleComponent);
     }
 
-    BoneSlotRegistry.Add(BoneName, ModuleComponent);
+    // Geriye dönük uyumluluk için ilk/ana modülü BoneSlotRegistry'de tut
+    if (!BoneSlotRegistry.Contains(BoneName) || !BoneSlotRegistry[BoneName])
+    {
+        BoneSlotRegistry.Add(BoneName, ModuleComponent);
+    }
+
+    // Modülün kendi içindeki ParentVehicle / VehicleName / VehicleIndex kimlik değişkenlerini doldur
+    if (IPiSimActuatorInterface* Actuator = Cast<IPiSimActuatorInterface>(ModuleComponent))
+    {
+        Actuator->InitializeModuleIdentity(this);
+    }
     return true;
 }
 
-// @state: WIP - Kemiğe atanmış mikro modülü döndürür
+// @state: WIP - Kemiğe atanmış birincil mikro modülü döndürür
 UActorComponent* APiSimVehicle::GetModuleAtBone(FName BoneName) const
 {
+    if (const FPiSimBoneModuleList* SlotList = MultiBoneSlotRegistry.Find(BoneName))
+    {
+        for (UActorComponent* Comp : SlotList->Modules)
+        {
+            if (Comp && IsValid(Comp)) return Comp;
+        }
+    }
     return BoneSlotRegistry.FindRef(BoneName);
+}
+
+// @state: WIP - Bir kemiğe atanmış tüm modülleri (0, 1 veya N adet) döndürür
+TArray<UActorComponent*> APiSimVehicle::GetModulesAtBone(FName BoneName) const
+{
+    TArray<UActorComponent*> Result;
+    if (const FPiSimBoneModuleList* SlotList = MultiBoneSlotRegistry.Find(BoneName))
+    {
+        for (UActorComponent* Comp : SlotList->Modules)
+        {
+            if (Comp && IsValid(Comp)) Result.Add(Comp);
+        }
+    }
+    else if (UActorComponent* Single = BoneSlotRegistry.FindRef(BoneName))
+    {
+        if (IsValid(Single)) Result.Add(Single);
+    }
+    return Result;
+}
+
+// @state: WIP - Kemiğin açısal/doğrusal serbestlik eksenlerini ve statik/kinetik direnç katsayılarını ayarlar
+void APiSimVehicle::SetBoneJointConfig(FName BoneName, const FPiSimBoneJointConfig& Config)
+{
+    if (BoneName.IsNone()) return;
+    FPiSimBoneJointConfig CopyCfg = Config;
+    CopyCfg.BoneName = BoneName;
+    BoneJointConfigs.Add(BoneName, CopyCfg);
+
+    if (UPhysicsConstraintComponent* Constraint = FindConstraintForBone(BoneName))
+    {
+        Constraint->SetLinearXLimit(CopyCfg.bFreePosX ? ELinearConstraintMotion::LCM_Free : ELinearConstraintMotion::LCM_Locked, 0.0f);
+        Constraint->SetLinearYLimit(CopyCfg.bFreePosY ? ELinearConstraintMotion::LCM_Free : ELinearConstraintMotion::LCM_Locked, 0.0f);
+        Constraint->SetLinearZLimit(CopyCfg.bFreePosZ ? ELinearConstraintMotion::LCM_Free : ELinearConstraintMotion::LCM_Locked, 0.0f);
+        Constraint->SetAngularTwistLimit(CopyCfg.bFreeRotX ? EAngularConstraintMotion::ACM_Free : EAngularConstraintMotion::ACM_Locked, 0.0f);
+        Constraint->SetAngularSwing2Limit(CopyCfg.bFreeRotY ? EAngularConstraintMotion::ACM_Free : EAngularConstraintMotion::ACM_Locked, 0.0f);
+        Constraint->SetAngularSwing1Limit(CopyCfg.bFreeRotZ ? EAngularConstraintMotion::ACM_Free : EAngularConstraintMotion::ACM_Locked, 0.0f);
+        Constraint->UpdateConstraintFrames();
+    }
+}
+
+FPiSimBoneJointConfig APiSimVehicle::GetBoneJointConfig(FName BoneName) const
+{
+    if (const FPiSimBoneJointConfig* Found = BoneJointConfigs.Find(BoneName))
+    {
+        return *Found;
+    }
+    FPiSimBoneJointConfig DefaultCfg;
+    DefaultCfg.BoneName = BoneName;
+    return DefaultCfg;
+}
+
+// @state: WIP - Blender tarzı X/Y/Z + Fare + Enter etkileşimli sensör konumlandırmasını başlatır
+void APiSimVehicle::StartInteractiveSensorPlacement(FName SensorBoneOrName)
+{
+    if (SensorBoneOrName.IsNone()) return;
+    bSensorPlacementMode = true;
+    ActivePlacementSensorBone = SensorBoneOrName;
+    ActivePlacementAxis = 0;
+
+    if (const FTransform* ExistingT = SensorSocketTransforms.Find(SensorBoneOrName.ToString()))
+    {
+        PlacementInitialOffset = ExistingT->GetLocation();
+    }
+    else if (USceneComponent* Comp = GetSceneComponentForBone(SensorBoneOrName))
+    {
+        PlacementInitialOffset = Comp->GetRelativeLocation();
+        FTransform NewT;
+        NewT.SetLocation(PlacementInitialOffset);
+        SensorSocketTransforms.Add(SensorBoneOrName.ToString(), NewT);
+    }
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(991, 8.0f, FColor::Cyan,
+            FString::Printf(TEXT("🎯 [BLENDER SENSÖR YERLEŞTİRME] '%s' seçili | Eksen Kilidi: X / Y / Z | Onay: ENTER | İptal: ESC"), *SensorBoneOrName.ToString()));
+    }
+}
+
+void APiSimVehicle::ConfirmInteractiveSensorPlacement()
+{
+    bSensorPlacementMode = false;
+    ActivePlacementAxis = 0;
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(991, 3.0f, FColor::Green,
+            FString::Printf(TEXT("✅ [SENSÖR KONUMU ONAYLANDI] '%s'"), *ActivePlacementSensorBone.ToString()));
+    }
+    ActivePlacementSensorBone = NAME_None;
+}
+
+void APiSimVehicle::CancelInteractiveSensorPlacement()
+{
+    if (!ActivePlacementSensorBone.IsNone())
+    {
+        if (FTransform* SocketT = SensorSocketTransforms.Find(ActivePlacementSensorBone.ToString()))
+        {
+            SocketT->SetLocation(PlacementInitialOffset);
+        }
+        if (USceneComponent* Comp = GetSceneComponentForBone(ActivePlacementSensorBone))
+        {
+            Comp->SetRelativeLocation(PlacementInitialOffset);
+        }
+    }
+    bSensorPlacementMode = false;
+    ActivePlacementAxis = 0;
+    ActivePlacementSensorBone = NAME_None;
+}
+
+// @state: WIP - Tüm araç modüllerine (sensörler dahil) gelen ACK mesajını dağıtır
+void APiSimVehicle::BroadcastAckToAllModules(const FString& TopicName, int32 AckCode)
+{
+    TArray<UActorComponent*> Comps;
+    GetComponents(Comps);
+    for (UActorComponent* Comp : Comps)
+    {
+        if (IPiSimActuatorInterface* Act = Cast<IPiSimActuatorInterface>(Comp))
+        {
+            Act->HandleAckMessage(TopicName, AckCode);
+        }
+    }
 }
 
 // @state: WIP - UI Otopark için iskeletteki tüm kemik isimlerini toplar

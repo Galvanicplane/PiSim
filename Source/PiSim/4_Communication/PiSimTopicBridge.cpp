@@ -334,6 +334,9 @@ void UPiSimTopicBridge::DispatchAckJson(const FString& InJsonStr)
             int32 StatusCode = (int32)Pair.Value->AsNumber();
             TopicAckStatusMap.Add(TopicKey, StatusCode);
 
+            // Sensörler dahil tüm araç modüllerine ACK kodunu ilet
+            CachedVehicle->BroadcastAckToAllModules(TopicKey, StatusCode);
+
             // Kamera topic'i için ACK=3 (Canlı H.264 Aç) veya ACK=4 (Standby Mavi Ekran'a Dön) tetiklemesi
             if (TopicKey.Contains(TEXT("camera"), ESearchCase::IgnoreCase) || TopicKey.Contains(TEXT("h264"), ESearchCase::IgnoreCase))
             {

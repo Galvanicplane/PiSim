@@ -5,6 +5,8 @@
 #include "Wheel.h"
 #include "Servo.h"
 #include "Propeller.h"
+#include "Actuator.h"
+#include "Track.h"
 #include "LiftBody.h"
 
 // @state: WIP - Motor yapılandırıcı nesne yapıcısı
@@ -27,22 +29,34 @@ void UPiSimMotorConfigurator::AutoAssignMotorsByBoneNames(APiSimVehicle* TargetV
     {
         FString BoneStr = BoneName.ToString().ToLower();
 
-        if (BoneStr.Contains(TEXT("wheel")) || BoneStr.Contains(TEXT("teker")) || BoneStr.Contains(TEXT("caster")))
+        if (BoneStr.Contains(TEXT("wheel")) || BoneStr.Contains(TEXT("teker")))
         {
-            UActorComponent* Comp = AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Wheel"));
-            if (UPiSimWheelComponent* Wheel = Cast<UPiSimWheelComponent>(Comp))
+            // Caster / serbest dönen tekerlekler 0 modüllü kemik olarak bırakılır; motorlu tekerlekler birleşik Wheel modülü alır
+            if (!BoneStr.Contains(TEXT("caster")) && !BoneStr.Contains(TEXT("sarhos")))
             {
-                if (BoneStr.Contains(TEXT("caster")) || BoneStr.Contains(TEXT("sarhos")))
+                UActorComponent* Comp = AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Wheel"));
+                if (UPiSimWheelComponent* Wheel = Cast<UPiSimWheelComponent>(Comp))
                 {
-                    Wheel->SetWheelMode(EPiSimWheelMode::FreeWheel);
-                }
-
-                else
-                {
-                    Wheel->SetWheelMode(EPiSimWheelMode::DriveWheel);
-                    Wheel->ArduPilotChannel = 1; // Kanal 1: Sürüş Tekerlekleri (İleri/Geri)
+                    Wheel->ArduPilotChannel = 1;
+                    Wheel->ServoChannel = 1;
                 }
             }
+        }
+        else if (BoneStr.StartsWith(TEXT("la_")) && BoneStr.EndsWith(TEXT("_a")))
+        {
+            AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Actuator"));
+        }
+        else if (BoneStr.StartsWith(TEXT("r_")) && BoneStr.EndsWith(TEXT("_a")))
+        {
+            UActorComponent* Comp = AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Rope"));
+            if (UPiSimLinearActuatorComponent* Rope = Cast<UPiSimLinearActuatorComponent>(Comp))
+            {
+                Rope->bIsRopeVariant = true;
+            }
+        }
+        else if (BoneStr.Contains(TEXT("track")) || BoneStr.Contains(TEXT("palet")))
+        {
+            AssignMotorRoleToBone(TargetVehicle, BoneName, TEXT("Track"));
         }
         else if (BoneStr.Contains(TEXT("servo")) || BoneStr.Contains(TEXT("steer")) || BoneStr.Contains(TEXT("rudder")) || 
                  BoneStr.Contains(TEXT("aileron")) || BoneStr.Contains(TEXT("elevator")) || BoneStr.Contains(TEXT("elevon")) || BoneStr.Contains(TEXT("arm")))
@@ -145,6 +159,27 @@ UActorComponent* UPiSimMotorConfigurator::AssignMotorRoleToBone(APiSimVehicle* T
             LiftComp->TargetBoneName = BoneName;
             LiftComp->RegisterComponent();
             NewComp = LiftComp;
+        }
+    }
+    else if (RoleName == TEXT("Actuator") || RoleName == TEXT("Rope"))
+    {
+        UPiSimLinearActuatorComponent* ActComp = NewObject<UPiSimLinearActuatorComponent>(TargetVehicle);
+        if (ActComp)
+        {
+            ActComp->TargetBoneName = BoneName;
+            ActComp->bIsRopeVariant = (RoleName == TEXT("Rope"));
+            ActComp->RegisterComponent();
+            NewComp = ActComp;
+        }
+    }
+    else if (RoleName == TEXT("Track"))
+    {
+        UPiSimTrackComponent* TrackComp = NewObject<UPiSimTrackComponent>(TargetVehicle);
+        if (TrackComp)
+        {
+            TrackComp->TargetBoneName = BoneName;
+            TrackComp->RegisterComponent();
+            NewComp = TrackComp;
         }
     }
 

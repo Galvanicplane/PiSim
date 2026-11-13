@@ -3,7 +3,45 @@
 #include "Wheel.h"
 #include "Vehicle.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/PrimitiveComponent.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
 #include "GameFramework/Actor.h"
+
+// @state: WIP - Modül içi araç kimliğini ve UCX sürtünme materyalini başlatır
+void UPiSimWheelComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
+{
+    ParentVehicle = InVehicle;
+    if (InVehicle)
+    {
+        ParentVehicleName = InVehicle->VehicleCode;
+        VehicleIndex = InVehicle->VehicleId;
+        ServoChannel = ArduPilotChannel;
+    }
+    ApplyFrictionToCollisionMesh();
+}
+
+// @state: WIP - Sürtünme katsayısını (FrictionCoefficient) çalışma anında UCX çarpışma mesh'ine PhysicalMaterial olarak aktarır
+void UPiSimWheelComponent::ApplyFrictionToCollisionMesh()
+{
+    APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
+    if (!Vehicle || TargetBoneName.IsNone()) return;
+
+    UPrimitiveComponent* Prim = Vehicle->GetPrimitiveComponentForBone(TargetBoneName);
+    if (!Prim) return;
+
+    if (!DynamicWheelPhysMat)
+    {
+        DynamicWheelPhysMat = NewObject<UPhysicalMaterial>(this);
+    }
+    if (DynamicWheelPhysMat)
+    {
+        DynamicWheelPhysMat->Friction = FrictionCoefficient;
+        DynamicWheelPhysMat->StaticFriction = FrictionCoefficient * 1.15f;
+        DynamicWheelPhysMat->Restitution = 0.05f;
+        Prim->SetPhysMaterialOverride(DynamicWheelPhysMat);
+        LastAppliedFriction = FrictionCoefficient;
+    }
+}
 
 // @state: WIP - Tekerlek bileşeni yapıcısı
 UPiSimWheelComponent::UPiSimWheelComponent()
@@ -55,49 +93,18 @@ void UPiSimWheelComponent::SetFromPWM(int32 InPWM, bool bIsSteering)
     }
 }
 
-// @state: WIP - Otopark UI için tekerlek parametre listesini döner
+// @state: WIP - Tek birleşik Tekerlek modülü için Otopark UI parametre listesini döner (Drive/Free ayrımı kaldırıldı)
 void UPiSimWheelComponent::GetInspectableProperties(TArray<FPiSimPropertyDescriptor>& OutProperties)
 {
-    FPiSimPropertyDescriptor ModeDesc;
-    ModeDesc.PropertyId = TEXT("WheelMode");
-    ModeDesc.DisplayName = TEXT("Tekerlek Modu");
-    ModeDesc.PropertyType = EPiSimPropertyType::Dropdown;
-    ModeDesc.CurrentStringValue = (WheelMode == EPiSimWheelMode::DriveWheel) ? TEXT("DriveWheel") : TEXT("FreeWheel");
-    ModeDesc.DropdownOptions = { TEXT("DriveWheel"), TEXT("FreeWheel") };
-    ModeDesc.bContinuousTickUpdate = false;
-    OutProperties.Add(ModeDesc);
-
-    FPiSimPropertyDescriptor RpmDesc;
-    RpmDesc.PropertyId = TEXT("TargetRPM");
-    RpmDesc.DisplayName = TEXT("Hedef Devir (RPM)");
-    RpmDesc.PropertyType = EPiSimPropertyType::Slider;
-    RpmDesc.MinValue = -2500.0f;
-    RpmDesc.MaxValue = 2500.0f;
-    RpmDesc.CurrentFloatValue = TargetRPM;
-    RpmDesc.bContinuousTickUpdate = true;
-    OutProperties.Add(RpmDesc);
-
-
-
-    FPiSimPropertyDescriptor RadiusDesc;
-    RadiusDesc.PropertyId = TEXT("RadiusCm");
-    RadiusDesc.DisplayName = TEXT("Tekerlek Yarıçapı (cm)");
-    RadiusDesc.PropertyType = EPiSimPropertyType::Slider;
-    RadiusDesc.MinValue = 5.0f;
-    RadiusDesc.MaxValue = 100.0f;
-    RadiusDesc.CurrentFloatValue = RadiusCm;
-    RadiusDesc.bContinuousTickUpdate = false;
-    OutProperties.Add(RadiusDesc);
-
-    FPiSimPropertyDescriptor FrictionDesc;
-    FrictionDesc.PropertyId = TEXT("Friction");
-    FrictionDesc.DisplayName = TEXT("Sürtünme Katsayısı");
-    FrictionDesc.PropertyType = EPiSimPropertyType::Slider;
-    FrictionDesc.MinValue = 0.1f;
-    FrictionDesc.MaxValue = 3.0f;
-    FrictionDesc.CurrentFloatValue = FrictionCoefficient;
-    FrictionDesc.bContinuousTickUpdate = false;
-    OutProperties.Add(FrictionDesc);
+    FPiSimPropertyDescriptor TestDesc;
+    TestDesc.PropertyId = TEXT("ChannelTestSlider");
+    TestDesc.DisplayName = TEXT("Canlı Kanal Testi (-1.0 .. +1.0)");
+    TestDesc.PropertyType = EPiSimPropertyType::Slider;
+    TestDesc.MinValue = -1.0f;
+    TestDesc.MaxValue = 1.0f;
+    TestDesc.CurrentFloatValue = ChannelTestSlider;
+    TestDesc.bContinuousTickUpdate = true;
+    OutProperties.Add(TestDesc);
 
     FPiSimPropertyDescriptor ChDesc;
     ChDesc.PropertyId = TEXT("ArduPilotChannel");
@@ -105,9 +112,57 @@ void UPiSimWheelComponent::GetInspectableProperties(TArray<FPiSimPropertyDescrip
     ChDesc.PropertyType = EPiSimPropertyType::Slider;
     ChDesc.MinValue = 1.0f;
     ChDesc.MaxValue = 16.0f;
-    ChDesc.CurrentFloatValue = (float)ArduPilotChannel;
+    ChDesc.CurrentFloatValue = (float)ServoChannel;
     ChDesc.bContinuousTickUpdate = false;
     OutProperties.Add(ChDesc);
+
+    FPiSimPropertyDescriptor RevDesc;
+    RevDesc.PropertyId = TEXT("bReverseDirection");
+    RevDesc.DisplayName = TEXT("Dönme Yönünü Ters Çevir");
+    RevDesc.PropertyType = EPiSimPropertyType::Toggle;
+    RevDesc.CurrentFloatValue = bReverseDirection ? 1.0f : 0.0f;
+    RevDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(RevDesc);
+
+    FPiSimPropertyDescriptor TorqueDesc;
+    TorqueDesc.PropertyId = TEXT("DriveTorque");
+    TorqueDesc.DisplayName = TEXT("Tahrik Torku (N·m)");
+    TorqueDesc.PropertyType = EPiSimPropertyType::Slider;
+    TorqueDesc.MinValue = 5.0f;
+    TorqueDesc.MaxValue = 1000.0f;
+    TorqueDesc.CurrentFloatValue = DriveTorque;
+    TorqueDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(TorqueDesc);
+
+    FPiSimPropertyDescriptor MaxRpmDesc;
+    MaxRpmDesc.PropertyId = TEXT("MaxRPM");
+    MaxRpmDesc.DisplayName = TEXT("Azami Devir (Max RPM)");
+    MaxRpmDesc.PropertyType = EPiSimPropertyType::Slider;
+    MaxRpmDesc.MinValue = 50.0f;
+    MaxRpmDesc.MaxValue = 3000.0f;
+    MaxRpmDesc.CurrentFloatValue = MaxRPM;
+    MaxRpmDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(MaxRpmDesc);
+
+    FPiSimPropertyDescriptor RpmDesc;
+    RpmDesc.PropertyId = TEXT("TargetRPM");
+    RpmDesc.DisplayName = TEXT("Hedef Devir (RPM)");
+    RpmDesc.PropertyType = EPiSimPropertyType::Slider;
+    RpmDesc.MinValue = -MaxRPM;
+    RpmDesc.MaxValue = MaxRPM;
+    RpmDesc.CurrentFloatValue = TargetRPM;
+    RpmDesc.bContinuousTickUpdate = true;
+    OutProperties.Add(RpmDesc);
+
+    FPiSimPropertyDescriptor FrictionDesc;
+    FrictionDesc.PropertyId = TEXT("Friction");
+    FrictionDesc.DisplayName = TEXT("UCX Sürtünme Katsayısı");
+    FrictionDesc.PropertyType = EPiSimPropertyType::Slider;
+    FrictionDesc.MinValue = 0.05f;
+    FrictionDesc.MaxValue = 3.0f;
+    FrictionDesc.CurrentFloatValue = FrictionCoefficient;
+    FrictionDesc.bContinuousTickUpdate = false;
+    OutProperties.Add(FrictionDesc);
 }
 
 // @state: WIP - UI sliderından gelen float değerini tekerleğe yansıtır
@@ -115,9 +170,26 @@ void UPiSimWheelComponent::SetInspectablePropertyFloat(FName PropertyId, float N
 {
     bManualOverride = true;
 
-    if (PropertyId == TEXT("TargetRPM"))
+    if (PropertyId == TEXT("ChannelTestSlider"))
     {
-        TargetRPM = NewValue;
+        ChannelTestSlider = FMath::Clamp(NewValue, -1.0f, 1.0f);
+        SetActuatorNormalized(ChannelTestSlider);
+    }
+    else if (PropertyId == TEXT("bReverseDirection"))
+    {
+        bReverseDirection = (NewValue > 0.5f);
+    }
+    else if (PropertyId == TEXT("DriveTorque"))
+    {
+        DriveTorque = FMath::Max(1.0f, NewValue);
+    }
+    else if (PropertyId == TEXT("MaxRPM"))
+    {
+        MaxRPM = FMath::Clamp(NewValue, 10.0f, 5000.0f);
+    }
+    else if (PropertyId == TEXT("TargetRPM"))
+    {
+        SetTargetRPM(NewValue);
     }
     else if (PropertyId == TEXT("TargetSteerAngleDeg"))
     {
@@ -130,16 +202,16 @@ void UPiSimWheelComponent::SetInspectablePropertyFloat(FName PropertyId, float N
     else if (PropertyId == TEXT("Friction"))
     {
         FrictionCoefficient = FMath::Clamp(NewValue, 0.01f, 10.0f);
+        ApplyFrictionToCollisionMesh();
     }
     else if (PropertyId == TEXT("ArduPilotChannel"))
     {
         ArduPilotChannel = FMath::Clamp(FMath::RoundToInt(NewValue), 1, 16);
+        ServoChannel = ArduPilotChannel;
     }
 
-    // DEBUG BİLGİSİ: UI'dan gelen motor verisini konsola ve ekrana bas
-    UE_LOG(LogTemp, Warning, TEXT("⚡ [PISIM MOTOR DEBUG] Kemik: '%s' | Tekerlek Parametresi: '%s' = %.2f | Bağlı Bileşen: %s"),
-        *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue,
-        TargetSceneComponent ? *TargetSceneComponent->GetName() : TEXT("Bağlanmadı (Aranıyor...)"));
+    UE_LOG(LogTemp, Warning, TEXT("⚡ [PISIM MOTOR DEBUG] Araç: '%s' | Kemik: '%s' | Tekerlek '%s' = %.2f"),
+        *ParentVehicleName, *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue);
 
     APiSimVehicle* ParentVehicle = Cast<APiSimVehicle>(GetOwner());
     if (ParentVehicle && ParentVehicle->bShowDebugVisualsAndMessages && GEngine)
@@ -176,33 +248,35 @@ void UPiSimWheelComponent::TriggerInspectableAction(FName ActionId)
     }
 }
 
-// @state: WIP - Tekerlek dönme ve direksiyon fiziğini uygular
+// @state: WIP - Tekerlek dönme, tork ve UCX PhysicalMaterial sürtünme fiziğini uygular
 void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
 {
-    // Direksiyon açısı enterpolasyonu
-    CurrentSteerAngleDeg = FMath::FInterpTo(CurrentSteerAngleDeg, TargetSteerAngleDeg, DeltaTime, 12.0f);
+    if (!FMath::IsNearlyEqual(LastAppliedFriction, FrictionCoefficient, 0.005f))
+    {
+        ApplyFrictionToCollisionMesh();
+    }
 
-    // 1) Dinamik FBX Kemik Bileşeni Varsa (TargetSceneComponent - BoneComp)
+    float DirSign = bReverseDirection ? -1.0f : 1.0f;
+    float EffectiveRPM = FMath::Clamp(TargetRPM * DirSign, -MaxRPM, MaxRPM);
+
     if (TargetSceneComponent)
     {
-        // 1 RPM = 6 deg/sec
-        float DesiredAngularVelocityDeg = TargetRPM * 6.0f;
+        float DesiredAngularVelocityDeg = EffectiveRPM * 6.0f;
         float DeltaRotationDeg = DesiredAngularVelocityDeg * DeltaTime;
 
-        APiSimVehicle* Vehicle = Cast<APiSimVehicle>(GetOwner());
+        APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
         bool bPhysicsActive = Vehicle && Vehicle->IsVehiclePhysicsActive();
 
-        // 🛑 Fizik simülasyonu YOKKEN (Editör / Kinematik Önizleme): Kemiği doğrudan görsel döndür
-        // Canlı fizik açıkken kinematic transform verilmez; tekerlek Chaos fizik çözücüsüyle döner (takılmayı/titremeyi önler).
+        // Fizik KAPALIYKEN statik garaj önizlemesi
         if (!bPhysicsActive && FMath::Abs(DeltaRotationDeg) > 0.001f)
         {
             FQuat SpinQuat(LocalSpinAxis.GetSafeNormal(), FMath::DegreesToRadians(DeltaRotationDeg));
             TargetSceneComponent->AddLocalRotation(SpinQuat);
-            CurrentRPM = TargetRPM;
+            CurrentRPM = EffectiveRPM;
         }
 
-        // Canlı Fizik Sürüşü: Tekerlek gövdesine dönme ekseninde açısal hız ver
-        if (bPhysicsActive)
+        // Canlı Fizik Sürüşü: UCX çarpışma gövdesine tork ve RPM uygula
+        if (bPhysicsActive && Vehicle)
         {
             if (UPrimitiveComponent* Prim = Vehicle->GetPrimitiveComponentForBone(TargetBoneName))
             {
@@ -211,10 +285,13 @@ void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
                     FVector LocalAxle = LocalSpinAxis.GetSafeNormal();
                     FVector WorldAxle = Prim->GetComponentTransform().TransformVectorNoScale(LocalAxle).GetSafeNormal();
                     FVector CurrentAngVel = Prim->GetPhysicsAngularVelocityInDegrees();
-                    FVector NonRollVel = CurrentAngVel - (WorldAxle * (CurrentAngVel | WorldAxle));
-                    FVector DesiredRollVel = WorldAxle * DesiredAngularVelocityDeg;
-                    Prim->SetPhysicsAngularVelocityInDegrees(NonRollVel + DesiredRollVel, false);
-                    CurrentRPM = TargetRPM;
+                    float CurrentRollDeg = (CurrentAngVel | WorldAxle);
+                    float ErrorDeg = DesiredAngularVelocityDeg - CurrentRollDeg;
+
+                    // Tork sınırlı fiziksel sürüş
+                    float TorqueScale = FMath::Clamp(ErrorDeg / 360.0f, -1.0f, 1.0f) * DriveTorque * 10000.0f;
+                    Prim->AddTorqueInRadians(WorldAxle * TorqueScale, NAME_None, false);
+                    CurrentRPM = CurrentRollDeg / 6.0f;
                 }
             }
         }
@@ -256,6 +333,7 @@ void UPiSimWheelComponent::ApplyWheelPhysics(float DeltaTime)
 
 void UPiSimWheelComponent::SetActuatorNormalized(float Value)
 {
-    bManualOverride = (FMath::Abs(Value) > 0.001f);
-    SetTargetRPM(Value * 250.0f);
+    ChannelTestSlider = FMath::Clamp(Value, -1.0f, 1.0f);
+    bManualOverride = (FMath::Abs(ChannelTestSlider) > 0.001f);
+    SetTargetRPM(ChannelTestSlider * MaxRPM);
 }

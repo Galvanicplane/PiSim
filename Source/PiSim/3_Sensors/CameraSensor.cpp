@@ -12,6 +12,18 @@
 #include "Misc/Base64.h"
 #include "GameFramework/Actor.h"
 
+// @state: WIP - Modül içi araç kimliğini doldurur
+void UPiSimCameraSensor::InitializeModuleIdentity(APiSimVehicle* InVehicle)
+{
+    ParentVehicle = InVehicle;
+    CachedVehicle = InVehicle;
+    if (InVehicle)
+    {
+        ParentVehicleName = InVehicle->VehicleCode;
+        VehicleIndex = InVehicle->VehicleId;
+    }
+}
+
 // @state: WIP - Kamera sensörü yapıcısı
 UPiSimCameraSensor::UPiSimCameraSensor()
 {
