@@ -226,8 +226,8 @@ void UPiSimWheelComponent::SetInspectablePropertyFloat(FName PropertyId, float N
     UE_LOG(LogTemp, Warning, TEXT("⚡ [PISIM MOTOR DEBUG] Araç: '%s' | Kemik: '%s' | Tekerlek '%s' = %.2f"),
         *ParentVehicleName, *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue);
 
-    APiSimVehicle* ParentVehicle = Cast<APiSimVehicle>(GetOwner());
-    if (ParentVehicle && ParentVehicle->bShowDebugVisualsAndMessages && GEngine)
+    APiSimVehicle* OwnerVehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
+    if (OwnerVehicle && OwnerVehicle->bShowDebugVisualsAndMessages && GEngine)
     {
         GEngine->AddOnScreenDebugMessage(920, 2.0f, FColor::Cyan,
             FString::Printf(TEXT("⚡ [TEKERLEK DEBUG] %s (%s) = %.2f"), *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue));

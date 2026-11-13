@@ -73,8 +73,8 @@ void UPiSimServoComponent::TickComponent(float DeltaTime, ELevelTick TickType, F
         TargetAngleDeg = FMath::Lerp(MinAngleDeg, MaxAngleDeg, Alpha);
 
         // Canlı Ekrana Debug Bilgisi Bas (Sadece bShowDebugVisualsAndMessages aktifse)
-        APiSimVehicle* ParentVehicle = Cast<APiSimVehicle>(GetOwner());
-        if (ParentVehicle && ParentVehicle->bShowDebugVisualsAndMessages && GEngine)
+        APiSimVehicle* OwnerVehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
+        if (OwnerVehicle && OwnerVehicle->bShowDebugVisualsAndMessages && GEngine)
         {
             int32 MsgKey = 910 + (GetUniqueID() % 50);
             FString BoneStr = TargetBoneName.ToString();
@@ -291,8 +291,8 @@ void UPiSimServoComponent::SetInspectablePropertyFloat(FName PropertyId, float N
     UE_LOG(LogTemp, Warning, TEXT("⚡ [PISIM MOTOR DEBUG] Araç: '%s' | Kemik: '%s' | Servo '%s' = %.2f"),
         *ParentVehicleName, *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue);
 
-    APiSimVehicle* ParentVehicle = Cast<APiSimVehicle>(GetOwner());
-    if (ParentVehicle && ParentVehicle->bShowDebugVisualsAndMessages && GEngine)
+    APiSimVehicle* OwnerVehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
+    if (OwnerVehicle && OwnerVehicle->bShowDebugVisualsAndMessages && GEngine)
     {
         GEngine->AddOnScreenDebugMessage(910, 2.0f, FColor::Yellow,
             FString::Printf(TEXT("⚡ [SERVO DEBUG] %s (%s) = %.2f°"), *TargetBoneName.ToString(), *PropertyId.ToString(), NewValue));
