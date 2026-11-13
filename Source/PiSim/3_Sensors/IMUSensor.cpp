@@ -5,7 +5,7 @@
 #include "PiSimTopicBridge.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Modül içi araç kimliğini doldurur
+// @state: WIP - Modül içi araç kimliğini doldurur ve Zenoh Bridge ACK topic'ini doğrudan dinler
 void UPiSimIMUSensor::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -14,6 +14,18 @@ void UPiSimIMUSensor::InitializeModuleIdentity(APiSimVehicle* InVehicle)
     {
         ParentVehicleName = InVehicle->VehicleCode;
         VehicleIndex = InVehicle->VehicleId;
+
+        if (UPiSimTopicBridge* Bridge = InVehicle->TopicBridge ? InVehicle->TopicBridge : InVehicle->FindComponentByClass<UPiSimTopicBridge>())
+        {
+            Bridge->OnAckReceived.RemoveAll(this);
+            Bridge->OnAckReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, int32 AckCode)
+            {
+                if (ParentVehicleName.IsEmpty() || InVehicleCode.IsEmpty() || InVehicleCode == ParentVehicleName)
+                {
+                    HandleAckMessage(TopicName, AckCode);
+                }
+            });
+        }
     }
 }
 
@@ -24,7 +36,7 @@ UPiSimIMUSensor::UPiSimIMUSensor()
     PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
 }
 
-// @state: WIP - Başlangıç hızını ve Gateway referansını bağlar
+// @state: WIP - Başlangıç hızını ve Gateway/Bridge referanslarını bağlar
 void UPiSimIMUSensor::BeginPlay()
 {
     Super::BeginPlay();
@@ -32,6 +44,10 @@ void UPiSimIMUSensor::BeginPlay()
     if (GetOwner())
     {
         CachedVehicle = Cast<APiSimVehicle>(GetOwner());
+        if (CachedVehicle)
+        {
+            InitializeModuleIdentity(CachedVehicle);
+        }
         PreviousVelocity = GetOwner()->GetVelocity();
         bHasPreviousVelocity = true;
     }

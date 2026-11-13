@@ -2,9 +2,10 @@
 
 #include "BarometerSensor.h"
 #include "Vehicle.h"
+#include "PiSimTopicBridge.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Modül içi araç kimliğini doldurur
+// @state: WIP - Modül içi araç kimliğini doldurur ve Zenoh Bridge ACK topic'ini doğrudan dinler
 void UPiSimBarometerSensor::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -13,6 +14,18 @@ void UPiSimBarometerSensor::InitializeModuleIdentity(APiSimVehicle* InVehicle)
     {
         ParentVehicleName = InVehicle->VehicleCode;
         VehicleIndex = InVehicle->VehicleId;
+
+        if (UPiSimTopicBridge* Bridge = InVehicle->TopicBridge ? InVehicle->TopicBridge : InVehicle->FindComponentByClass<UPiSimTopicBridge>())
+        {
+            Bridge->OnAckReceived.RemoveAll(this);
+            Bridge->OnAckReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, int32 AckCode)
+            {
+                if (ParentVehicleName.IsEmpty() || InVehicleCode.IsEmpty() || InVehicleCode == ParentVehicleName)
+                {
+                    HandleAckMessage(TopicName, AckCode);
+                }
+            });
+        }
     }
 }
 
@@ -23,7 +36,7 @@ UPiSimBarometerSensor::UPiSimBarometerSensor()
     PrimaryComponentTick.TickGroup = TG_PrePhysics;
 }
 
-// @state: WIP - Başlangıçta TelemetryGateway referansını yakalar
+// @state: WIP - Başlangıçta TelemetryGateway referansını yakalar ve Bridge ACK delegesine bağlanır
 void UPiSimBarometerSensor::BeginPlay()
 {
     Super::BeginPlay();
@@ -31,6 +44,10 @@ void UPiSimBarometerSensor::BeginPlay()
     if (GetOwner())
     {
         CachedVehicle = Cast<APiSimVehicle>(GetOwner());
+        if (CachedVehicle)
+        {
+            InitializeModuleIdentity(CachedVehicle);
+        }
     }
 }
 

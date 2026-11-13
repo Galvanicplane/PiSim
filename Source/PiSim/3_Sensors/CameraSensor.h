@@ -43,7 +43,7 @@ public:
     virtual FVector GetActuatorAxis() const override { return CameraLocalOffset; }
     virtual void SetActuatorAxis(const FVector& InAxis) override { CameraLocalOffset = InAxis; }
     virtual void InitializeModuleIdentity(APiSimVehicle* InVehicle) override;
-    virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override { if (TopicName.Contains(TEXT("camera"))) HandleAckTrigger(AckCode); }
+    virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override { if (TopicName.Contains(TEXT("camera"), ESearchCase::IgnoreCase) || TopicName.Contains(TEXT("h264"), ESearchCase::IgnoreCase)) { HandleAckTrigger(AckCode); } }
 
     UPROPERTY()
     APiSimVehicle* ParentVehicle = nullptr;

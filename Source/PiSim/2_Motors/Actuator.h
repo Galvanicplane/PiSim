@@ -40,6 +40,10 @@ public:
     virtual void InitializeModuleIdentity(class APiSimVehicle* InVehicle) override;
     virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override {}
 
+    /** LA_<isim>_a / _b ve R_<isim>_a / _b ikili kemiklerini modül içinde otomatik tespit eder */
+    UFUNCTION(BlueprintCallable, Category = "PiSim|Actuator")
+    void ResolvePartnerBones(class APiSimVehicle* InVehicle);
+
     // @state: WIP - Modül içi araç kimliği ve kanal kontrol değişkenleri
     UPROPERTY()
     class APiSimVehicle* ParentVehicle = nullptr;

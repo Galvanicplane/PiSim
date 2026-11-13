@@ -308,6 +308,7 @@ void UPiSimTopicBridge::DispatchChannelsJson(const FString& InJsonStr)
     }
 }
 
+// @state: WIP - Gelen ACK mesajını topic haritasına yazar ve Bridge dinleyici delegesiyle doğrudan dinleyen modüllere sunar
 void UPiSimTopicBridge::DispatchAckJson(const FString& InJsonStr)
 {
     if (!CachedVehicle) return;
@@ -328,23 +329,15 @@ void UPiSimTopicBridge::DispatchAckJson(const FString& InJsonStr)
 
     if (TopicsObj && TopicsObj->IsValid())
     {
+        const FString VehicleCode = CachedVehicle ? CachedVehicle->VehicleCode : TEXT("");
         for (const auto& Pair : (*TopicsObj)->Values)
         {
             FString TopicKey = Pair.Key;
             int32 StatusCode = (int32)Pair.Value->AsNumber();
             TopicAckStatusMap.Add(TopicKey, StatusCode);
 
-            // Sensörler dahil tüm araç modüllerine ACK kodunu ilet
-            CachedVehicle->BroadcastAckToAllModules(TopicKey, StatusCode);
-
-            // Kamera topic'i için ACK=3 (Canlı H.264 Aç) veya ACK=4 (Standby Mavi Ekran'a Dön) tetiklemesi
-            if (TopicKey.Contains(TEXT("camera"), ESearchCase::IgnoreCase) || TopicKey.Contains(TEXT("h264"), ESearchCase::IgnoreCase))
-            {
-                if (CachedVehicle->CameraSensor)
-                {
-                    CachedVehicle->CameraSensor->HandleAckTrigger(StatusCode);
-                }
-            }
+            // Modüller kendi içlerinde bu olaya abone olup kendi araç/topic filtrelemesini yapar
+            OnAckReceived.Broadcast(VehicleCode, TopicKey, StatusCode);
         }
     }
 }

@@ -576,7 +576,6 @@ void APiSimVehicle::ClearVehicleModel()
     SectionConstraintMap.Empty();
     BoneSlotRegistry.Empty();
     MultiBoneSlotRegistry.Empty();
-    LinkedBonePairs.Empty();
     BoneJointConfigs.Empty();
     bIsPhysicsSimulating = false;
 }
@@ -1581,20 +1580,6 @@ void APiSimVehicle::CancelInteractiveSensorPlacement()
     bSensorPlacementMode = false;
     ActivePlacementAxis = 0;
     ActivePlacementSensorBone = NAME_None;
-}
-
-// @state: WIP - Tüm araç modüllerine (sensörler dahil) gelen ACK mesajını dağıtır
-void APiSimVehicle::BroadcastAckToAllModules(const FString& TopicName, int32 AckCode)
-{
-    TArray<UActorComponent*> Comps;
-    GetComponents(Comps);
-    for (UActorComponent* Comp : Comps)
-    {
-        if (IPiSimActuatorInterface* Act = Cast<IPiSimActuatorInterface>(Comp))
-        {
-            Act->HandleAckMessage(TopicName, AckCode);
-        }
-    }
 }
 
 // @state: WIP - UI Otopark için iskeletteki tüm kemik isimlerini toplar

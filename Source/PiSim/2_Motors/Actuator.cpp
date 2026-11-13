@@ -2,10 +2,129 @@
 
 #include "Actuator.h"
 #include "Vehicle.h"
+#include "PiSimTopicBridge.h"
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Modül içi araç kimliğini ve LA_a/LA_b veya R_a/R_b kemik çiftlerini çözer
+// @state: WIP - Araç kemik listesinden LA_<isim>_a/_b veya R_<isim>_a/_b ikili kemiklerini modül içinde çözer
+void UPiSimLinearActuatorComponent::ResolvePartnerBones(APiSimVehicle* InVehicle)
+{
+    if (!InVehicle) return;
+
+    TArray<FName> AllBones;
+    InVehicle->GetVehicleBoneNames(AllBones);
+
+    const FString TargetStr = TargetBoneName.ToString();
+    if (TargetStr.StartsWith(TEXT("R_"), ESearchCase::IgnoreCase))
+    {
+        bIsRopeVariant = true;
+    }
+    else if (TargetStr.StartsWith(TEXT("LA_"), ESearchCase::IgnoreCase))
+    {
+        bIsRopeVariant = false;
+    }
+
+    if (!TargetBoneName.IsNone())
+    {
+        FString Stem = TargetStr;
+        if (Stem.EndsWith(TEXT("_a"), ESearchCase::IgnoreCase) || Stem.EndsWith(TEXT("_b"), ESearchCase::IgnoreCase))
+        {
+            Stem = Stem.LeftChop(2);
+        }
+
+        FName FoundA = NAME_None;
+        FName FoundB = NAME_None;
+        const FString ExpectedA = Stem + TEXT("_a");
+        const FString ExpectedB = Stem + TEXT("_b");
+
+        for (const FName& BName : AllBones)
+        {
+            const FString BStr = BName.ToString();
+            if (BStr.Equals(ExpectedA, ESearchCase::IgnoreCase))
+            {
+                FoundA = BName;
+            }
+            else if (BStr.Equals(ExpectedB, ESearchCase::IgnoreCase))
+            {
+                FoundB = BName;
+            }
+        }
+
+        if (!FoundA.IsNone() && !FoundB.IsNone())
+        {
+            BoneAName = FoundA;
+            BoneBName = FoundB;
+            bIsRopeVariant = Stem.StartsWith(TEXT("R_"), ESearchCase::IgnoreCase);
+            return;
+        }
+
+        if (TargetStr.EndsWith(TEXT("_a"), ESearchCase::IgnoreCase) || TargetStr.EndsWith(TEXT("_b"), ESearchCase::IgnoreCase))
+        {
+            BoneAName = FName(*ExpectedA);
+            BoneBName = FName(*ExpectedB);
+            return;
+        }
+    }
+
+    if (BoneAName.IsNone() || BoneBName.IsNone())
+    {
+        TMap<FString, TPair<FName, FName>> CandidatePairs;
+        for (const FName& BName : AllBones)
+        {
+            const FString BStr = BName.ToString();
+            const bool bIsLA = BStr.StartsWith(TEXT("LA_"), ESearchCase::IgnoreCase);
+            const bool bIsR = BStr.StartsWith(TEXT("R_"), ESearchCase::IgnoreCase);
+            if ((bIsLA || bIsR) && (BStr.EndsWith(TEXT("_a"), ESearchCase::IgnoreCase) || BStr.EndsWith(TEXT("_b"), ESearchCase::IgnoreCase)))
+            {
+                const FString Stem = BStr.LeftChop(2);
+                TPair<FName, FName>& Pair = CandidatePairs.FindOrAdd(Stem);
+                if (BStr.EndsWith(TEXT("_a"), ESearchCase::IgnoreCase))
+                {
+                    Pair.Key = BName;
+                }
+                else
+                {
+                    Pair.Value = BName;
+                }
+            }
+        }
+
+        const FString CompName = GetName();
+        FName FallbackA = NAME_None;
+        FName FallbackB = NAME_None;
+        bool bFallbackIsRope = false;
+
+        for (const auto& Entry : CandidatePairs)
+        {
+            if (!Entry.Value.Key.IsNone() && !Entry.Value.Value.IsNone())
+            {
+                const bool bEntryRope = Entry.Key.StartsWith(TEXT("R_"), ESearchCase::IgnoreCase);
+                if (CompName.Contains(Entry.Key, ESearchCase::IgnoreCase))
+                {
+                    BoneAName = Entry.Value.Key;
+                    BoneBName = Entry.Value.Value;
+                    bIsRopeVariant = bEntryRope;
+                    return;
+                }
+                if (FallbackA.IsNone())
+                {
+                    FallbackA = Entry.Value.Key;
+                    FallbackB = Entry.Value.Value;
+                    bFallbackIsRope = bEntryRope;
+                }
+            }
+        }
+
+        if (TargetBoneName.IsNone() && !FallbackA.IsNone() && !FallbackB.IsNone())
+        {
+            BoneAName = FallbackA;
+            BoneBName = FallbackB;
+            bIsRopeVariant = bFallbackIsRope;
+        }
+    }
+}
+
+// @state: WIP - Modül içi araç kimliğini doldurur, LA_/R_ kemik çiftini çözer ve Zenoh Bridge ACK topic'ini dinler
 void UPiSimLinearActuatorComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -15,26 +134,18 @@ void UPiSimLinearActuatorComponent::InitializeModuleIdentity(APiSimVehicle* InVe
         VehicleIndex = InVehicle->VehicleId;
         ServoChannel = ArduPilotChannel;
 
-        FString BoneStr = TargetBoneName.ToString();
-        if (BoneStr.StartsWith(TEXT("R_"), ESearchCase::IgnoreCase))
+        ResolvePartnerBones(InVehicle);
+
+        if (UPiSimTopicBridge* Bridge = InVehicle->TopicBridge ? InVehicle->TopicBridge : InVehicle->FindComponentByClass<UPiSimTopicBridge>())
         {
-            bIsRopeVariant = true;
-        }
-        for (const FPiSimLinkedBonePair& Pair : InVehicle->LinkedBonePairs)
-        {
-            if (Pair.BoneAName == TargetBoneName || Pair.BoneBName == TargetBoneName || BoneStr.Contains(Pair.PairBaseName))
+            Bridge->OnAckReceived.RemoveAll(this);
+            Bridge->OnAckReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, int32 AckCode)
             {
-                BoneAName = Pair.BoneAName;
-                BoneBName = Pair.BoneBName;
-                bIsRopeVariant = Pair.bIsRope;
-                break;
-            }
-        }
-        if (BoneAName.IsNone() && (BoneStr.EndsWith(TEXT("_a"), ESearchCase::IgnoreCase) || BoneStr.EndsWith(TEXT("_b"), ESearchCase::IgnoreCase)))
-        {
-            FString Base = BoneStr.LeftChop(2);
-            BoneAName = FName(*(Base + TEXT("_a")));
-            BoneBName = FName(*(Base + TEXT("_b")));
+                if (ParentVehicleName.IsEmpty() || InVehicleCode.IsEmpty() || InVehicleCode == ParentVehicleName)
+                {
+                    HandleAckMessage(TopicName, AckCode);
+                }
+            });
         }
     }
 }
@@ -53,6 +164,11 @@ void UPiSimLinearActuatorComponent::TickComponent(float DeltaTime, ELevelTick Ti
 
     APiSimVehicle* Vehicle = ParentVehicle ? ParentVehicle : Cast<APiSimVehicle>(GetOwner());
     if (!Vehicle) return;
+
+    if ((BoneAName.IsNone() || BoneBName.IsNone()) && !TargetBoneName.IsNone())
+    {
+        ResolvePartnerBones(Vehicle);
+    }
 
     USceneComponent* CompA = Vehicle->GetSceneComponentForBone(BoneAName.IsNone() ? TargetBoneName : BoneAName);
     USceneComponent* CompB = !BoneBName.IsNone() ? Vehicle->GetSceneComponentForBone(BoneBName) : nullptr;

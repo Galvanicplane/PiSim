@@ -41,7 +41,7 @@ public:
     virtual FVector GetActuatorAxis() const override { return SensorLocalOffset; }
     virtual void SetActuatorAxis(const FVector& InAxis) override { SensorLocalOffset = InAxis; }
     virtual void InitializeModuleIdentity(APiSimVehicle* InVehicle) override;
-    virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override { LastAckCode = AckCode; }
+    virtual void HandleAckMessage(const FString& TopicName, int32 AckCode) override { if (TopicName.Contains(TEXT("gps"), ESearchCase::IgnoreCase) || TopicName.Contains(TEXT("fix"), ESearchCase::IgnoreCase)) { LastAckCode = AckCode; } }
 
     UPROPERTY()
     APiSimVehicle* ParentVehicle = nullptr;

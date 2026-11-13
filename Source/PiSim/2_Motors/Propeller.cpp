@@ -2,11 +2,12 @@
 
 #include "Propeller.h"
 #include "Vehicle.h"
+#include "PiSimTopicBridge.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "ProceduralMeshComponent.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Modül içi araç kimliğini doldurur
+// @state: WIP - Modül içi araç kimliğini doldurur ve Zenoh Bridge ACK topic'ini doğrudan dinler
 void UPiSimPropellerComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -15,6 +16,18 @@ void UPiSimPropellerComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle
         ParentVehicleName = InVehicle->VehicleCode;
         VehicleIndex = InVehicle->VehicleId;
         ServoChannel = ArduPilotChannel;
+
+        if (UPiSimTopicBridge* Bridge = InVehicle->TopicBridge ? InVehicle->TopicBridge : InVehicle->FindComponentByClass<UPiSimTopicBridge>())
+        {
+            Bridge->OnAckReceived.RemoveAll(this);
+            Bridge->OnAckReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, int32 AckCode)
+            {
+                if (ParentVehicleName.IsEmpty() || InVehicleCode.IsEmpty() || InVehicleCode == ParentVehicleName)
+                {
+                    HandleAckMessage(TopicName, AckCode);
+                }
+            });
+        }
     }
 }
 

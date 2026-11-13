@@ -2,13 +2,14 @@
 
 #include "Servo.h"
 #include "Vehicle.h"
+#include "PiSimTopicBridge.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "ProceduralMeshComponent.h"
 #include "PhysicsEngine/PhysicsConstraintComponent.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Modül içi araç kimliğini doldurur
+// @state: WIP - Modül içi araç kimliğini doldurur ve Zenoh Bridge ACK topic'ini doğrudan dinler
 void UPiSimServoComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -18,6 +19,18 @@ void UPiSimServoComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
         VehicleIndex = InVehicle->VehicleId;
         ServoChannel = ArduPilotChannel;
         BoneId = InVehicle->FindVisualSectionForBone(TargetBoneName);
+
+        if (UPiSimTopicBridge* Bridge = InVehicle->TopicBridge ? InVehicle->TopicBridge : InVehicle->FindComponentByClass<UPiSimTopicBridge>())
+        {
+            Bridge->OnAckReceived.RemoveAll(this);
+            Bridge->OnAckReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, int32 AckCode)
+            {
+                if (ParentVehicleName.IsEmpty() || InVehicleCode.IsEmpty() || InVehicleCode == ParentVehicleName)
+                {
+                    HandleAckMessage(TopicName, AckCode);
+                }
+            });
+        }
     }
 }
 

@@ -1332,7 +1332,6 @@ bool UPiSimModelFbxImporter::ImportFbxFileToVehicle(
     // AŞAMA 1: KEMİK HİYERARŞİSİNİ KUR (Blender Kemik Ağacı + CAD Pivot Kemikleri)
     // CAD/Mesh dosyalarında hiç kemik olmasa dahi her nesnenin pivot noktasına kemik oluşturulur!
     // =========================================================================
-    TargetVehicle->LinkedBonePairs.Empty();
     if (BoneHierarchy.Num() == 0 && VisualSections.Num() > 0)
     {
         FName RootSecBone = FName(*VisualSections[0].MeshName);
@@ -1362,40 +1361,6 @@ bool UPiSimModelFbxImporter::ImportFbxFileToVehicle(
     for (const auto& Sec : VisualSections)
     {
         AllBonesToCreate.AddUnique(FName(*Sec.MeshName));
-    }
-
-    // LA_<bonename>_a / _b ve R_<bonename>_a / _b çiftlerini tespit et
-    TMap<FString, FPiSimLinkedBonePair> DetectedPairs;
-    for (const FName& BName : AllBonesToCreate)
-    {
-        FString BStr = BName.ToString();
-        bool bIsLA = BStr.StartsWith(TEXT("LA_"), ESearchCase::IgnoreCase);
-        bool bIsRope = BStr.StartsWith(TEXT("R_"), ESearchCase::IgnoreCase);
-        if ((bIsLA || bIsRope) && (BStr.EndsWith(TEXT("_a"), ESearchCase::IgnoreCase) || BStr.EndsWith(TEXT("_b"), ESearchCase::IgnoreCase)))
-        {
-            FString BaseKey = BStr.LeftChop(2);
-            FPiSimLinkedBonePair& Pair = DetectedPairs.FindOrAdd(BaseKey);
-            Pair.PairBaseName = BaseKey;
-            Pair.bIsRope = bIsRope;
-            if (BStr.EndsWith(TEXT("_a"), ESearchCase::IgnoreCase))
-            {
-                Pair.BoneAName = BName;
-            }
-            else
-            {
-                Pair.BoneBName = BName;
-            }
-        }
-    }
-    for (const auto& PairIt : DetectedPairs)
-    {
-        if (!PairIt.Value.BoneAName.IsNone() && !PairIt.Value.BoneBName.IsNone())
-        {
-            TargetVehicle->LinkedBonePairs.Add(PairIt.Value);
-            UE_LOG(LogTemp, Warning, TEXT("🔗 [%s ÇİFTİ BULUNDU] '%s' <-> '%s'"),
-                PairIt.Value.bIsRope ? TEXT("HALAT (R_)") : TEXT("LİNEER PİSTON (LA_)"),
-                *PairIt.Value.BoneAName.ToString(), *PairIt.Value.BoneBName.ToString());
-        }
     }
 
     // 1.1) Her kemik için USceneComponent oluştur ve konumunu ayarla

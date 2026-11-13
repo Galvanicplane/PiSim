@@ -2,12 +2,13 @@
 
 #include "Wheel.h"
 #include "Vehicle.h"
+#include "PiSimTopicBridge.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "PhysicalMaterials/PhysicalMaterial.h"
 #include "GameFramework/Actor.h"
 
-// @state: WIP - Modül içi araç kimliğini ve UCX sürtünme materyalini başlatır
+// @state: WIP - Modül içi araç kimliğini, Zenoh Bridge ACK aboneliğini ve UCX sürtünme materyalini başlatır
 void UPiSimWheelComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
 {
     ParentVehicle = InVehicle;
@@ -16,6 +17,18 @@ void UPiSimWheelComponent::InitializeModuleIdentity(APiSimVehicle* InVehicle)
         ParentVehicleName = InVehicle->VehicleCode;
         VehicleIndex = InVehicle->VehicleId;
         ServoChannel = ArduPilotChannel;
+
+        if (UPiSimTopicBridge* Bridge = InVehicle->TopicBridge ? InVehicle->TopicBridge : InVehicle->FindComponentByClass<UPiSimTopicBridge>())
+        {
+            Bridge->OnAckReceived.RemoveAll(this);
+            Bridge->OnAckReceived.AddWeakLambda(this, [this](const FString& InVehicleCode, const FString& TopicName, int32 AckCode)
+            {
+                if (ParentVehicleName.IsEmpty() || InVehicleCode.IsEmpty() || InVehicleCode == ParentVehicleName)
+                {
+                    HandleAckMessage(TopicName, AckCode);
+                }
+            });
+        }
     }
     ApplyFrictionToCollisionMesh();
 }

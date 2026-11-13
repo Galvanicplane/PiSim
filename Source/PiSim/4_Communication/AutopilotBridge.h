@@ -64,3 +64,4 @@ protected:
     void CloseSockets();
     void PollSitlPwmResponses();
 };
+

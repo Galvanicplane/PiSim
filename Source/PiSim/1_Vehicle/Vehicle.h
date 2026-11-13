@@ -170,25 +170,6 @@ struct PISIM_API FPiSimBoneJointConfig
     FVector KineticFrictionCoefficient = FVector(0.1f, 0.1f, 0.1f);
 };
 
-/** @state: WIP - İki kemik arası doğrusal eyleyici (LA_) veya halat (R_) bağlantı çifti */
-USTRUCT(BlueprintType)
-struct PISIM_API FPiSimLinkedBonePair
-{
-    GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Bones")
-    FString PairBaseName;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Bones")
-    FName BoneAName = NAME_None;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Bones")
-    FName BoneBName = NAME_None;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Bones")
-    bool bIsRope = false;
-};
-
 UCLASS(ClassGroup=(PiSim), BlueprintType, Blueprintable)
 class PISIM_API APiSimVehicle : public APawn
 {
@@ -278,10 +259,6 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "PiSim|Sensors")
     void CancelInteractiveSensorPlacement();
-
-    // @state: WIP - Tüm araç modüllerine (sensörler dahil) gelen ACK mesajını iletir
-    UFUNCTION(BlueprintCallable, Category = "PiSim|Communication")
-    void BroadcastAckToAllModules(const FString& TopicName, int32 AckCode);
 
     // İskeletteki tüm kemik isimlerini listeler (UI Otopark için)
     UFUNCTION(BlueprintCallable, Category = "PiSim|Vehicle")
@@ -383,10 +360,6 @@ public:
     int32 ActivePlacementAxis = 0; // 0=None, 1=X, 2=Y, 3=Z
 
     FVector PlacementInitialOffset = FVector::ZeroVector;
-
-    // @state: WIP - İki kemikli Lineer Eyleyici (LA_) ve Halat (R_) çiftleri
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|Bones")
-    TArray<FPiSimLinkedBonePair> LinkedBonePairs;
 
     // @state: WIP - Kemik bazlı eksen ve statik/kinetik sürtünme ayarları
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "PiSim|Physics")

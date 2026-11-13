@@ -15,6 +15,9 @@
 
 class APiSimVehicle;
 
+/** @state: WIP - Modüllerin Unreal Zenoh Bridge üzerinden gelen ACK mesajlarını doğrudan dinlemesi için multicast delege */
+DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnPiSimBridgeAckReceived, const FString& /*VehicleCode*/, const FString& /*TopicName*/, int32 /*AckCode*/);
+
 UENUM(BlueprintType)
 enum class EPiSimTopicControlMode : uint8
 {
@@ -55,6 +58,9 @@ public:
     /** Topic bazlı anlık ACK durum haritası (Debug ve UI gösterimi için) */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PiSim|ROS2")
     TMap<FString, int32> TopicAckStatusMap;
+
+    /** Her modülün kendi içinde Bridge ACK yayınını doğrudan dinleyebilmesi için event akışı */
+    FOnPiSimBridgeAckReceived OnAckReceived;
 
     /** Belirtilen topic altına veri yayınlar (ROS 2 / Zenoh uyumlu) */
     UFUNCTION(BlueprintCallable, Category = "PiSim|ROS2")
