@@ -34,20 +34,25 @@ APiSimSpectatorPawn::APiSimSpectatorPawn()
 {
     PrimaryActorTick.bCanEverTick = true;
     bAddDefaultMovementBindings = false; // Kendi pürüzsüz Unreal Editor uçuş kontrolümüzü kullanıyoruz
+    bUseControllerRotationPitch = false;
+    bUseControllerRotationYaw = false;
+    bUseControllerRotationRoll = false;
 
     // Yay kolu oluştur (Serbest uçuşta TargetArmLength=0, Orbit modunda=OrbitDistance)
     SpectatorSpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpectatorSpringArm"));
     SpectatorSpringArm->SetupAttachment(RootComponent);
     SpectatorSpringArm->TargetArmLength = 0.0f;
     SpectatorSpringArm->bDoCollisionTest = false;
-    SpectatorSpringArm->bInheritPitch = false;
-    SpectatorSpringArm->bInheritYaw = false;
-    SpectatorSpringArm->bInheritRoll = false;
+    SpectatorSpringArm->bUsePawnControlRotation = false;
+    SpectatorSpringArm->bInheritPitch = true;
+    SpectatorSpringArm->bInheritYaw = true;
+    SpectatorSpringArm->bInheritRoll = true;
     SpectatorSpringArm->bEnableCameraLag = false;
 
     // Kamera bileşeni
     SpectatorCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("SpectatorCamera"));
     SpectatorCamera->SetupAttachment(SpectatorSpringArm, USpringArmComponent::SocketName);
+    SpectatorCamera->bUsePawnControlRotation = false;
 
     CurrentOrbitRotation = FRotator(-20.0f, 0.0f, 0.0f);
 
@@ -65,11 +70,16 @@ void APiSimSpectatorPawn::BeginPlay()
 
     bIsOrbitingVehicle = false;
     SetFpvCameraMode(false);
+    SetActorRotation(FRotator::ZeroRotator);
 
     if (SpectatorSpringArm)
     {
         SpectatorSpringArm->TargetArmLength = 0.0f;
-        SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+        SpectatorSpringArm->SetRelativeRotation(CurrentOrbitRotation);
+    }
+    if (SpectatorCamera)
+    {
+        SpectatorCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
     }
 
     APlayerController* PC = Cast<APlayerController>(GetController());
@@ -138,12 +148,20 @@ void APiSimSpectatorPawn::Tick(float DeltaTime)
             }
         }
 
-        SetActorLocation(CamWorldLoc);
+        SetActorLocationAndRotation(CamWorldLoc, FRotator::ZeroRotator);
         CurrentOrbitRotation = CamWorldRot;
         if (SpectatorSpringArm)
         {
             SpectatorSpringArm->TargetArmLength = 0.0f;
-            SpectatorSpringArm->SetWorldRotation(CamWorldRot);
+            SpectatorSpringArm->SetRelativeRotation(CamWorldRot);
+        }
+        if (SpectatorCamera)
+        {
+            SpectatorCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
+        }
+        if (PC)
+        {
+            PC->SetControlRotation(CamWorldRot);
         }
         return;
     }
@@ -169,7 +187,7 @@ void APiSimSpectatorPawn::Tick(float DeltaTime)
         }
 
         FVector TargetPos = FocusedVehicle->GetActorLocation() + OrbitTargetOffset;
-        SetActorLocation(FMath::VInterpTo(GetActorLocation(), TargetPos, DeltaTime, 14.0f));
+        SetActorLocationAndRotation(FMath::VInterpTo(GetActorLocation(), TargetPos, DeltaTime, 14.0f), FRotator::ZeroRotator);
 
         if (PC && (PC->IsInputKeyDown(EKeys::LeftMouseButton) || PC->IsInputKeyDown(EKeys::RightMouseButton)))
         {
@@ -184,7 +202,11 @@ void APiSimSpectatorPawn::Tick(float DeltaTime)
         if (SpectatorSpringArm)
         {
             SpectatorSpringArm->TargetArmLength = FMath::FInterpTo(SpectatorSpringArm->TargetArmLength, OrbitDistance, DeltaTime, 12.0f);
-            SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+            SpectatorSpringArm->SetRelativeRotation(CurrentOrbitRotation);
+        }
+        if (SpectatorCamera)
+        {
+            SpectatorCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
         }
         return;
     }
@@ -192,16 +214,21 @@ void APiSimSpectatorPawn::Tick(float DeltaTime)
     // =========================================================================
     // MOD 3: GERÇEK UNREAL EDİTÖR SERBEST UÇUŞ MODU (NOCLIP FLY + MOUSE LOOK)
     // =========================================================================
+    SetActorRotation(FRotator::ZeroRotator);
     if (SpectatorSpringArm)
     {
         SpectatorSpringArm->TargetArmLength = 0.0f;
-        SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+        SpectatorSpringArm->SetRelativeRotation(CurrentOrbitRotation);
+    }
+    if (SpectatorCamera)
+    {
+        SpectatorCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
     }
 
     if (!PC) return;
 
-    // Sağ tık basılıyken fare ile 360° serbest bakış (Unreal Editor Viewport gibi)
-    if (PC->IsInputKeyDown(EKeys::RightMouseButton))
+    // Sol veya Sağ tık basılıyken fare ile 360° serbest bakış (Unreal Editor Viewport gibi)
+    if (PC->IsInputKeyDown(EKeys::RightMouseButton) || PC->IsInputKeyDown(EKeys::LeftMouseButton))
     {
         float MouseX = 0.0f, MouseY = 0.0f;
         PC->GetInputMouseDelta(MouseX, MouseY);
@@ -212,7 +239,7 @@ void APiSimSpectatorPawn::Tick(float DeltaTime)
             CurrentOrbitRotation.Roll = 0.0f;
             if (SpectatorSpringArm)
             {
-                SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+                SpectatorSpringArm->SetRelativeRotation(CurrentOrbitRotation);
             }
             PC->SetControlRotation(CurrentOrbitRotation);
         }
@@ -325,10 +352,15 @@ void APiSimSpectatorPawn::EnterVehicleCameraMode(APiSimVehicle* InVehicle)
 
     bIsOrbitingVehicle = false;
     SetFpvCameraMode(true);
+    SetActorRotation(FRotator::ZeroRotator);
 
     if (SpectatorSpringArm)
     {
         SpectatorSpringArm->TargetArmLength = 0.0f;
+    }
+    if (SpectatorCamera)
+    {
+        SpectatorCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
     }
 
     UE_LOG(LogTemp, Log, TEXT("🎥 [PiSimSpectator] Araç %d FPV Kamera Moduna Geçildi (Çıkış: ESC)."), FocusedVehicle->VehicleId);
@@ -387,9 +419,10 @@ void APiSimSpectatorPawn::ReturnToFreeFlight()
             CurrentCamRot = (FocusedVehicle->GetActorLocation() - CurrentCamLoc).Rotation();
         }
 
-        SetActorLocation(CurrentCamLoc);
+        SetActorLocationAndRotation(CurrentCamLoc, FRotator::ZeroRotator);
         CurrentOrbitRotation = FRotator(CurrentCamRot.Pitch, CurrentCamRot.Yaw, 0.0f);
         SpectatorCamera->SetFieldOfView(90.0f);
+        SpectatorCamera->SetRelativeLocationAndRotation(FVector::ZeroVector, FRotator::ZeroRotator);
     }
 
     SetFpvCameraMode(false);
@@ -398,7 +431,7 @@ void APiSimSpectatorPawn::ReturnToFreeFlight()
     if (SpectatorSpringArm)
     {
         SpectatorSpringArm->TargetArmLength = 0.0f;
-        SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+        SpectatorSpringArm->SetRelativeRotation(CurrentOrbitRotation);
     }
 
     UE_LOG(LogTemp, Log, TEXT("🦅 [PiSimSpectator] Ana Serbest Editör Kamerasına Dönüldü."));
@@ -425,17 +458,19 @@ void APiSimSpectatorPawn::AddZoomDelta(float Direction)
     }
 }
 
-// @state: WIP - Fare sürüklemesi ile orbit açısını döndürür
+// @state: WIP - Fare sürüklemesi ile orbit veya serbest bakış açısını döndürür
 void APiSimSpectatorPawn::AddOrbitDelta(float DeltaX, float DeltaY)
 {
+    if (IsFpvCameraMode()) return; // FPV modunda kameranın açısını aracın kendi kamerası yönetir
+
     CurrentOrbitRotation.Yaw += DeltaX * 0.75f;
     CurrentOrbitRotation.Pitch = FMath::Clamp(CurrentOrbitRotation.Pitch + (DeltaY * 0.75f), -85.0f, 85.0f);
     CurrentOrbitRotation.Roll = 0.0f;
+    SetActorRotation(FRotator::ZeroRotator);
     if (SpectatorSpringArm)
     {
-        SpectatorSpringArm->SetWorldRotation(CurrentOrbitRotation);
+        SpectatorSpringArm->SetRelativeRotation(CurrentOrbitRotation);
     }
-    SetActorRotation(CurrentOrbitRotation);
     if (APlayerController* PC = Cast<APlayerController>(GetController()))
     {
         PC->SetControlRotation(CurrentOrbitRotation);

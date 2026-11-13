@@ -276,39 +276,11 @@
             color: var(--text-muted);
             margin-top: 1px;
         }
-
-        /* Taktik Konuşlandırma / Hedef Seçim Afişi */
-        .placement-banner {
-            position: fixed;
-            top: 48px;
-            left: 50%;
-            transform: translateX(-50%) translateY(-150%);
-            z-index: 150;
-            background: rgba(11, 15, 20, 0.96);
-            border: 1px solid var(--accent-color);
-            box-shadow: 0 0 25px var(--accent-glow);
-            padding: 8px 20px;
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-            clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
-            pointer-events: auto;
-        }
-
-        .placement-banner.show {
-            transform: translateX(-50%) translateY(0);
-        }
-
-        .placement-active-surface {
-            cursor: crosshair !important;
-            pointer-events: auto !important;
-        }
     </style>
 </head>
 <body>
 
-    <!-- 1. ÖĞE: ÜST MENÜ ÇUBUĞU (AYARLAR, CANLI RENK TEMA DEĞİŞTİRİCİ, KONTROL KODLARI SEVİYE 1-4) -->
+    <!-- 1. ÖĞE: ÜST MENÜ ÇUBUĞU (AYARLAR, CANLI RENK TEMA DEĞİŞTİRİCİ) -->
     <header class="vscode-menu-bar" style="z-index: 100;">
         <div class="vscode-menu-group">
             <span style="font-weight: 900; color: var(--accent-color); margin-right: 8px; letter-spacing: 1px;">
@@ -316,7 +288,6 @@
             </span>
             <span class="vscode-menu-item" onclick="toggleLeftDrawer()">[◀ FİLO]</span>
             <span class="vscode-menu-item" onclick="toggleRightDrawer()">[DONANIM ▶]</span>
-            <span class="vscode-menu-item" style="color: var(--accent-color); font-weight: 800;" onclick="openUnrealHierarchyModal()">[🧠 KONTROL KODLARI: SEVİYE 1-4]</span>
             <span class="vscode-menu-item" onclick="openUnrealSettingsModal()">⚙️ Ayarlar</span>
         </div>
 
@@ -353,22 +324,6 @@
 
     <!-- 4. ÖĞE: 3D VİEWPORT ŞEFFAF ALANI (VEYA NOKTALI GRID MİNİ RADAR KAPLAMASI) -->
     <div class="unreal-viewport-canvas" id="viewport-touch-surface" onclick="onViewportClick(event)"></div>
-
-    <!-- ==================== HARİTA KONUŞLANDIRMA / IŞINLAMA AFİŞİ ==================== -->
-    <div id="placement-banner" class="placement-banner">
-        <div class="beacon-pulse-icon"></div>
-        <div style="display: flex; flex-direction: column;">
-            <div style="font-size: 11px; font-weight: 800; color: #ffffff;">
-                🎯 HEDEF SEÇİN: <span id="placement-profile-name" style="color:var(--accent-color);">Quadcopter_X4</span>
-            </div>
-            <div style="font-size: 9px; color: var(--text-muted);">
-                Haritada aracı ışınlamak istediğiniz zemine tıklayın. (İptal etmek için ESC tuşuna basın)
-            </div>
-        </div>
-        <button class="cod-btn" style="padding: 4px 10px; font-size: 10px;" onclick="cancelVehiclePlacement()">
-            ✕ İPTAL
-        </button>
-    </div>
 
     <!-- ==================== DIŞ TETİKLEYİCİ BUTONLAR ==================== -->
     <!-- Sol Açma Butonları (Üst & Alt) -->
@@ -521,7 +476,7 @@
             </div>
         </div>
 
-        <!-- 2b. UNREAL EDİTÖR & ARAÇ ÜSTÜ KAMERA (FPV) KONTROL PANELİ -->
+        <!-- 2b. UNREAL EDİTÖR & ARAÇ ÜSTÜ KAMERA (FPV / ORBİT / SERBEST) KONTROL PANELİ -->
         <div style="background: rgba(0, 223, 182, 0.06); border: 1px solid #00dfb6; padding: 6px; margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <span style="font-size: 9px; font-weight: 800; color: #00dfb6;">🎥 3B KAMERA & BAKIŞ MODU:</span>
@@ -530,16 +485,20 @@
                 </span>
             </div>
             <div style="display: flex; gap: 4px;">
-                <button id="btn-enter-fpv-cam" class="cod-btn cod-btn-accent" style="flex: 1; padding: 6px; font-size: 9.5px; font-weight: 800;" onclick="enterSelectedVehicleFpvCamera()">
-                    🎥 ARAÇ KAMERASINA GEÇ (FPV)
+                <button id="btn-enter-orbit-cam" class="cod-btn" style="flex: 1; padding: 6px; font-size: 9px; font-weight: 800; border-color: #ffaa00; color: #ffaa00;" onclick="enterSelectedVehicleOrbitCamera()">
+                    🎯 ORBİT İZLE
                 </button>
-                <button id="btn-exit-free-cam" class="cod-btn" style="padding: 6px 8px; font-size: 9.5px; font-weight: 800; border-color: #00e5ff; color: #00e5ff;" onclick="exitToFreeFlightCamera()">
+                <button id="btn-enter-fpv-cam" class="cod-btn cod-btn-accent" style="flex: 1; padding: 6px; font-size: 9px; font-weight: 800;" onclick="enterSelectedVehicleFpvCamera()">
+                    🎥 FPV KAMERA
+                </button>
+                <button id="btn-exit-free-cam" class="cod-btn" style="padding: 6px 8px; font-size: 9px; font-weight: 800; border-color: #00e5ff; color: #00e5ff;" onclick="exitToFreeFlightCamera()">
                     🦅 SERBEST UÇUŞ [ESC]
                 </button>
             </div>
             <div style="font-size: 8px; color: var(--text-muted); line-height: 1.25;">
-                * <b>Araç Kamerası (FPV)</b>: Kameranız her tick aracın kendi kamerasıyla birebir aynı konuma kilitlenir.<br>
-                * <b>ESC Tuşu</b>: FPV veya Orbit modundan çıkıp ana <b>Serbest Editör (WASD+QE+Fare)</b> kamerasına döner.
+                * <b>Orbit İzle</b>: Aracın etrafında 360° döner (WASD aracı sürer).<br>
+                * <b>FPV Kamera</b>: Her tick aracın kendi kamerasına düz hizalı kilitlenir.<br>
+                * <b>ESC / Serbest Uçuş</b>: Boş alanda WASD+QE + Fare ile serbestçe uçar.
             </div>
         </div>
 
@@ -888,19 +847,33 @@
 
         function resetVehicleDetailView() {
             currentVehicleId = null;
-            document.getElementById('active-vehicle-tag').innerText = "ODAK: [ARAÇ SEÇİLMEDİ]";
-            document.getElementById('active-port-tag').innerText = "UDP --";
-            document.getElementById('active-status-badge').innerText = "BEKLEMEDE";
-            document.getElementById('active-status-badge').style.color = "var(--text-muted)";
-            document.getElementById('detail-vehicle-title').innerText = "[ARAÇ SEÇİLMEDİ]";
-            document.getElementById('routing-status-badge').innerText = "BEKLEMEDE";
-            document.getElementById('routing-status-badge').style.color = "var(--text-dark)";
-            document.getElementById('routing-status-badge').style.background = "var(--mono-dark)";
-            document.getElementById('detail-speed-val').innerText = "-- km/s";
-            document.getElementById('detail-battery-val').innerText = "-- V (--%)";
-            document.getElementById('detail-mission-val').innerText = "--";
-            document.getElementById('detail-sensors-val').innerText = "-- Uydu";
-            document.getElementById('detail-coords').innerText = "--° N, --° E";
+            const avTag = document.getElementById('active-vehicle-tag');
+            if (avTag) avTag.innerText = "ODAK: [ARAÇ SEÇİLMEDİ]";
+            const portTag = document.getElementById('active-port-tag');
+            if (portTag) portTag.innerText = "UDP --";
+            const statusBadge = document.getElementById('active-status-badge');
+            if (statusBadge) {
+                statusBadge.innerText = "BEKLEMEDE";
+                statusBadge.style.color = "var(--text-muted)";
+            }
+            const detailTitle = document.getElementById('detail-vehicle-title');
+            if (detailTitle) detailTitle.innerText = "[ARAÇ SEÇİLMEDİ]";
+            const rBadge = document.getElementById('routing-status-badge');
+            if (rBadge) {
+                rBadge.innerText = "BEKLEMEDE";
+                rBadge.style.color = "var(--text-dark)";
+                rBadge.style.background = "var(--mono-dark)";
+            }
+            const spdVal = document.getElementById('detail-speed-val');
+            if (spdVal) spdVal.innerText = "-- km/s";
+            const batVal = document.getElementById('detail-battery-val');
+            if (batVal) batVal.innerText = "-- V (--%)";
+            const misVal = document.getElementById('detail-mission-val');
+            if (misVal) misVal.innerText = "--";
+            const senVal = document.getElementById('detail-sensors-val');
+            if (senVal) senVal.innerText = "-- Uydu";
+            const cooVal = document.getElementById('detail-coords');
+            if (cooVal) cooVal.innerText = "--° N, --° E";
             document.querySelectorAll('.two-way-pipe-group').forEach(el => el.classList.remove('connected'));
             updateVideoSubscriptionUI();
         }
@@ -1009,10 +982,15 @@
                 c.classList.toggle('active', Object.keys(fleetData)[idx] == id);
             });
 
-            document.getElementById('active-vehicle-tag').innerText = `ODAK: ${v.name} [${v.code}]`;
-            document.getElementById('active-port-tag').innerText = `UDP ${v.targetPort} / ${v.dedicatedPort || 7403}`;
-            document.getElementById('active-status-badge').innerText = "ORBİT AKTİF";
-            document.getElementById('active-status-badge').style.color = "var(--accent-color)";
+            const avTag = document.getElementById('active-vehicle-tag');
+            if (avTag) avTag.innerText = `ODAK: ${v.name} [${v.code}]`;
+            const portTag = document.getElementById('active-port-tag');
+            if (portTag) portTag.innerText = `UDP ${v.targetPort} / ${v.dedicatedPort || 7403}`;
+            const statusBadge = document.getElementById('active-status-badge');
+            if (statusBadge) {
+                statusBadge.innerText = "ORBİT AKTİF";
+                statusBadge.style.color = "var(--accent-color)";
+            }
 
             updateRightPanelLiveInfo(v);
 
@@ -1074,6 +1052,32 @@
             addLog(`🔄 [TEKERLEK EKSENİ (Y)]: Yeni Mod -> ${wheelAxisNames[currentWheelAxisIdx]}`);
         }
 
+        function enterSelectedVehicleOrbitCamera() {
+            if (currentVehicleId === null || !fleetData[currentVehicleId]) {
+                addLog("⚠️ Lütfen önce sol panelden bir araç seçin!");
+                return;
+            }
+            const v = fleetData[currentVehicleId];
+            const backendVehicleId = (v.backendId !== undefined) ? v.backendId : currentVehicleId;
+            if (window.garage && window.garage.FocusVehicle) {
+                window.garage.FocusVehicle(backendVehicleId);
+            } else if (window.ue && window.ue.garage && window.ue.garage.focusvehicle) {
+                window.ue.garage.focusvehicle(backendVehicleId);
+            }
+            const statusBadge = document.getElementById('active-status-badge');
+            if (statusBadge) {
+                statusBadge.innerText = "ORBİT AKTİF [ESC: ÇIK]";
+                statusBadge.style.color = "var(--accent-color)";
+            }
+            const camBadge = document.getElementById('camera-view-mode-badge');
+            if (camBadge) {
+                camBadge.innerText = '🎯 ARAÇ ORBİT (360°) [ESC: ÇIK]';
+                camBadge.style.color = '#00e5ff';
+                camBadge.style.borderColor = '#00e5ff';
+            }
+            addLog(`🎯 [${v.name}] 360° Orbit İzleme Moduna Geçildi!`);
+        }
+
         function enterSelectedVehicleFpvCamera() {
             if (currentVehicleId === null || !fleetData[currentVehicleId]) {
                 addLog("⚠️ Lütfen önce sol panelden bir araç seçin!");
@@ -1086,8 +1090,17 @@
             } else if (window.ue && window.ue.garage && window.ue.garage.entervehiclecameraview) {
                 window.ue.garage.entervehiclecameraview(backendVehicleId);
             }
-            document.getElementById('active-status-badge').innerText = "FPV KAMERA [ESC: ÇIK]";
-            document.getElementById('active-status-badge').style.color = "#ffaa00";
+            const statusBadge = document.getElementById('active-status-badge');
+            if (statusBadge) {
+                statusBadge.innerText = "FPV KAMERA [ESC: ÇIK]";
+                statusBadge.style.color = "#ffaa00";
+            }
+            const camBadge = document.getElementById('camera-view-mode-badge');
+            if (camBadge) {
+                camBadge.innerText = '🎥 ARAÇ KAMERASI (FPV) [ESC: ÇIK]';
+                camBadge.style.color = '#ffaa00';
+                camBadge.style.borderColor = '#ffaa00';
+            }
             addLog(`🎥 [${v.name}] Araç Üstü Kameraya (FPV) Geçildi! Ana kameraya dönmek için ESC tuşuna basın.`);
         }
 
@@ -1497,11 +1510,8 @@
             pendingPlacementProfile = profileName;
             closeAddVehiclePanel();
 
-            document.getElementById('placement-profile-name').innerText = profileName;
-            document.getElementById('placement-banner').classList.add('show');
-
             const surface = document.getElementById('viewport-touch-surface');
-            surface.classList.add('placement-active-surface');
+            if (surface) surface.style.cursor = 'crosshair';
 
             addLog(`🎯 Konuşlandırma Modu: '${profileName}'. Haritada zemine tıklayarak aracı konuşlandırın.`);
             addPacketLog(`PLACEMENT_MODE_ACTIVE: profile=${profileName}`);
@@ -1509,8 +1519,8 @@
 
         function cancelVehiclePlacement() {
             pendingPlacementProfile = null;
-            document.getElementById('placement-banner').classList.remove('show');
-            document.getElementById('viewport-touch-surface').classList.remove('placement-active-surface');
+            const surface = document.getElementById('viewport-touch-surface');
+            if (surface) surface.style.cursor = 'grab';
             addLog("❌ Konuşlandırma iptal edildi.");
         }
 
@@ -1547,8 +1557,10 @@
         const vpSurface = document.getElementById('viewport-touch-surface');
         if (vpSurface) {
             vpSurface.addEventListener('contextmenu', (e) => e.preventDefault());
+            vpSurface.addEventListener('dragstart', (e) => e.preventDefault());
             vpSurface.addEventListener('mousedown', (e) => {
                 if (pendingPlacementProfile && e.button === 0) return;
+                e.preventDefault();
                 isViewportDragging = true;
                 viewportDragButton = (e.button === 2) ? 1 : 0;
                 lastMouseX = e.clientX;
@@ -1566,6 +1578,10 @@
 
         window.addEventListener('mousemove', (e) => {
             if (!isViewportDragging) return;
+            if ((e.buttons & 1) === 0 && (e.buttons & 2) === 0) {
+                isViewportDragging = false;
+                return;
+            }
             const dx = e.clientX - lastMouseX;
             const dy = e.clientY - lastMouseY;
             lastMouseX = e.clientX;
@@ -1758,49 +1774,6 @@
             applyUnrealMapVisual(isOriginZero ? 'dotted_grid' : 'satellite');
         }
 
-        const UNREAL_FALLBACK_HIERARCHY = [
-            { title: "Seviye 1: Atomik Hareket", file: "controllers/level1_atomic/atomic_motion.py", code: "class AtomicMotionController:\n    def send_channel_command(self, ch1_throttle, ch2_steering, ...):\n        # Kanal 1 ileri/geri, Kanal 2 direksiyon servolari (/channels)" },
-            { title: "Seviye 2: Navigasyon", file: "controllers/level2_navigation/waypoint_and_follow.py", code: "class WaypointAndFollowController:\n    def follow_target(self, target_xy, self_pose): ...\n    def goto_waypoint(self, wp): ..." },
-            { title: "Seviye 3: Algı & Lidar", file: "controllers/level3_perception/vision_lidar_processor.py", code: "class LidarObstacleProcessor:\n    def process_scan(self, distances): ... # Engel tespiti ve H.264 tetikleyici" },
-            { title: "Seviye 4: Görev & Sürü", file: "controllers/level4_mission_swarm/swarm_mission_planner.py", code: "class SwarmMissionPlanner:\n    def step_swarm(self, fleet_states): ... # Çoklu araç görev koordinasyonu" }
-        ];
-        let unrealHierarchyCache = UNREAL_FALLBACK_HIERARCHY;
-
-        async function openUnrealHierarchyModal() {
-            const modal = document.getElementById('modal-unreal-hierarchy');
-            if (modal) modal.style.display = 'flex';
-            try {
-                const res = await fetch('http://127.0.0.1:8080/api/controllers/hierarchy');
-                if (res.ok) {
-                    const data = await res.json();
-                    if (Array.isArray(data.levels) && data.levels.length > 0) {
-                        unrealHierarchyCache = data.levels;
-                    }
-                }
-            } catch (e) {}
-            const tabsBox = document.getElementById('unreal-hierarchy-tabs');
-            if (tabsBox) {
-                tabsBox.innerHTML = unrealHierarchyCache.map((lvl, idx) =>
-                    `<button class="cod-btn" onclick="selectUnrealHierarchyLevel(${idx})" style="padding:4px 8px; font-size:9.5px;">${lvl.title}</button>`
-                ).join('');
-            }
-            selectUnrealHierarchyLevel(0);
-        }
-
-        function selectUnrealHierarchyLevel(idx) {
-            const lvl = unrealHierarchyCache[idx];
-            if (!lvl) return;
-            const fileEl = document.getElementById('unreal-hierarchy-file');
-            const codeEl = document.getElementById('unreal-hierarchy-code');
-            if (fileEl) fileEl.innerText = lvl.file || '';
-            if (codeEl) codeEl.textContent = lvl.code || '';
-        }
-
-        function closeUnrealHierarchyModal() {
-            const modal = document.getElementById('modal-unreal-hierarchy');
-            if (modal) modal.style.display = 'none';
-        }
-
         function openUnrealSettingsModal() {
             const modal = document.getElementById('modal-unreal-settings');
             if (modal) modal.style.display = 'flex';
@@ -1821,19 +1794,6 @@
             setInterval(syncFleetWithBackend, 1000);
         });
     </script>
-
-    <!-- ==================== KONTROL KODLARI (SEVİYE 1-4) MODALI ==================== -->
-    <div id="modal-unreal-hierarchy" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) closeUnrealHierarchyModal();">
-        <div style="background:#090d12; border:1px solid var(--accent-color); max-width:900px; width:90%; max-height:80vh; display:flex; flex-direction:column; padding:12px; font-family:var(--font-mono);">
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--mono-border); padding-bottom:6px; margin-bottom:8px;">
-                <span style="font-weight:900; color:var(--accent-color); font-size:12px;">🧠 KONTROL KODLARI HİYERARŞİSİ (SEVİYE 1–4)</span>
-                <button class="cod-btn" onclick="closeUnrealHierarchyModal()" style="padding:2px 8px; font-size:10px;">✕ KAPAT</button>
-            </div>
-            <div id="unreal-hierarchy-tabs" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;"></div>
-            <div id="unreal-hierarchy-file" style="font-size:10px; color:#00e5ff; margin-bottom:4px;"></div>
-            <pre id="unreal-hierarchy-code" style="flex:1; overflow:auto; background:#05070a; border:1px solid var(--mono-border); padding:8px; font-size:10px; color:#e6edf3; margin:0;"></pre>
-        </div>
-    </div>
 
     <!-- ==================== AYARLAR MODALI ==================== -->
     <div id="modal-unreal-settings" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.82); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this) closeUnrealSettingsModal();">

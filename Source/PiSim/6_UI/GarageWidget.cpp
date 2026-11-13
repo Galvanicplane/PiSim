@@ -1185,6 +1185,7 @@ FReply UPiSimModularGarageWidget::OnBakeClicked()
     return FReply::Handled();
 }
 
+// @state: WIP - Gözlemci Pawn'ı alır veya oluşturur ve bakış hedefini her zaman bağlar
 APiSimSpectatorPawn* UPiSimModularGarageWidget::GetOrCreateSpectatorPawn()
 {
     if (!GetWorld()) return nullptr;
@@ -1212,8 +1213,11 @@ APiSimSpectatorPawn* UPiSimModularGarageWidget::GetOrCreateSpectatorPawn()
         if (Spectator)
         {
             Spectator->DashboardWidget = this;
-            PC->SetViewTarget(Spectator);
         }
+    }
+    if (Spectator && PC && PC->GetViewTarget() != Spectator)
+    {
+        PC->SetViewTarget(Spectator);
     }
     return Spectator;
 }
@@ -1256,6 +1260,7 @@ void UPiSimModularGarageWidget::MouseZoom(float Direction)
     }
 }
 
+// @state: WIP - Serbest uçuş modunda kamerayı WASD+QE ile uçurur, Orbit/FPV modunda odaklı aracı sürer
 void UPiSimModularGarageWidget::FlyCamera(float Forward, float Right, float Up, float Boost)
 {
     APiSimSpectatorPawn* Spectator = GetOrCreateSpectatorPawn();
@@ -1267,15 +1272,17 @@ void UPiSimModularGarageWidget::FlyCamera(float Forward, float Right, float Up, 
         PC->SetViewTarget(Spectator);
     }
 
-    // Eğer Orbit veya FPV modundayken uçuş tuşlarına basıldıysa serbest editör uçuşuna geç
+    // Eğer Orbit veya FPV modundayken WASD basıldıysa odaklı aracı sür; kamerayı serbest uçuşa atma
     if (Spectator->bIsOrbitingVehicle || Spectator->IsFpvCameraMode())
     {
-        Spectator->ReturnToFreeFlight();
+        if (IsValid(Spectator->FocusedVehicle) && (FMath::Abs(Forward) > 0.01f || FMath::Abs(Right) > 0.01f))
+        {
+            Spectator->FocusedVehicle->SetTwistVelocity(Forward * 2.0f, Right * 1.2f, 0.25f);
+        }
+        return;
     }
 
-    APlayerController* PC2 = GetOwningPlayer() ? GetOwningPlayer() : (GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr);
-    FRotator CamRot = (PC2 && PC2->PlayerCameraManager) ? PC2->PlayerCameraManager->GetCameraRotation() : Spectator->GetActorRotation();
-    const FRotationMatrix RotMat(CamRot);
+    const FRotationMatrix RotMat(Spectator->CurrentOrbitRotation);
     const FVector FwdDir   = RotMat.GetUnitAxis(EAxis::X);
     const FVector RightDir = RotMat.GetUnitAxis(EAxis::Y);
     const FVector UpDir    = FVector::UpVector;
